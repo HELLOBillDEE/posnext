@@ -987,6 +987,7 @@ function CartDocModal({ cart, totals, customer, settings, onClose }) {
   const [custPhone, setCustPhone] = useState(customer?.phone || '')
   const [custTaxId, setCustTaxId] = useState(customer?.tax_id || '')
   const [docNo, setDocNo]         = useState('')
+  const [docDate, setDocDate]     = useState(new Date().toISOString().slice(0, 10))
   const [validUntil, setValidUntil] = useState('')
 
   useEffect(() => {
@@ -1003,7 +1004,7 @@ function CartDocModal({ cart, totals, customer, settings, onClose }) {
       docType, items, totals,
       { name: custName, address: custAddr, phone: custPhone, tax_id: custTaxId },
       settings,
-      { doc_no: docNo || undefined, valid_until: validUntil || undefined }
+      { doc_no: docNo || undefined, date: docDate, valid_until: validUntil || undefined }
     )
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
     const url = URL.createObjectURL(blob)
@@ -1037,10 +1038,17 @@ function CartDocModal({ cart, totals, customer, settings, onClose }) {
             {cart.length} รายการ · ยอดรวม <span className="font-bold text-slate-700">฿{totals.total.toLocaleString('th-TH', {minimumFractionDigits:2})}</span>
           </div>
 
-          <div>
-            <label className="text-xs font-semibold text-slate-500 block mb-1.5">เลขที่เอกสาร (ถ้ามี)</label>
-            <input value={docNo} onChange={e => setDocNo(e.target.value)} placeholder="เช่น QT2506-001"
-              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <label className="text-xs font-semibold text-slate-500 block mb-1.5">เลขที่เอกสาร</label>
+              <input value={docNo} onChange={e => setDocNo(e.target.value)} placeholder="เช่น QT2506001"
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 block mb-1.5">วันที่</label>
+              <input type="date" value={docDate} onChange={e => setDocDate(e.target.value)}
+                className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+            </div>
           </div>
 
           {docType === 'quotation' && (

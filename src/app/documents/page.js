@@ -18,6 +18,7 @@ export default function DocumentsPage() {
   const [loading, setLoading] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
   const [printDocType, setPrintDocType] = useState('receipt')
+  const [printDate, setPrintDate] = useState(new Date().toISOString().slice(0, 10))
 
   useEffect(() => { loadData() }, [tab, dateFrom, dateTo])
 
@@ -99,7 +100,7 @@ export default function DocumentsPage() {
         : await getNextDocNo(useDocType)
       html = buildFormalDocHTML(
         useDocType, items, totals, customer, settings,
-        { doc_no: docNo, payment_method: pmMap[d.payment_method] || d.payment_method, note: d.note }
+        { doc_no: docNo, date: printDate, payment_method: pmMap[d.payment_method] || d.payment_method, note: d.note }
       )
     } else {
       html = buildFullPOHTML(detail.data, settings)
@@ -195,7 +196,9 @@ export default function DocumentsPage() {
             <SaleDetail
               d={detail.data}
               docType={printDocType}
+              docDate={printDate}
               onDocTypeChange={setPrintDocType}
+              onDocDateChange={setPrintDate}
               onVoid={() => voidSale(detail.data.id)}
               onPrint={() => printDetail(printDocType)}
               onEdit={() => setShowEdit(true)}
@@ -228,7 +231,7 @@ const DOC_OPTS = [
   { value: 'quotation', label: '📝 ใบเสนอราคา' },
 ]
 
-function SaleDetail({ d, docType, onDocTypeChange, onVoid, onPrint, onEdit }) {
+function SaleDetail({ d, docType, docDate, onDocTypeChange, onDocDateChange, onVoid, onPrint, onEdit }) {
   return (
     <div>
       <div className="bg-brand text-white px-4 py-3 flex justify-between items-center flex-wrap gap-2">
@@ -252,6 +255,11 @@ function SaleDetail({ d, docType, onDocTypeChange, onVoid, onPrint, onEdit }) {
               {o.label}
             </button>
           ))}
+        </div>
+        <div className="flex gap-2 items-center mb-2">
+          <label className="text-xs text-slate-400 whitespace-nowrap">วันที่</label>
+          <input type="date" value={docDate} onChange={e => onDocDateChange(e.target.value)}
+            className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:border-brand outline-none" />
         </div>
         <button onClick={onPrint} className="w-full bg-slate-800 text-white py-2 rounded-xl text-xs font-semibold">
           🖨️ พิมพ์ A4
