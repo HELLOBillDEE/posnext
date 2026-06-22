@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { convertThaiBarcode, fmt, genReceiptNo } from '@/lib/utils'
 import { printViaBridge, buildReceiptESCPOS, kickDrawerViaBridge } from '@/lib/printBridge'
 import { syncSaleToBillDee } from '@/lib/billdeeSyncClient'
+import { buildFormalDocHTML } from '@/lib/docBuilder'
 
 // HID keyboard usage-code → ASCII char
 const HID_KEY = {
@@ -50,6 +51,7 @@ export default function POSPage() {
   const [numpad, setNumpad]         = useState(null) // { idx, field, value }
   const [customer, setCustomer]     = useState(null)  // { id, name, phone }
   const [showCustModal, setShowCustModal] = useState(false)
+  const [showDocModal, setShowDocModal] = useState(false)
   const [shift, setShift]           = useState(null)   // current open shift
   const [showShiftModal, setShowShiftModal] = useState(false)
   const [shiftModalMode, setShiftModalMode] = useState('open') // 'open' | 'close'
@@ -569,6 +571,10 @@ export default function POSPage() {
               className="w-full bg-brand text-white font-bold py-4 rounded-2xl text-base disabled:opacity-40 active:scale-[0.98] transition-transform shadow-lg shadow-brand/25 mt-1">
               ชำระเงิน →
             </button>
+            <button onClick={() => setShowDocModal(true)} disabled={cart.length === 0}
+              className="w-full border border-slate-200 text-slate-600 font-semibold py-2.5 rounded-2xl text-sm disabled:opacity-40 active:scale-[0.98] transition-transform bg-white">
+              📄 ออกเอกสาร (ใบเสนอราคา / ใบแจ้งหนี้ / ใบส่งของ)
+            </button>
             {lastDone && (
               <button onClick={() => openReceipt(lastDone)}
                 className="w-full text-xs text-slate-400 hover:text-slate-600 underline py-1 transition-colors">พิมพ์ใบเสร็จล่าสุด</button>
@@ -684,6 +690,17 @@ export default function POSPage() {
         <CustomerModal
           onSelect={c => { setCustomer(c); setShowCustModal(false) }}
           onClose={() => setShowCustModal(false)}
+        />
+      )}
+
+      {/* ── Doc Modal ── */}
+      {showDocModal && (
+        <CartDocModal
+          cart={cart}
+          totals={{ subtotal, discount: billDisc, vat: vatAmt, total }}
+          customer={customer}
+          settings={settings}
+          onClose={() => setShowDocModal(false)}
         />
       )}
 
@@ -945,3 +962,97 @@ function buildReceiptHTML(r) {
   <script>window.onload=()=>{window.focus();window.print()}</script>
   </body></html>`
 }
+
+const CART_DOC_TYPES = [
+  { value: 'quotation', label: '📝 ใบเสนอราคา' },
+  { value: 'invoice',   label: '📋 ใบแจ้งหนี้' },
+  { value: 'delivery',  label: '📦 ใบส่งของ' },
+  { value: 'receipt',   label: '🧾 ใบเสร็จรับเงิน' },
+]
+
+function CartDocModal({ cart, totals, customer, settings, onClose }) {
+  const [docType, setDocType] = useState('quotation')
+  const [custName, setCustName] = useState(customer?.name || '')
+  const [custAddr, setCustAddr] = useState(customer?.address || '')
+  const [custPhone, setCustPhone] = useState(customer?.phone || '')
+  const [docNo, setDocNo] = useState('')
+  const [validUntil, setValidUntil] = useState('')
+
+  function generate() {
+    const items = cart.map(i => ({
+      name: i.name, qty: i.qty, unit: i.unit || '',
+      price: i.price, disc: i.disc || 0,
+      subtotal: i.price * i.qty - (i.disc || 0), note: i.note,
+    }))
+    const html = buildFormalDocHTML(
+      docType, items, totals,
+      { name: custName, address: custAddr, phone: custPhone },
+      settings,
+      { doc_no: docNo || undefined, valid_until: validUntil || undefined }
+    )
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    window.open(url, '_blank')
+    setTimeout(() => URL.revokeObjectURL(url), 60000)
+    onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-[60] flex items-end md:items-center justify-center p-3"
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden fade-in">
+        <div className="bg-slate-800 text-white px-4 py-3.5 flex justify-between items-center">
+          <h2 className="font-bold text-base">📄 ออกเอกสาร</h2>
+          <button onClick={onClose} className="text-2xl leading-none opacity-70">×</button>
+        </div>
+        <div className="p-4 space-y-3 max-h-[80vh] overflow-y-auto">
+          <div>
+            <label className="text-xs font-semibold text-slate-500 block mb-1.5">ประเภทเอกสาร</label>
+            <div className="grid grid-cols-2 gap-1.5">
+              {CART_DOC_TYPES.map(t => (
+                <button key={t.value} onClick={() => setDocType(t.value)}
+                  className={`py-2 rounded-xl text-xs font-semibold border transition-colors ${docType === t.value ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200'}`}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-slate-50 rounded-2xl p-3 text-xs text-slate-500">
+            {cart.length} รายการ · ยอดรวม <span className="font-bold text-slate-700">฿{totals.total.toLocaleString('th-TH', {minimumFractionDigits:2})}</span>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-slate-500 block mb-1.5">เลขที่เอกสาร (ถ้ามี)</label>
+            <input value={docNo} onChange={e => setDocNo(e.target.value)} placeholder="เช่น QT2506-001"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+          </div>
+
+          {docType === 'quotation' && (
+            <div>
+              <label className="text-xs font-semibold text-slate-500 block mb-1.5">ใช้ได้ถึง</label>
+              <input type="date" value={validUntil} onChange={e => setValidUntil(e.target.value)}
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+            </div>
+          )}
+
+          <div>
+            <label className="text-xs font-semibold text-slate-500 block mb-1.5">ลูกค้า / ผู้รับ</label>
+            <input value={custName} onChange={e => setCustName(e.target.value)} placeholder="ชื่อ"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none mb-2" />
+            <input value={custAddr} onChange={e => setCustAddr(e.target.value)} placeholder="ที่อยู่ (ถ้ามี)"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none mb-2" />
+            <input value={custPhone} onChange={e => setCustPhone(e.target.value)} placeholder="เบอร์โทร (ถ้ามี)"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+          </div>
+
+          <button onClick={generate}
+            className="w-full bg-slate-800 text-white font-bold py-3.5 rounded-2xl text-base active:scale-[0.98] transition-transform shadow-lg">
+            🖨️ สร้างเอกสาร
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+

@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { fmt, fmtDT, todayISO, PAY_LABEL } from '@/lib/utils'
+import { buildFormalDocHTML } from '@/lib/docBuilder'
 
 const TABS = ['ใบเสร็จขาย', 'ใบสั่งซื้อ (PO)', 'ลูกหนี้ AR', 'เจ้าหนี้ AP']
 
@@ -16,6 +17,7 @@ export default function DocumentsPage() {
   const [detail, setDetail]   = useState(null)
   const [loading, setLoading] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
+  const [printDocType, setPrintDocType] = useState('receipt')
 
   useEffect(() => { loadData() }, [tab, dateFrom, dateTo])
 
@@ -75,11 +77,28 @@ export default function DocumentsPage() {
     }
   }
 
-  function printDetail() {
+  function printDetail(docType) {
     if (!detail) return
-    const html = detail.type === 'sale'
-      ? buildFullReceiptHTML(detail.data, settings)
-      : buildFullPOHTML(detail.data, settings)
+    let html
+    if (detail.type === 'sale') {
+      const d = detail.data
+      const items = (d.sale_items || []).map(i => ({
+        name: i.product_name, qty: i.qty, unit: i.unit,
+        price: i.price, disc: i.discount || 0, subtotal: i.subtotal, note: i.note,
+      }))
+      const totals = { subtotal: d.subtotal, discount: d.discount, vat: d.vat || 0, total: d.total }
+      const customer = d.customers ? {
+        name: d.customers.name, address: d.customers.address,
+        phone: d.customers.phone, tax_id: d.customers.tax_id,
+      } : {}
+      const pmMap = { cash: 'เงินสด', transfer: 'โอน', credit: 'เครดิต' }
+      html = buildFormalDocHTML(
+        docType || printDocType, items, totals, customer, settings,
+        { doc_no: d.receipt_no, payment_method: pmMap[d.payment_method] || d.payment_method, note: d.note }
+      )
+    } else {
+      html = buildFullPOHTML(detail.data, settings)
+    }
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
     const url  = URL.createObjectURL(blob)
     const win  = window.open(url, '_blank')
@@ -170,8 +189,10 @@ export default function DocumentsPage() {
           {detail?.type === 'sale' && (
             <SaleDetail
               d={detail.data}
+              docType={printDocType}
+              onDocTypeChange={setPrintDocType}
               onVoid={() => voidSale(detail.data.id)}
-              onPrint={printDetail}
+              onPrint={() => printDetail(printDocType)}
               onEdit={() => setShowEdit(true)}
             />
           )}
@@ -195,7 +216,14 @@ export default function DocumentsPage() {
   )
 }
 
-function SaleDetail({ d, onVoid, onPrint, onEdit }) {
+const DOC_OPTS = [
+  { value: 'receipt',   label: '🧾 ใบเสร็จ' },
+  { value: 'invoice',   label: '📋 ใบแจ้งหนี้' },
+  { value: 'delivery',  label: '📦 ใบส่งของ' },
+  { value: 'quotation', label: '📝 ใบเสนอราคา' },
+]
+
+function SaleDetail({ d, docType, onDocTypeChange, onVoid, onPrint, onEdit }) {
   return (
     <div>
       <div className="bg-brand text-white px-4 py-3 flex justify-between items-center flex-wrap gap-2">
@@ -207,9 +235,22 @@ function SaleDetail({ d, onVoid, onPrint, onEdit }) {
           {d.status !== 'voided' && (
             <button onClick={onEdit} className="bg-amber-400 text-white px-3 py-1.5 rounded-lg text-xs font-medium">✏️ แก้ไข</button>
           )}
-          <button onClick={onPrint} className="bg-white/20 text-white px-3 py-1.5 rounded-lg text-xs font-medium">📄 A4</button>
           {d.status !== 'voided' && <button onClick={onVoid} className="bg-red-500 text-white px-3 py-1.5 rounded-lg text-xs">ยกเลิก</button>}
         </div>
+      </div>
+      <div className="px-4 pt-3 pb-1 border-b border-gray-100">
+        <p className="text-xs font-semibold text-gray-400 mb-1.5">ออกเอกสาร</p>
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {DOC_OPTS.map(o => (
+            <button key={o.value} onClick={() => onDocTypeChange(o.value)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors ${docType === o.value ? 'bg-brand text-white border-brand' : 'bg-white text-gray-500 border-gray-200'}`}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+        <button onClick={onPrint} className="w-full bg-slate-800 text-white py-2 rounded-xl text-xs font-semibold">
+          🖨️ พิมพ์ A4
+        </button>
       </div>
       <div className="p-4 space-y-2">
         {d.customers?.name && (
@@ -442,33 +483,6 @@ function EditBillModal({ sale, onClose, onSaved }) {
   )
 }
 
-function buildFullReceiptHTML(d, s) {
-  const rows = (d.sale_items || []).map(i => `
-    <tr><td>${i.product_name}</td><td style="text-align:center">${i.qty}</td><td style="text-align:right">฿${fmt(i.price)}</td><td style="text-align:right">฿${fmt(i.subtotal)}</td></tr>`).join('')
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
-  <style>
-  @page { size: A4; margin: 15mm; }
-  body{font-family:'Sarabun',sans-serif;font-size:13px;max-width:21cm;margin:auto}
-  h2{font-size:20px;text-align:center;margin-bottom:4px}
-  table{width:100%;border-collapse:collapse;margin:10px 0}
-  th{background:#1a4731;color:white;padding:7px}td{padding:5px 8px;border-bottom:1px solid #eee}
-  .total{font-weight:bold;font-size:15px}.right{text-align:right}
-  .cust{background:#f0f7ff;border:1px solid #cce0ff;border-radius:8px;padding:8px 12px;margin:8px 0}
-  </style></head><body>
-  <h2>${s.shop_name || 'ร้านค้า'}</h2>
-  <p style="text-align:center;color:#555">${s.shop_address || ''} ${s.shop_phone ? '| โทร: '+s.shop_phone : ''}</p>
-  <hr>
-  <table><tr><td><b>เลขที่บิล:</b> ${d.receipt_no}</td><td class="right"><b>วันที่:</b> ${fmtDT(d.created_at)}</td></tr></table>
-  ${d.customers?.name ? `<div class="cust">👤 <b>ลูกค้า:</b> ${d.customers.name}${d.customers.phone ? ' &nbsp;&nbsp;📞 '+d.customers.phone : ''}</div>` : ''}
-  <table><thead><tr><th>สินค้า</th><th>จำนวน</th><th>ราคา</th><th>รวม</th></tr></thead><tbody>${rows}</tbody></table>
-  <table style="width:50%;margin-left:auto">
-    <tr><td>รวม</td><td class="right">฿${fmt(d.subtotal)}</td></tr>
-    ${d.discount>0?`<tr><td>ส่วนลด</td><td class="right">-฿${fmt(d.discount)}</td></tr>`:''}
-    ${d.vat>0?`<tr><td>VAT</td><td class="right">฿${fmt(d.vat)}</td></tr>`:''}
-    <tr class="total"><td>สุทธิ</td><td class="right">฿${fmt(d.total)}</td></tr>
-  </table>
-  <script>window.onload=()=>window.print()</script></body></html>`
-}
 
 function buildFullPOHTML(d, s) {
   const rows = (d.po_items || []).map(i => `
