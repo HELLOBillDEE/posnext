@@ -3,6 +3,259 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { fmt, todayISO } from '@/lib/utils'
 
+function numberToThaiText(amount) {
+  const digits = ['', 'หนึ่ง', 'สอง', 'สาม', 'สี่', 'ห้า', 'หก', 'เจ็ด', 'แปด', 'เก้า']
+  const placeNames = ['', 'สิบ', 'ร้อย', 'พัน', 'หมื่น', 'แสน']
+  function cvt(n) {
+    if (n === 0) return ''
+    if (n >= 1000000) return cvt(Math.floor(n / 1000000)) + 'ล้าน' + cvt(n % 1000000)
+    const s = String(n).padStart(6, '0')
+    let r = ''
+    const hasHigher = n >= 10
+    for (let i = 0; i < 6; i++) {
+      const d = parseInt(s[i]), p = 5 - i
+      if (d === 0) continue
+      if (p === 1) { r += d === 1 ? 'สิบ' : d === 2 ? 'ยี่สิบ' : digits[d] + 'สิบ' }
+      else if (p === 0) { r += d === 1 && hasHigher ? 'เอ็ด' : digits[d] }
+      else { r += digits[d] + placeNames[p] }
+    }
+    return r
+  }
+  const baht = Math.floor(amount)
+  const satang = Math.round((amount - baht) * 100)
+  if (baht === 0 && satang === 0) return 'ศูนย์บาทถ้วน'
+  let res = (baht > 0 ? cvt(baht) : 'ศูนย์') + 'บาท'
+  return satang === 0 ? res + 'ถ้วน' : res + cvt(satang) + 'สตางค์'
+}
+
+function buildPaymentVoucherHTML({ shop, exp, payee, docRef, payMethod, bankName, branch, checkNo, checkDate, whtRate }) {
+  const total = Number(exp.amount)
+  const wht = Math.round(total * (whtRate / 100) * 100) / 100
+  const net = total - wht
+  const fmt2 = n => Number(n).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const voucherNo = 'PV' + new Date().getFullYear().toString().slice(-2) + String(new Date().getMonth() + 1).padStart(2, '0') + '-' + String(Math.floor(Math.random() * 9000) + 1000)
+  const today = new Date().toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: 'numeric' })
+
+  const pmBoxStyle = (active) => `display:inline-block;width:10px;height:10px;border:1.5px solid #333;margin-right:4px;background:${active ? '#333' : 'white'};vertical-align:middle`
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>ใบสำคัญจ่าย ${voucherNo}</title>
+<style>
+  body { font-family: 'Sarabun', 'TH Sarabun New', Arial, sans-serif; font-size: 14pt; margin: 0; padding: 20mm 20mm 15mm; color: #111; }
+  h1 { font-size: 18pt; font-weight: bold; text-align: center; margin: 0 0 2px; }
+  .subtitle { font-size: 13pt; color: #1a56c4; text-align: center; margin: 0 0 16px; }
+  .header-grid { display: flex; justify-content: space-between; margin-bottom: 12px; }
+  .header-right { text-align: right; }
+  .label { color: #555; font-size: 12pt; }
+  .val { font-weight: bold; font-size: 13pt; border-bottom: 1px solid #aaa; padding: 0 4px; min-width: 120px; display: inline-block; }
+  .payee-row { margin-bottom: 10px; }
+  .payee-row span { font-size: 12pt; color: #555; }
+  .pm-row { margin-bottom: 12px; font-size: 12pt; display: flex; gap: 24px; flex-wrap: wrap; align-items: center; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+  th { background: #f0f0f0; border: 1px solid #bbb; padding: 6px 8px; font-size: 12pt; text-align: center; }
+  td { border: 1px solid #ccc; padding: 6px 8px; font-size: 12pt; vertical-align: top; }
+  .right { text-align: right; }
+  .center { text-align: center; }
+  .sum-table { margin-left: auto; width: 300px; border-collapse: collapse; margin-top: 0; }
+  .sum-table td { border: none; padding: 3px 8px; font-size: 12pt; }
+  .net-row td { font-weight: bold; font-size: 14pt; color: #c00; border-top: 1px solid #aaa; }
+  .amount-text { border: 1px solid #bbb; padding: 6px 12px; margin: 8px 0 16px; font-size: 13pt; font-weight: bold; }
+  .sig-row { display: flex; gap: 20px; justify-content: space-around; margin-top: 20px; }
+  .sig-box { text-align: center; flex: 1; }
+  .sig-line { border-bottom: 1px solid #555; margin-bottom: 4px; height: 32px; }
+  .sig-label { font-size: 11pt; color: #555; }
+  .remark { font-size: 11pt; color: #555; margin-bottom: 6px; }
+  @media print { body { padding: 12mm 15mm 10mm; } }
+</style></head><body>
+  <h1>${shop.shop_name || 'ร้านค้า'}</h1>
+  ${shop.shop_address ? `<p style="text-align:center;font-size:12pt;margin:2px 0">${shop.shop_address}</p>` : ''}
+  ${shop.shop_tax_id ? `<p style="text-align:center;font-size:11pt;color:#555;margin:2px 0">เลขที่ผู้เสียภาษี: ${shop.shop_tax_id}</p>` : ''}
+  <p style="text-align:center;font-size:14pt;color:#1a56c4;font-weight:bold;margin:8px 0 4px">ใบสำคัญจ่าย</p>
+  <p style="text-align:center;font-size:12pt;color:#1a56c4;margin:0 0 16px">PAYMENT VOUCHER</p>
+
+  <div class="header-grid">
+    <div></div>
+    <div class="header-right">
+      <div><span class="label">เลขที่&nbsp;</span><span class="val">${voucherNo}</span></div>
+      <div style="margin-top:6px"><span class="label">วันที่&nbsp;</span><span class="val">${today}</span></div>
+    </div>
+  </div>
+
+  <div class="payee-row">
+    <span class="label">จ่ายให้แก่&nbsp;</span>
+    <span class="val" style="min-width:280px">${payee || ''}</span>
+  </div>
+
+  <div class="pm-row">
+    <span><span style="${pmBoxStyle(payMethod==='เงินสด')}"></span>เงินสด</span>
+    <span><span style="${pmBoxStyle(payMethod==='โอน')}"></span>โอน</span>
+    <span><span style="${pmBoxStyle(payMethod==='เช็ค')}"></span>เช็คธนาคาร
+      ${bankName ? `<strong>${bankName}</strong>` : '_____________'}
+      สาขา ${branch || '_____________'}
+      เลขที่เช็ค ${checkNo || '_____________'}</span>
+  </div>
+  ${checkDate ? `<p style="font-size:12pt;margin:0 0 10px">เช็คลงวันที่ <strong>${checkDate}</strong>&nbsp;&nbsp;&nbsp; จำนวนเงิน <strong>${fmt2(net)}</strong></p>` : ''}
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:100px">วันที่เอกสาร</th>
+        <th style="width:110px">เลขที่เอกสาร</th>
+        <th>รายการ / Description</th>
+        <th style="width:110px">จำนวนเงิน</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="center">${exp.expense_date || ''}</td>
+        <td class="center">${docRef || ''}</td>
+        <td>${exp.description || ''}</td>
+        <td class="right">${fmt2(total)}</td>
+      </tr>
+      <tr><td></td><td></td><td></td><td></td></tr>
+      <tr><td></td><td></td><td></td><td></td></tr>
+    </tbody>
+  </table>
+
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
+    <div class="remark">หมายเหตุ: ${exp.note || ''}</div>
+    <table class="sum-table">
+      <tr><td>จำนวนเงินรวม</td><td class="right">${fmt2(total)}</td></tr>
+      ${whtRate > 0 ? `<tr><td>หัก ณ ที่จ่าย ${whtRate}%</td><td class="right">${fmt2(wht)}</td></tr>` : ''}
+      <tr class="net-row"><td>คงเหลือสุทธิ</td><td class="right">${fmt2(net)}</td></tr>
+    </table>
+  </div>
+
+  <div>
+    <span class="label">จำนวนเงิน&nbsp;</span>
+    <span class="amount-text">${numberToThaiText(net)}</span>
+  </div>
+
+  <div class="sig-row">
+    <div class="sig-box"><div class="sig-line"></div><div class="sig-label">ผู้จ่าย</div></div>
+    <div class="sig-box"><div class="sig-line"></div><div class="sig-label">ผู้ตรวจสอบ</div></div>
+    <div class="sig-box"><div class="sig-line"></div><div class="sig-label">ผู้อนุมัติ</div></div>
+    <div class="sig-box"><div class="sig-line"></div><div class="sig-label">ผู้รับเงิน</div></div>
+  </div>
+
+<script>window.onload = () => { window.print() }</script>
+</body></html>`
+}
+
+function PaymentVoucherModal({ exp, onClose }) {
+  const [shop, setShop] = useState({})
+  const [payee, setPayee] = useState('')
+  const [docRef, setDocRef] = useState('')
+  const [payMethod, setPayMethod] = useState('เงินสด')
+  const [bankName, setBankName] = useState('')
+  const [branch, setBranch] = useState('')
+  const [checkNo, setCheckNo] = useState('')
+  const [checkDate, setCheckDate] = useState('')
+  const [whtRate, setWhtRate] = useState(0)
+
+  useEffect(() => {
+    supabase.from('settings').select('key,value')
+      .then(({ data }) => {
+        const s = {}
+        ;(data || []).forEach(r => { s[r.key] = r.value })
+        setShop(s)
+      })
+  }, [])
+
+  function print() {
+    const html = buildPaymentVoucherHTML({ shop, exp, payee, docRef, payMethod, bankName, branch, checkNo, checkDate, whtRate: Number(whtRate) })
+    const w = window.open('', '_blank')
+    w.document.write(html)
+    w.document.close()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-end md:items-center justify-center p-3"
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden fade-in">
+        <div className="bg-slate-800 text-white px-4 py-3.5 flex justify-between items-center">
+          <h2 className="font-bold text-base">🧾 ใบสำคัญจ่าย</h2>
+          <button onClick={onClose} className="text-2xl leading-none opacity-70">×</button>
+        </div>
+        <div className="p-4 space-y-3 max-h-[80vh] overflow-y-auto">
+          <div className="bg-slate-50 rounded-2xl p-3 text-sm">
+            <p className="font-bold text-slate-700">{exp.description}</p>
+            <p className="text-slate-500">{exp.expense_date} · ฿{Number(exp.amount).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</p>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-slate-500 block mb-1.5">จ่ายให้แก่ (ชื่อผู้รับเงิน)</label>
+            <input value={payee} onChange={e => setPayee(e.target.value)} placeholder="ชื่อบริษัท / บุคคล"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-slate-500 block mb-1.5">เลขที่เอกสารอ้างอิง</label>
+            <input value={docRef} onChange={e => setDocRef(e.target.value)} placeholder="เลขที่บิล/ใบกำกับภาษี"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-slate-500 block mb-2">วิธีชำระ</label>
+            <div className="flex gap-2">
+              {['เงินสด', 'โอน', 'เช็ค'].map(m => (
+                <button key={m} onClick={() => setPayMethod(m)}
+                  className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-colors ${payMethod === m ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200'}`}>
+                  {m}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {(payMethod === 'โอน' || payMethod === 'เช็ค') && (
+            <div className="space-y-2">
+              <input value={bankName} onChange={e => setBankName(e.target.value)} placeholder="ธนาคาร (เช่น กสิกรไทย)"
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+              {payMethod === 'เช็ค' && (
+                <>
+                  <input value={branch} onChange={e => setBranch(e.target.value)} placeholder="สาขา"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+                  <div className="flex gap-2">
+                    <input value={checkNo} onChange={e => setCheckNo(e.target.value)} placeholder="เลขที่เช็ค"
+                      className="flex-1 border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+                    <input type="date" value={checkDate} onChange={e => setCheckDate(e.target.value)}
+                      className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          <div>
+            <label className="text-xs font-semibold text-slate-500 block mb-1.5">หัก ณ ที่จ่าย (WHT)</label>
+            <div className="flex gap-2 flex-wrap">
+              {[0, 1, 1.5, 3, 5].map(r => (
+                <button key={r} onClick={() => setWhtRate(r)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${whtRate === r ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200'}`}>
+                  {r === 0 ? 'ไม่หัก' : `${r}%`}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {whtRate > 0 && (
+            <div className="bg-amber-50 rounded-xl p-3 text-sm">
+              <div className="flex justify-between"><span className="text-slate-500">ยอดรวม</span><span>฿{Number(exp.amount).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span></div>
+              <div className="flex justify-between"><span className="text-slate-500">หัก {whtRate}%</span><span className="text-red-500">-฿{(Number(exp.amount) * whtRate / 100).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span></div>
+              <div className="flex justify-between font-bold border-t border-amber-200 mt-1 pt-1"><span>สุทธิ</span><span className="text-brand">฿{(Number(exp.amount) * (1 - whtRate / 100)).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span></div>
+            </div>
+          )}
+
+          <button onClick={print}
+            className="w-full bg-slate-800 text-white font-bold py-3.5 rounded-2xl text-base active:scale-[0.98] transition-transform shadow-lg">
+            🖨️ พิมพ์ใบสำคัญจ่าย
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const CATS = ['ค่าน้ำไฟ', 'ค่าเช่า', 'ค่าวัสดุสิ้นเปลือง', 'ค่าขนส่ง', 'ค่าซ่อมบำรุง', 'ค่าอาหาร', 'อื่นๆ']
 const CAT_COLOR = {
   'ค่าน้ำไฟ':'bg-yellow-100 text-yellow-700',
@@ -21,6 +274,7 @@ export default function ExpensesPage() {
   const [payslips, setPayslips]   = useState([])
   const [loading, setLoading]     = useState(false)
   const [showModal, setShowModal] = useState(false)
+  const [voucherExp, setVoucherExp] = useState(null)
   const [dateFrom, setDateFrom]   = useState(todayISO().slice(0,7) + '-01')
   const [dateTo, setDateTo]       = useState(todayISO())
   const [activeTab, setActiveTab] = useState('expenses') // 'expenses' | 'payroll'
@@ -134,10 +388,12 @@ export default function ExpensesPage() {
           ) : (
             <div className="divide-y divide-gray-50">
               {expenses.map(e => (
-                <ExpenseRow key={e.id} exp={e} onDelete={() => {
-                  if (confirm('ลบรายการนี้?'))
-                    supabase.from('expenses').delete().eq('id', e.id).then(() => loadData())
-                }} />
+                <ExpenseRow key={e.id} exp={e}
+                  onVoucher={() => setVoucherExp(e)}
+                  onDelete={() => {
+                    if (confirm('ลบรายการนี้?'))
+                      supabase.from('expenses').delete().eq('id', e.id).then(() => loadData())
+                  }} />
               ))}
             </div>
           )}
@@ -179,11 +435,16 @@ export default function ExpensesPage() {
           onSaved={() => { setShowModal(false); loadData() }}
         />
       )}
+
+      {/* Payment Voucher Modal */}
+      {voucherExp && (
+        <PaymentVoucherModal exp={voucherExp} onClose={() => setVoucherExp(null)} />
+      )}
     </div>
   )
 }
 
-function ExpenseRow({ exp, onDelete }) {
+function ExpenseRow({ exp, onDelete, onVoucher }) {
   return (
     <div className="px-4 py-3 flex items-center gap-3 hover:bg-gray-50/60 transition-colors group">
       {exp.image_url && (
@@ -199,6 +460,10 @@ function ExpenseRow({ exp, onDelete }) {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         <p className="font-bold text-red-500 text-sm">฿{fmt(exp.amount)}</p>
+        <button onClick={onVoucher}
+          className="opacity-0 group-hover:opacity-100 px-2 py-1 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition-all">
+          🧾
+        </button>
         <button onClick={onDelete}
           className="opacity-0 group-hover:opacity-100 w-6 h-6 flex items-center justify-center rounded-full text-slate-300 hover:bg-red-100 hover:text-red-400 transition-all text-sm">×</button>
       </div>
