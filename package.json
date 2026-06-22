@@ -13,6 +13,8 @@
     "clsx": "^2.1.1",
     "jsbarcode": "^3.11.6",
     "next": "14.2.5",
+    "promptpay-qr": "^0.5.0",
+    "qrcode": "^1.5.4",
     "react": "^18",
     "react-dom": "^18",
     "xlsx": "^0.18.5"

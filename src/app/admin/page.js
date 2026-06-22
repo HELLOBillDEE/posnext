@@ -9,6 +9,7 @@ const SETTING_FIELDS = [
   { key:'shop_address',    label:'ที่อยู่ร้าน',                       placeholder:'เลขที่ ถนน อำเภอ จังหวัด' },
   { key:'shop_tax_id',     label:'เลขประจำตัวผู้เสียภาษี',           placeholder:'0-0000-00000-00-0' },
   { key:'shop_phone',      label:'เบอร์โทรศัพท์',                    placeholder:'080-000-0000' },
+  { key:'promptpay_id',    label:'พร้อมเพย์ (เบอร์โทร หรือ เลข 13 หลัก)', placeholder:'0812345678 หรือ 1100000000000' },
   { key:'owner_name',      label:'ชื่อผู้ประกอบกิจการ (สำหรับภาษี)', placeholder:'นาย/นาง/นางสาว ชื่อ นามสกุล' },
   { key:'owner_id',        label:'เลขประจำตัวประชาชน (13 หลัก)',     placeholder:'1100000000000' },
   { key:'vat_rate',        label:'อัตรา VAT (%)',                     placeholder:'7 หรือ 0 (ถ้าไม่คิด VAT)' },
