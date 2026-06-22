@@ -186,19 +186,21 @@ export default function AdminPage() {
 
   function buildTestReceiptHTML(r) {
     return `<!DOCTYPE html><html><head><meta charset="UTF-8">
-    <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Courier New',monospace;font-size:12px;width:72mm;padding:4px 2px}
-    h2{font-size:13px;text-align:center;margin-bottom:2px}.center{text-align:center;font-size:11px;color:#555}
-    hr{border:none;border-top:1px dashed #888;margin:4px 0}table{width:100%;border-collapse:collapse}
-    .total-row td{font-size:13px;font-weight:bold;padding-top:4px}.footer{text-align:center;margin-top:8px;font-size:11px;color:#555}
-    .test-banner{background:#000;color:#fff;text-align:center;font-size:11px;padding:2px;margin-bottom:4px}
+    <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Courier New',monospace;font-size:14px;width:72mm;padding:4px 2px}
+    .shop-logo{display:block;margin:0 auto 6px;max-width:60mm;max-height:30mm;object-fit:contain}
+    h2{font-size:17px;font-weight:bold;text-align:center;margin-bottom:3px}.center{text-align:center;font-size:13px}
+    hr{border:none;border-top:1px dashed #888;margin:5px 0}table{width:100%;border-collapse:collapse}
+    .total-row td{font-size:15px;font-weight:bold;padding-top:5px}.footer{text-align:center;margin-top:8px;font-size:13px}
+    .test-banner{background:#000;color:#fff;text-align:center;font-size:12px;padding:2px;margin-bottom:4px}
     @media print{body{margin:0;padding:2px}}</style></head><body>
     <div class="test-banner">⚙️ ทดสอบการพิมพ์</div>
+    ${r.shopLogo ? `<img class="shop-logo" src="${r.shopLogo}" />` : ''}
     <h2>${r.shopName}</h2>
     ${r.shopAddress ? `<p class="center">${r.shopAddress}</p>` : ''}
     ${r.shopPhone ? `<p class="center">โทร: ${r.shopPhone}</p>` : ''}
     <hr><p class="center">เลขที่: ${r.receipt_no}</p>
     <p class="center">${new Date(r.created_at).toLocaleString('th-TH')}</p><hr>
-    <table>${r.items.map(i => `<tr><td style="font-size:11px">${i.name}</td><td style="text-align:right;font-size:11px">${i.qty}×${i.price.toFixed(2)}</td><td style="text-align:right;font-size:11px">${(i.price*i.qty).toFixed(2)}</td></tr>`).join('')}</table>
+    <table>${r.items.map(i => `<tr><td style="font-size:14px">${i.name}</td><td style="text-align:right;font-size:14px">${i.qty}×${i.price.toFixed(2)}</td><td style="text-align:right;font-size:14px">${(i.price*i.qty).toFixed(2)}</td></tr>`).join('')}</table>
     <hr><table>
     <tr class="total-row"><td>สุทธิ</td><td style="text-align:right">฿${r.total.toFixed(2)}</td></tr>
     <tr><td>รับเงิน</td><td style="text-align:right">฿${r.payment_amount.toFixed(2)}</td></tr>
