@@ -65,7 +65,18 @@ export default function POPage() {
       n[idx] = { ...n[idx], [field]: val }
       if (field === 'product_id') {
         const prod = products.find(p => String(p.id) === val)
-        if (prod) n[idx] = { ...n[idx], product_name: prod.name, barcode: prod.barcode||'', unit: prod.unit||'', cost: String(prod.cost||'') }
+        if (prod) {
+          const cost = parseFloat(prod.cost) || 0
+          const minP = cost ? Math.ceil(cost * (1 + minMargin / 100)) : ''
+          n[idx] = { ...n[idx], product_name: prod.name, barcode: prod.barcode||'', unit: prod.unit||'', cost: String(prod.cost||''), price: String(prod.price || minP || '') }
+        }
+      }
+      if (field === 'cost') {
+        const cost = parseFloat(val) || 0
+        const minP = cost ? Math.ceil(cost * (1 + minMargin / 100)) : ''
+        if (!n[idx].price || parseFloat(n[idx].price) < cost * (1 + minMargin / 100)) {
+          n[idx].price = String(minP)
+        }
       }
       if (field === 'qty' || field === 'cost') {
         n[idx].subtotal = parseFloat(n[idx].qty || 0) * parseFloat(n[idx].cost || 0)
@@ -77,7 +88,14 @@ export default function POPage() {
   const poTotal = items.reduce((s, i) => s + parseFloat(i.qty||0) * parseFloat(i.cost||0), 0)
 
   async function savePO() {
-    if (items.filter(i => i.product_id).length === 0) return alert('กรุณาเพิ่มรายการสินค้า')
+    const validItems = items.filter(i => i.product_id)
+    if (validItems.length === 0) return alert('กรุณาเพิ่มรายการสินค้า')
+    const belowMin = validItems.filter(i => {
+      const c = parseFloat(i.cost) || 0
+      const p = parseFloat(i.price) || 0
+      return c > 0 && p < c * (1 + minMargin / 100)
+    })
+    if (belowMin.length > 0) return alert(`ราคาขายต่ำกว่า ${minMargin}% จำนวน ${belowMin.length} รายการ`)
     setSaving(true)
     try {
       const poNo = genPONo()
@@ -90,7 +108,7 @@ export default function POPage() {
       }).select().single()
       if (error) throw error
       await supabase.from('po_items').insert(
-        items.filter(i => i.product_id).map(i => ({
+        validItems.map(i => ({
           po_id: po.id,
           product_id: parseInt(i.product_id),
           product_name: i.product_name,
@@ -101,6 +119,10 @@ export default function POPage() {
           subtotal: parseFloat(i.qty||0) * parseFloat(i.cost||0),
         }))
       )
+      // อัปเดตราคาขายในสินค้า
+      await Promise.all(validItems.filter(i => i.price).map(i =>
+        supabase.from('products').update({ cost: parseFloat(i.cost)||0, price: parseFloat(i.price) }).eq('id', parseInt(i.product_id))
+      ))
       setView('list'); setForm({ supplier_id:'', note:'' }); setItems([])
       loadAll()
     } catch (e) {
@@ -674,13 +696,19 @@ export default function POPage() {
           <table className="w-full text-sm">
             <thead><tr className="bg-gray-50 text-xs text-gray-500">
               <th className="text-left px-3 py-2 font-medium">สินค้า</th>
-              <th className="text-center px-2 py-2 font-medium w-20">จำนวน</th>
-              <th className="text-right px-3 py-2 font-medium w-28">ราคาทุน</th>
-              <th className="text-right px-3 py-2 font-medium w-28">รวม</th>
+              <th className="text-center px-2 py-2 font-medium w-16">จำนวน</th>
+              <th className="text-right px-2 py-2 font-medium w-24">ราคาทุน</th>
+              <th className="text-right px-2 py-2 font-medium w-24">ราคาขาย</th>
+              <th className="text-right px-3 py-2 font-medium w-24">รวม</th>
               <th className="w-8 py-2"></th>
             </tr></thead>
             <tbody className="divide-y divide-gray-50">
-              {items.map((item, idx) => (
+              {items.map((item, idx) => {
+                const cost = parseFloat(item.cost) || 0
+                const price = parseFloat(item.price) || 0
+                const minP = cost ? Math.ceil(cost * (1 + minMargin / 100)) : 0
+                const priceLow = cost > 0 && price > 0 && price < minP
+                return (
                 <tr key={idx}>
                   <td className="px-3 py-1.5">
                     <select value={item.product_id} onChange={e => setItemField(idx,'product_id',e.target.value)}
@@ -694,11 +722,21 @@ export default function POPage() {
                       onChange={e => setItemField(idx,'qty',e.target.value)}
                       className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-center" />
                   </td>
-                  <td className="px-3 py-1.5">
+                  <td className="px-2 py-1.5">
                     <input type="number" value={item.cost}
                       onChange={e => setItemField(idx,'cost',e.target.value)}
                       placeholder="0.00"
                       className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-right" />
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <input type="number" value={item.price||''}
+                      onChange={e => setItemField(idx,'price',e.target.value)}
+                      placeholder={minP || '0.00'}
+                      className={`w-full border rounded-lg px-2 py-1.5 text-xs text-right ${priceLow ? 'border-red-300 bg-red-50' : 'border-gray-200'}`} />
+                    {priceLow && (
+                      <button onClick={() => setItemField(idx,'price',String(minP))}
+                        className="text-[9px] text-brand block w-full text-right mt-0.5">→ {minP}</button>
+                    )}
                   </td>
                   <td className="px-3 py-1.5 text-right text-xs font-medium text-gray-700">
                     ฿{fmt(parseFloat(item.qty||0) * parseFloat(item.cost||0))}
@@ -707,7 +745,8 @@ export default function POPage() {
                     <button onClick={() => setItems(p => p.filter((_,i)=>i!==idx))} className="text-red-300 text-sm">✕</button>
                   </td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -972,7 +1011,7 @@ export default function POPage() {
 }
 
 function addItemRow() {
-  return { product_id:'', product_name:'', barcode:'', unit:'', qty:1, cost:'', subtotal:0 }
+  return { product_id:'', product_name:'', barcode:'', unit:'', qty:1, cost:'', price:'', subtotal:0 }
 }
 
 function buildPOLabelHTML(items, size) {
