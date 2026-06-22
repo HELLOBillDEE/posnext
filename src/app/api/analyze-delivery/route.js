@@ -1,25 +1,18 @@
-import Anthropic from '@anthropic-ai/sdk'
+import { GoogleGenerativeAI } from '@google/generative-ai'
 
 export async function POST(req) {
   try {
     const { imageBase64, mediaType } = await req.json()
     if (!imageBase64) return Response.json({ error: 'No image' }, { status: 400 })
 
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
 
-    const message = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 2048,
-      messages: [{
-        role: 'user',
-        content: [
-          {
-            type: 'image',
-            source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: imageBase64 },
-          },
-          {
-            type: 'text',
-            text: `นี่คือใบส่งของ/ใบกำกับภาษีจากซัพพลายเออร์ กรุณาอ่านและแยกรายการสินค้าออกมาให้ครบถ้วน
+    const result = await model.generateContent([
+      {
+        inlineData: { data: imageBase64, mimeType: mediaType || 'image/jpeg' },
+      },
+      `นี่คือใบส่งของ/ใบกำกับภาษีจากซัพพลายเออร์ กรุณาอ่านและแยกรายการสินค้าออกมาให้ครบถ้วน
 
 ตอบกลับด้วย raw JSON เท่านั้น ห้ามมี markdown, ห้ามมี code block, ห้ามมีคำอธิบาย:
 {
@@ -40,32 +33,21 @@ export async function POST(req) {
 }
 
 ถ้าอ่านข้อมูลบางส่วนไม่ออก ให้ใส่ null สำหรับช่องนั้น`,
-          },
-        ],
-      }],
-    })
+    ])
 
-    const text = message.content[0].text.trim()
-
-    // ลบ markdown code block ออก (```json ... ``` หรือ ``` ... ```)
+    const text = result.response.text().trim()
     const stripped = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim()
 
-    // หา JSON object ที่ใหญ่ที่สุดใน response
-    let result = null
+    let parsed = null
     const match = stripped.match(/\{[\s\S]*\}/)
-    if (match) {
-      try { result = JSON.parse(match[0]) } catch(_) {}
-    }
-    // fallback: parse ทั้ง string เลย
-    if (!result) {
-      try { result = JSON.parse(stripped) } catch(_) {}
-    }
+    if (match) { try { parsed = JSON.parse(match[0]) } catch(_) {} }
+    if (!parsed) { try { parsed = JSON.parse(stripped) } catch(_) {} }
 
-    if (!result) {
+    if (!parsed) {
       return Response.json({ error: 'ไม่สามารถอ่านใบส่งของได้ กรุณาถ่ายใหม่ให้ชัดขึ้น', raw: text.substring(0, 300) }, { status: 422 })
     }
 
-    return Response.json(result)
+    return Response.json(parsed)
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 })
   }
