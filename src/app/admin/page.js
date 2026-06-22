@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { fmt, fmtDate } from '@/lib/utils'
+import { printViaBridge, buildReceiptESCPOS, buildLabelTSPL, buildLabelESCPOS } from '@/lib/printBridge'
 
 const SETTING_FIELDS = [
   { key:'shop_name',       label:'ชื่อร้าน',                         placeholder:'ร้านของฉัน' },
@@ -112,6 +113,100 @@ export default function AdminPage() {
     localStorage.setItem('printer_receipt', JSON.stringify(printers.receipt))
     setPrinterSaved(true)
     setTimeout(() => setPrinterSaved(false), 2000)
+  }
+
+  const [testReceiptStatus, setTestReceiptStatus] = useState(null)
+  const [testBarcodeStatus, setTestBarcodeStatus] = useState(null)
+
+  async function testPrintReceipt() {
+    setTestReceiptStatus('printing')
+    const cfg = printers.receipt
+    const testReceipt = {
+      receipt_no: 'TEST-001', created_at: new Date().toISOString(),
+      shopName: settings.shop_name || 'ร้านทดสอบ',
+      shopAddress: settings.shop_address || '', shopPhone: settings.shop_phone || '',
+      shopLogo: settings.shop_logo || '', footer: settings.receipt_footer || 'ขอบคุณที่ใช้บริการ',
+      subtotal: 150, discount: 0, vat: 0, total: 150, vatRate: 0,
+      payment_amount: 200, change: 50,
+      items: [
+        { name: 'สินค้าทดสอบ A', qty: 2, price: 50, disc: 0 },
+        { name: 'สินค้าทดสอบ B', qty: 1, price: 50, disc: 0 },
+      ],
+    }
+    try {
+      if (cfg.ip) {
+        const bytes = await buildReceiptESCPOS(testReceipt, parseInt(cfg.paper_width) || 80)
+        await printViaBridge('', cfg.ip, cfg.port || 9100, bytes)
+        setTestReceiptStatus('ok')
+      } else {
+        const html = buildTestReceiptHTML(testReceipt)
+        const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+        window.open(URL.createObjectURL(blob))
+        setTestReceiptStatus('ok')
+      }
+    } catch (e) {
+      alert('ทดสอบพิมพ์ล้มเหลว: ' + e.message)
+      setTestReceiptStatus('error')
+    }
+    setTimeout(() => setTestReceiptStatus(null), 3000)
+  }
+
+  async function testPrintBarcode() {
+    setTestBarcodeStatus('printing')
+    const cfg = printers.barcode
+    const testItems = [
+      { name: 'ทดสอบบาร์โค้ด', barcode: '1234567890123', price: 99.00 },
+      { name: 'Test Product', barcode: 'TEST-001', price: 49.50 },
+      { name: 'สินค้า ค', barcode: '9876543210', price: 199.00 },
+    ]
+    const SIZES = {
+      '100': { id:'100x25x3', pw:102, ph:25, cols:3, lw:32, hGap:2, vGap:2, mx:1, my:0 },
+      '58':  { id:'58x30',    pw:58,  ph:30, cols:1, lw:54, hGap:0, vGap:2, mx:2, my:2 },
+      '40':  { id:'40x25',    pw:40,  ph:25, cols:1, lw:36, hGap:0, vGap:2, mx:2, my:2 },
+    }
+    const size = SIZES[cfg.paper_width] || SIZES['100']
+    try {
+      if (cfg.ip) {
+        const useTspl = (cfg.lang || 'tspl') === 'tspl'
+        const bytes = useTspl
+          ? await buildLabelTSPL(testItems, size)
+          : await buildLabelESCPOS(testItems, size, parseInt(cfg.paper_width) || 100)
+        await printViaBridge('', cfg.ip, cfg.port || 9100, bytes)
+        setTestBarcodeStatus('ok')
+      } else {
+        alert('ทดสอบบาร์โค้ดต้องตั้งค่า IP เครื่องพิมพ์ก่อน')
+        setTestBarcodeStatus(null); return
+      }
+    } catch (e) {
+      alert('ทดสอบพิมพ์บาร์โค้ดล้มเหลว: ' + e.message)
+      setTestBarcodeStatus('error')
+    }
+    setTimeout(() => setTestBarcodeStatus(null), 3000)
+  }
+
+  function buildTestReceiptHTML(r) {
+    return `<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Courier New',monospace;font-size:12px;width:72mm;padding:4px 2px}
+    h2{font-size:13px;text-align:center;margin-bottom:2px}.center{text-align:center;font-size:11px;color:#555}
+    hr{border:none;border-top:1px dashed #888;margin:4px 0}table{width:100%;border-collapse:collapse}
+    .total-row td{font-size:13px;font-weight:bold;padding-top:4px}.footer{text-align:center;margin-top:8px;font-size:11px;color:#555}
+    .test-banner{background:#000;color:#fff;text-align:center;font-size:11px;padding:2px;margin-bottom:4px}
+    @media print{body{margin:0;padding:2px}}</style></head><body>
+    <div class="test-banner">⚙️ ทดสอบการพิมพ์</div>
+    <h2>${r.shopName}</h2>
+    ${r.shopAddress ? `<p class="center">${r.shopAddress}</p>` : ''}
+    ${r.shopPhone ? `<p class="center">โทร: ${r.shopPhone}</p>` : ''}
+    <hr><p class="center">เลขที่: ${r.receipt_no}</p>
+    <p class="center">${new Date(r.created_at).toLocaleString('th-TH')}</p><hr>
+    <table>${r.items.map(i => `<tr><td style="font-size:11px">${i.name}</td><td style="text-align:right;font-size:11px">${i.qty}×${i.price.toFixed(2)}</td><td style="text-align:right;font-size:11px">${(i.price*i.qty).toFixed(2)}</td></tr>`).join('')}</table>
+    <hr><table>
+    <tr class="total-row"><td>สุทธิ</td><td style="text-align:right">฿${r.total.toFixed(2)}</td></tr>
+    <tr><td>รับเงิน</td><td style="text-align:right">฿${r.payment_amount.toFixed(2)}</td></tr>
+    <tr><td>ทอน</td><td style="text-align:right">฿${r.change.toFixed(2)}</td></tr>
+    </table><hr>
+    <div class="footer">${r.footer}</div>
+    <script>window.onload=()=>{window.focus();window.print()}</script>
+    </body></html>`
   }
 
   function saveBillDee() {
@@ -236,7 +331,7 @@ export default function AdminPage() {
           <div className="card-pad space-y-4">
             <div className="flex items-center gap-3 pb-2 border-b border-slate-100">
               <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center text-xl">🏷️</div>
-              <div>
+              <div className="flex-1">
                 <h2 className="font-heading font-semibold text-slate-800">เครื่องปริ้นสติ๊กเกอร์บาร์โค้ด</h2>
                 <p className="text-xs text-slate-400">เชื่อมต่อผ่าน WiFi / IP</p>
               </div>
@@ -246,13 +341,22 @@ export default function AdminPage() {
               onChange={v => setPrinters(p => ({...p, barcode: {...p.barcode, ...v}}))}
               paperOptions={[{v:'100',l:'100mm (3 ดวง/แถว)'},{v:'58',l:'58mm (มาตรฐาน)'},{v:'40',l:'40mm (แคบ)'}]}
             />
+            <button onClick={testPrintBarcode} disabled={testBarcodeStatus === 'printing'}
+              className={`w-full py-2.5 rounded-xl text-sm font-semibold border transition-all active:scale-95 disabled:opacity-50
+                ${testBarcodeStatus === 'ok' ? 'bg-emerald-50 border-emerald-300 text-emerald-700' :
+                  testBarcodeStatus === 'error' ? 'bg-red-50 border-red-300 text-red-700' :
+                  'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100'}`}>
+              {testBarcodeStatus === 'printing' ? '⏳ กำลังพิมพ์...' :
+               testBarcodeStatus === 'ok' ? '✅ พิมพ์สำเร็จ' :
+               testBarcodeStatus === 'error' ? '❌ พิมพ์ไม่ได้' : '🖨️ ทดสอบพิมพ์บาร์โค้ด'}
+            </button>
           </div>
 
           {/* Receipt printer */}
           <div className="card-pad space-y-4">
             <div className="flex items-center gap-3 pb-2 border-b border-slate-100">
               <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-xl">🧾</div>
-              <div>
+              <div className="flex-1">
                 <h2 className="font-heading font-semibold text-slate-800">เครื่องปริ้นใบเสร็จ</h2>
                 <p className="text-xs text-slate-400">เชื่อมต่อผ่าน WiFi / IP</p>
               </div>
@@ -262,6 +366,15 @@ export default function AdminPage() {
               onChange={v => setPrinters(p => ({...p, receipt: {...p.receipt, ...v}}))}
               paperOptions={[{v:'80',l:'80mm (มาตรฐาน)'},{v:'58',l:'58mm (แคบ)'}]}
             />
+            <button onClick={testPrintReceipt} disabled={testReceiptStatus === 'printing'}
+              className={`w-full py-2.5 rounded-xl text-sm font-semibold border transition-all active:scale-95 disabled:opacity-50
+                ${testReceiptStatus === 'ok' ? 'bg-emerald-50 border-emerald-300 text-emerald-700' :
+                  testReceiptStatus === 'error' ? 'bg-red-50 border-red-300 text-red-700' :
+                  'bg-blue-50 border-blue-200 text-blue-800 hover:bg-blue-100'}`}>
+              {testReceiptStatus === 'printing' ? '⏳ กำลังพิมพ์...' :
+               testReceiptStatus === 'ok' ? '✅ พิมพ์สำเร็จ' :
+               testReceiptStatus === 'error' ? '❌ พิมพ์ไม่ได้' : '🖨️ ทดสอบพิมพ์ใบเสร็จ'}
+            </button>
           </div>
 
 
