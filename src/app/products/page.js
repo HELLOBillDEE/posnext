@@ -126,7 +126,11 @@ export default function ProductsPage() {
 
     // ลองพิมพ์ผ่าน bridge ก่อน
     const cfg = JSON.parse(localStorage.getItem('printer_barcode') || '{}')
-    if (cfg.bridge_url && cfg.ip) {
+    if (cfg.ip) {
+      if (!cfg.bridge_url) {
+        alert('กรุณาตั้งค่า Bridge URL ก่อน\n(ตั้งค่า → เครื่องพิมพ์ → Bridge URL = http://IP-Mac:3000)')
+        return
+      }
       try {
         const { buildLabelTSPL, buildLabelESCPOS, printViaBridge } = await import('@/lib/printBridge')
         const lang  = cfg.lang || 'tspl'
@@ -138,6 +142,8 @@ export default function ProductsPage() {
         return
       } catch (e) {
         console.warn('Bridge label print failed, fallback to popup:', e.message)
+        alert('พิมพ์ไม่ได้: ' + e.message)
+        return
       }
     }
 

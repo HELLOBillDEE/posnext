@@ -136,7 +136,7 @@ export default function AdminPage() {
     try {
       if (cfg.ip) {
         const bytes = await buildReceiptESCPOS(testReceipt, parseInt(cfg.paper_width) || 80)
-        await printViaBridge('', cfg.ip, cfg.port || 9100, bytes)
+        await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
         setTestReceiptStatus('ok')
       } else {
         const html = buildTestReceiptHTML(testReceipt)
@@ -171,7 +171,7 @@ export default function AdminPage() {
         const bytes = useTspl
           ? await buildLabelTSPL(testItems, size)
           : await buildLabelESCPOS(testItems, size, parseInt(cfg.paper_width) || 100)
-        await printViaBridge('', cfg.ip, cfg.port || 9100, bytes)
+        await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
         setTestBarcodeStatus('ok')
       } else {
         alert('ทดสอบบาร์โค้ดต้องตั้งค่า IP เครื่องพิมพ์ก่อน')
@@ -617,9 +617,19 @@ function PrinterFields({ values, onChange, paperOptions }) {
           ))}
         </div>
       </div>
-      <div className="pt-1 border-t border-slate-100 bg-emerald-50 rounded-xl px-3 py-2">
-        <p className="text-[11px] text-emerald-700 font-semibold">✅ พิมพ์ผ่าน WiFi โดยตรง</p>
-        <p className="text-[10px] text-emerald-600 mt-0.5">ใส่ IP เครื่องพิมพ์ด้านบน แล้วเปิดแอปบน Mac ในร้าน — iPad จะพิมพ์ได้ทันที ไม่ต้องตั้งค่าเพิ่ม</p>
+      <div>
+        <label className="text-xs font-semibold text-slate-500 block mb-1.5">
+          Bridge URL <span className="font-normal text-slate-400">(URL ของ Mac ในร้าน)</span>
+        </label>
+        <input value={values.bridge_url || ''} onChange={e => onChange({ bridge_url: e.target.value })}
+          className="field w-full font-mono text-xs" placeholder="http://192.168.2.xxx:3000" />
+        <p className="text-[10px] text-slate-400 mt-1">
+          เปิด Terminal บน Mac แล้วพิมพ์ <code className="bg-slate-100 px-1 rounded">ipconfig getifaddr en0</code> เพื่อดู IP
+        </p>
+      </div>
+      <div className="border-t border-slate-100 bg-emerald-50 rounded-xl px-3 py-2">
+        <p className="text-[11px] text-emerald-700 font-semibold">✅ วิธีพิมพ์ผ่าน WiFi</p>
+        <p className="text-[10px] text-emerald-600 mt-0.5">1) เปิดแอป Mac ในร้านไว้ (npm run dev)  2) กรอก IP เครื่องพิมพ์  3) กรอก Bridge URL = IP ของ Mac</p>
       </div>
     </div>
   )

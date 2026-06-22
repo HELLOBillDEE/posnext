@@ -297,10 +297,10 @@ export default function POSPage() {
       // พิมพ์อัตโนมัติ + เปิดลิ้นชัก
       if (useBridge) {
         buildReceiptESCPOS(receipt, parseInt(cfg.paper_width) || 80).then(bytes =>
-          printViaBridge('', cfg.ip, cfg.port || 9100, bytes)
+          printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
             .catch(e => console.warn('Print error:', e.message))
         )
-        kickDrawerViaBridge('', cfg.ip, cfg.port || 9100)
+        kickDrawerViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100)
           .catch(e => console.warn('Drawer kick error:', e.message))
       } else {
         // Blob URL approach — ไม่โดน Safari block แม้เรียกหลัง async
@@ -328,7 +328,7 @@ export default function POSPage() {
     if (cfg.ip) {
       try {
         const bytes = await buildReceiptESCPOS(r, parseInt(cfg.paper_width) || 80)
-        await printViaBridge('', cfg.ip, cfg.port || 9100, bytes)
+        await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
         return
       } catch (e) { console.warn('Print failed:', e.message) }
     }
