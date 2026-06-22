@@ -204,9 +204,12 @@ export default function POPage() {
     setAiLoading(true)
     setAiLoadMsg('💾 กำลังบันทึก...')
     try {
+      // 1. สร้าง/อัปเดตสินค้า และเก็บ product_id จริงสำหรับ PO items
+      const poItemsData = []
       for (const item of toProcess) {
+        let productId = item.product_id && item.product_id !== 'new' ? item.product_id : null
         if (item.isNew || item.product_id === 'new') {
-          await supabase.from('products').insert({
+          const { data: newProd } = await supabase.from('products').insert({
             name: item.name,
             barcode: item.barcode || null,
             unit: item.unit || 'ชิ้น',
@@ -214,15 +217,48 @@ export default function POPage() {
             price: item.price || 0,
             stock: item.qty || 0,
             active: true,
-          })
-        } else if (item.product_id) {
+          }).select('id').single()
+          productId = newProd?.id
+        } else if (productId) {
           await supabase.from('products').update({
             stock: item.newStock,
             ...(item.cost  ? { cost:  item.cost  } : {}),
             ...(item.price ? { price: item.price } : {}),
-          }).eq('id', item.product_id)
+          }).eq('id', productId)
+        }
+        if (productId) {
+          poItemsData.push({
+            product_id: productId,
+            product_name: item.name,
+            barcode: item.barcode || null,
+            unit: item.unit || 'ชิ้น',
+            qty: item.qty || 0,
+            cost: item.cost || 0,
+            subtotal: (item.qty || 0) * (item.cost || 0),
+          })
         }
       }
+
+      // 2. สร้าง PO record สถานะ received
+      const poTotal = poItemsData.reduce((s, i) => s + i.subtotal, 0)
+      const { data: po } = await supabase.from('purchase_orders').insert({
+        po_no: genPONo(),
+        supplier_id: aiResult?.supplier
+          ? (suppliers.find(s => s.name?.includes(aiResult.supplier))?.id || null)
+          : null,
+        subtotal: poTotal,
+        total: poTotal,
+        status: 'received',
+        received_at: new Date().toISOString(),
+        note: aiResult?.invoice_no ? `ใบส่งของ: ${aiResult.invoice_no}` : 'รับจาก AI สแกน',
+      }).select('id').single()
+
+      if (po?.id) {
+        await supabase.from('po_items').insert(
+          poItemsData.map(i => ({ ...i, po_id: po.id }))
+        )
+      }
+
       setAiModal(false)
       setAiResult(null)
       setAiReview([])
