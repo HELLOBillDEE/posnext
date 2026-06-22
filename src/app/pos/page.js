@@ -82,8 +82,7 @@ export default function POSPage() {
       supabase.from('categories').select('*').order('name'),
       supabase.from('settings').select('*'),
     ])
-    if (prodErr) console.error('❌ products error:', prodErr)
-    console.log('✅ products loaded:', prods?.length, prods?.[0])
+    if (prodErr) console.error('products load error:', prodErr)
     setProducts(prods || [])
     setCategories(cats || [])
     if (cfg) setSettings(Object.fromEntries(cfg.map(r => [r.key, r.value])))

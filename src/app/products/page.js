@@ -226,7 +226,7 @@ export default function ProductsPage() {
     const changed = products.filter(p => {
       const e = bulkEdits[p.id]
       if (!e) return false
-      return String(p.stock) !== e.stock || String(p.price) !== e.price || String(p.cost) !== e.cost
+      return parseFloat(e.stock) !== p.stock || parseFloat(e.price) !== p.price || parseFloat(e.cost) !== p.cost
     })
     if (changed.length === 0) { exitBulkMode(); return }
     setBulkSaving(true)
