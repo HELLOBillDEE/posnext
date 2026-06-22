@@ -175,19 +175,18 @@ export default function POPage() {
         const match = products.find(p => p.barcode && p.barcode === ai.barcode)
           || products.find(p => p.name?.toLowerCase() === ai.name?.toLowerCase())
           || products.find(p => ai.name && p.name?.toLowerCase().includes(ai.name.toLowerCase().substring(0, 5)))
+        const aiCost = ai.unit_cost || (ai.total && ai.qty ? (ai.total / ai.qty) : null)
         return {
           ...ai,
           matched: match || null,
           product_id: match?.id || null,
           isNew: !match,
-          // ราคาทุนที่ AI อ่านได้
-          cost: ai.unit_cost || (ai.total && ai.qty ? (ai.total / ai.qty) : null),
-          // สต็อกเดิมในระบบ
+          cost: aiCost,
+          price: match?.price ?? (aiCost ? Math.ceil(aiCost * 1.3) : null),
           currentStock: match?.stock ?? null,
           newStock: (match?.stock ?? 0) + (ai.qty || 0),
-          // ราคาทุนเดิม
           currentCost: match?.cost ?? null,
-          // เปิด/ปิด item นี้
+          currentPrice: match?.price ?? null,
           enabled: true,
         }
       })
@@ -202,38 +201,38 @@ export default function POPage() {
 
   async function confirmAiReceive() {
     const toProcess = aiReview.filter(i => i.enabled)
-    if (!confirm(`ยืนยัน ${toProcess.length} รายการ? สต็อกและราคาทุนจะถูกอัปเดต`)) return
     setAiLoading(true)
+    setAiLoadMsg('💾 กำลังบันทึก...')
     try {
       for (const item of toProcess) {
-        if (item.isNew) {
-          // สร้างสินค้าใหม่
+        if (item.isNew || item.product_id === 'new') {
           await supabase.from('products').insert({
             name: item.name,
             barcode: item.barcode || null,
             unit: item.unit || 'ชิ้น',
             cost: item.cost || 0,
-            price: item.cost ? Math.ceil(item.cost * 1.3) : 0,
+            price: item.price || 0,
             stock: item.qty || 0,
             active: true,
           })
         } else if (item.product_id) {
-          // อัปเดตสต็อก + ราคาทุน
           await supabase.from('products').update({
             stock: item.newStock,
-            ...(item.cost ? { cost: item.cost } : {}),
+            ...(item.cost  ? { cost:  item.cost  } : {}),
+            ...(item.price ? { price: item.price } : {}),
           }).eq('id', item.product_id)
         }
       }
-      alert('บันทึกเรียบร้อย')
       setAiModal(false)
       setAiResult(null)
       setAiReview([])
+      setAiError('')
       loadAll()
     } catch (e) {
-      alert('เกิดข้อผิดพลาด: ' + e.message)
+      setAiError('บันทึกไม่สำเร็จ: ' + e.message)
     } finally {
       setAiLoading(false)
+      setAiLoadMsg('')
     }
   }
 
@@ -367,6 +366,163 @@ export default function POPage() {
   function openPrint(po) { setPrintPO(po); setTimeout(() => window.print(), 300) }
 
   const filtered = pos.filter(p => !filterStatus || p.status === filterStatus)
+
+  // ===== AI Modal (ต้องอยู่ก่อน view checks ทั้งหมด) =====
+  if (aiModal) return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-end justify-center">
+      <div className="bg-white rounded-t-2xl w-full max-w-lg shadow-2xl max-h-[92vh] flex flex-col">
+        <div className="bg-purple-600 text-white px-4 py-3 flex justify-between items-center rounded-t-2xl">
+          <h2 className="font-bold">📸 AI วิเคราะห์ใบส่งของ</h2>
+          <button onClick={() => { setAiModal(false); setAiResult(null); setAiReview([]); setAiError('') }} className="text-2xl opacity-70">×</button>
+        </div>
+
+        {aiLoading && (
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 py-12">
+            <div className="w-14 h-14 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin" />
+            <p className="text-gray-600 text-base font-medium">{aiLoadMsg || 'กำลังประมวลผล...'}</p>
+            <p className="text-gray-400 text-xs">อาจใช้เวลา 10-20 วินาที</p>
+          </div>
+        )}
+
+        {!aiLoading && aiError && (
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 py-12">
+            <div className="text-5xl">⚠️</div>
+            <p className="text-red-600 font-semibold text-center">อ่านไม่สำเร็จ</p>
+            <p className="text-gray-500 text-xs text-center">{aiError}</p>
+            <label className="bg-purple-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold cursor-pointer">
+              📷 ลองถ่ายใหม่
+              <input type="file" accept="image/*" capture="environment" className="hidden"
+                onChange={e => { if(e.target.files[0]) analyzeDelivery(e.target.files[0]) }} />
+            </label>
+          </div>
+        )}
+
+        {!aiLoading && !aiError && aiReview.length > 0 && (
+          <>
+            {aiResult?.supplier && (
+              <div className="px-4 py-2 bg-purple-50 border-b border-purple-100">
+                <p className="text-xs text-purple-600 font-medium">ซัพพลายเออร์: {aiResult.supplier}</p>
+                {aiResult.invoice_no && <p className="text-xs text-gray-400">เลขที่: {aiResult.invoice_no} · {aiResult.invoice_date||''}</p>}
+              </div>
+            )}
+            <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
+              {aiReview.map((item, idx) => {
+                const isActuallyNew = !item.product_id || item.product_id === 'new'
+                return (
+                  <div key={idx} className={`px-4 py-3 ${!item.enabled ? 'opacity-40' : ''}`}>
+                    <div className="flex items-start gap-2">
+                      <input type="checkbox" checked={item.enabled}
+                        onChange={e => setAiReview(p => { const n=[...p]; n[idx]={...n[idx],enabled:e.target.checked}; return n })}
+                        className="mt-1 w-4 h-4 accent-purple-600 shrink-0" />
+                      <div className="flex-1 min-w-0">
+
+                        {/* ชื่อจาก AI + badge */}
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold shrink-0 ${isActuallyNew ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
+                            {isActuallyNew ? '✦ สินค้าใหม่' : '✓ ลิงก์แล้ว'}
+                          </span>
+                          <p className="text-sm font-semibold text-gray-800 truncate">{item.name}</p>
+                        </div>
+
+                        {/* Dropdown เลือกสินค้าในระบบ */}
+                        <div className="mb-2">
+                          <label className="text-[10px] text-gray-400 block mb-0.5">เทียบกับสินค้าในระบบ</label>
+                          <select
+                            value={item.product_id || 'new'}
+                            onChange={e => {
+                              const pid = e.target.value
+                              const match = products.find(p => String(p.id) === pid)
+                              setAiReview(p => {
+                                const n = [...p]
+                                n[idx] = {
+                                  ...n[idx],
+                                  product_id: pid === 'new' ? 'new' : parseInt(pid),
+                                  matched: match || null,
+                                  isNew: pid === 'new',
+                                  currentStock: match?.stock ?? null,
+                                  newStock: (match?.stock ?? 0) + (n[idx].qty || 0),
+                                  currentCost: match?.cost ?? null,
+                                  currentPrice: match?.price ?? null,
+                                  price: n[idx].price || match?.price || null,
+                                }
+                                return n
+                              })
+                            }}
+                            className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white focus:border-purple-400 outline-none">
+                            <option value="new">— สร้างสินค้าใหม่ —</option>
+                            {products.map(p => (
+                              <option key={p.id} value={String(p.id)}>
+                                {p.name}{p.barcode ? ` (${p.barcode})` : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* ฟิลด์ข้อมูล */}
+                        <div className="grid grid-cols-3 gap-2 text-xs">
+                          <div>
+                            <label className="text-gray-400 block mb-0.5">จำนวน</label>
+                            <div className="flex items-center gap-1">
+                              <input type="number" value={item.qty||''} min="0"
+                                onChange={e => setAiReview(p => { const n=[...p]; const q=parseFloat(e.target.value)||0; n[idx]={...n[idx],qty:q,newStock:(n[idx].currentStock??0)+q}; return n })}
+                                className="w-full border border-gray-200 rounded px-1 py-1 text-center" />
+                              <span className="text-gray-400 text-[10px] shrink-0">{item.unit||'ชิ้น'}</span>
+                            </div>
+                          </div>
+                          <div>
+                            <label className="text-gray-400 block mb-0.5">ราคาทุน ฿</label>
+                            <input type="number" value={item.cost||''} min="0" step="0.01"
+                              onChange={e => setAiReview(p => { const n=[...p]; n[idx]={...n[idx],cost:parseFloat(e.target.value)||0}; return n })}
+                              className="w-full border border-gray-200 rounded px-1 py-1 text-center" />
+                          </div>
+                          <div>
+                            <label className="text-gray-400 block mb-0.5">ราคาขาย ฿</label>
+                            <input type="number" value={item.price||''} min="0" step="0.01"
+                              onChange={e => setAiReview(p => { const n=[...p]; n[idx]={...n[idx],price:parseFloat(e.target.value)||0}; return n })}
+                              className="w-full border border-gray-200 rounded px-1 py-1 text-center" />
+                          </div>
+                        </div>
+
+                        {/* สต็อก summary */}
+                        {!isActuallyNew && (
+                          <p className="text-[10px] text-gray-400 mt-1.5">
+                            สต็อก {item.currentStock ?? '?'} → <span className="text-green-600 font-bold">{item.newStock}</span>
+                            {item.currentCost && item.cost && item.currentCost !== item.cost ? ` · ทุน ฿${item.currentCost}→฿${item.cost}` : ''}
+                            {item.currentPrice && item.price && item.currentPrice !== item.price ? ` · ขาย ฿${item.currentPrice}→฿${item.price}` : ''}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Summary bar */}
+            <div className="px-4 py-2 bg-purple-50 border-t border-purple-100 flex justify-between text-xs">
+              <span className="text-purple-700 font-medium">
+                {aiReview.filter(i=>i.enabled && (!i.product_id||i.product_id==='new')).length} รายการใหม่ ·{' '}
+                {aiReview.filter(i=>i.enabled && i.product_id && i.product_id!=='new').length} รายการอัปเดต
+              </span>
+              <span className="text-purple-500">ตรวจสอบก่อน Approve</span>
+            </div>
+
+            <div className="p-3 border-t border-gray-100 flex gap-2">
+              <label className="flex-1 border border-purple-300 text-purple-600 py-2.5 rounded-xl text-sm font-medium text-center cursor-pointer">
+                📷 ถ่ายใหม่
+                <input type="file" accept="image/*" capture="environment" className="hidden"
+                  onChange={e => { if(e.target.files[0]) analyzeDelivery(e.target.files[0]) }} />
+              </label>
+              <button onClick={confirmAiReceive} disabled={aiLoading || aiReview.filter(i=>i.enabled).length===0}
+                className="flex-1 bg-purple-600 text-white py-2.5 rounded-xl text-sm font-bold disabled:opacity-40">
+                ✅ Approve {aiReview.filter(i=>i.enabled).length} รายการ
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
 
   // ===== List View =====
   if (view === 'list') return (
@@ -745,104 +901,6 @@ export default function POPage() {
   )
 
   // ── AI Modal ──
-  if (aiModal) return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-end justify-center">
-      <div className="bg-white rounded-t-2xl w-full max-w-lg shadow-2xl max-h-[92vh] flex flex-col">
-        <div className="bg-purple-600 text-white px-4 py-3 flex justify-between items-center rounded-t-2xl">
-          <h2 className="font-bold">📸 AI วิเคราะห์ใบส่งของ</h2>
-          <button onClick={() => { setAiModal(false); setAiResult(null); setAiReview([]); setAiError('') }} className="text-2xl opacity-70">×</button>
-        </div>
-
-        {aiLoading && (
-          <div className="flex-1 flex flex-col items-center justify-center gap-4 py-12">
-            <div className="w-14 h-14 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin" />
-            <p className="text-gray-600 text-base font-medium">{aiLoadMsg || 'กำลังประมวลผล...'}</p>
-            <p className="text-gray-400 text-xs">อาจใช้เวลา 10-20 วินาที</p>
-          </div>
-        )}
-
-        {!aiLoading && aiError && (
-          <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 py-12">
-            <div className="text-5xl">⚠️</div>
-            <p className="text-red-600 font-semibold text-center">อ่านไม่สำเร็จ</p>
-            <p className="text-gray-500 text-xs text-center">{aiError}</p>
-            <label className="bg-purple-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold cursor-pointer">
-              📷 ลองถ่ายใหม่
-              <input type="file" accept="image/*" capture="environment" className="hidden"
-                onChange={e => { if(e.target.files[0]) analyzeDelivery(e.target.files[0]) }} />
-            </label>
-          </div>
-        )}
-
-        {!aiLoading && aiReview.length > 0 && (
-          <>
-            {aiResult?.supplier && (
-              <div className="px-4 py-2 bg-purple-50 border-b border-purple-100">
-                <p className="text-xs text-purple-600 font-medium">ซัพพลายเออร์: {aiResult.supplier}</p>
-                {aiResult.invoice_no && <p className="text-xs text-gray-400">เลขที่: {aiResult.invoice_no} · {aiResult.invoice_date||''}</p>}
-              </div>
-            )}
-            <div className="flex-1 overflow-y-auto divide-y divide-gray-50">
-              {aiReview.map((item, idx) => (
-                <div key={idx} className={`px-4 py-3 ${!item.enabled ? 'opacity-40' : ''}`}>
-                  <div className="flex items-start gap-2">
-                    <input type="checkbox" checked={item.enabled}
-                      onChange={e => setAiReview(p => { const n=[...p]; n[idx]={...n[idx],enabled:e.target.checked}; return n })}
-                      className="mt-1 w-4 h-4 accent-purple-600" />
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold ${item.isNew ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
-                          {item.isNew ? '✦ สินค้าใหม่' : '✓ พบในระบบ'}
-                        </span>
-                        {item.barcode && <span className="text-[10px] text-gray-400 font-mono">{item.barcode}</span>}
-                      </div>
-                      <p className="text-sm font-semibold text-gray-800">{item.name}</p>
-                      {item.matched && <p className="text-[10px] text-gray-400">→ ตรงกับ: {item.matched.name}</p>}
-                      <div className="flex gap-4 mt-1.5 text-xs">
-                        <div>
-                          <span className="text-gray-400">จำนวน: </span>
-                          <input type="number" value={item.qty||''} min="0"
-                            onChange={e => setAiReview(p => { const n=[...p]; n[idx]={...n[idx],qty:parseFloat(e.target.value)||0, newStock:(n[idx].currentStock??0)+(parseFloat(e.target.value)||0)}; return n })}
-                            className="w-16 border border-gray-200 rounded px-1 py-0.5 text-center" />
-                          <span className="text-gray-400 ml-1">{item.unit}</span>
-                        </div>
-                        <div>
-                          <span className="text-gray-400">ราคาทุน: ฿</span>
-                          <input type="number" value={item.cost||''} min="0" step="0.01"
-                            onChange={e => setAiReview(p => { const n=[...p]; n[idx]={...n[idx],cost:parseFloat(e.target.value)||0}; return n })}
-                            className="w-20 border border-gray-200 rounded px-1 py-0.5 text-center" />
-                        </div>
-                      </div>
-                      {!item.isNew && (
-                        <p className="text-[10px] text-gray-400 mt-1">
-                          สต็อกเดิม {item.currentStock ?? '?'} → ใหม่ <span className="text-green-600 font-bold">{item.newStock}</span>
-                          {item.currentCost && item.cost && item.currentCost !== item.cost
-                            ? ` · ทุนเดิม ฿${item.currentCost} → ฿${item.cost}`
-                            : ''}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="p-3 border-t border-gray-100 flex gap-2">
-              <label className="flex-1 border border-purple-300 text-purple-600 py-2.5 rounded-xl text-sm font-medium text-center cursor-pointer">
-                📷 ถ่ายใหม่
-                <input type="file" accept="image/*" capture="environment" className="hidden"
-                  onChange={e => { if(e.target.files[0]) analyzeDelivery(e.target.files[0]) }} />
-              </label>
-              <button onClick={confirmAiReceive} disabled={aiLoading || aiReview.filter(i=>i.enabled).length===0}
-                className="flex-1 bg-purple-600 text-white py-2.5 rounded-xl text-sm font-bold disabled:opacity-40">
-                ✓ ยืนยัน {aiReview.filter(i=>i.enabled).length} รายการ
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  )
-
   return null
 }
 
