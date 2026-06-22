@@ -1,6 +1,8 @@
 import { GoogleGenerativeAI } from '@google/generative-ai'
+import { requireAuth, unauthorizedResponse } from '@/lib/authApi'
 
 export async function POST(req) {
+  if (!await requireAuth(req)) return unauthorizedResponse()
   try {
     const { imageBase64, mediaType } = await req.json()
     if (!imageBase64) return Response.json({ error: 'No image' }, { status: 400 })

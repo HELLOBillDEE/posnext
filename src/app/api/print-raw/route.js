@@ -1,4 +1,5 @@
 import net from 'net'
+import { requireAuth, unauthorizedResponse } from '@/lib/authApi'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -11,6 +12,7 @@ export async function OPTIONS() {
 }
 
 export async function POST(req) {
+  if (!await requireAuth(req)) return unauthorizedResponse()
   try {
     const { ip, port = 9100, data } = await req.json()
     if (!ip || !data) return Response.json({ error: 'missing ip or data' }, { status: 400, headers: CORS })

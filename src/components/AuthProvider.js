@@ -6,6 +6,12 @@ import { supabase } from '@/lib/supabase'
 const AuthCtx = createContext(null)
 export const useAuth = () => useContext(AuthCtx)
 
+const COOKIE_OPTS = 'path=/; SameSite=Strict'
+function setAuthCookie(token) { document.cookie = `pos_token=${token}; ${COOKIE_OPTS}` }
+function clearAuthCookie() { document.cookie = `pos_token=; ${COOKIE_OPTS}; max-age=0` }
+function setEmpCookie() { document.cookie = `pos_emp=1; ${COOKIE_OPTS}` }
+function clearEmpCookie() { document.cookie = `pos_emp=; ${COOKIE_OPTS}; max-age=0` }
+
 // Routes employees can access
 const EMP_ROUTES = ['/pos', '/products', '/documents']
 
@@ -19,18 +25,26 @@ export default function AuthProvider({ children }) {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
+      if (session?.access_token) setAuthCookie(session.access_token)
     })
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
       setUser(session?.user ?? null)
+      if (session?.access_token) setAuthCookie(session.access_token)
+      else clearAuthCookie()
     })
     return () => subscription.unsubscribe()
   }, [])
 
-  // Load employee session from localStorage
+  // Load employee session from localStorage and sync cookie
   useEffect(() => {
     try {
       const saved = localStorage.getItem('emp_session')
-      if (saved) setEmpMode(JSON.parse(saved))
+      if (saved) {
+        setEmpMode(JSON.parse(saved))
+        setEmpCookie()
+      } else {
+        clearEmpCookie()
+      }
     } catch {}
   }, [])
 
@@ -50,6 +64,8 @@ export default function AuthProvider({ children }) {
   async function logout() {
     setEmpMode(null)
     try { localStorage.removeItem('emp_session') } catch {}
+    clearEmpCookie()
+    clearAuthCookie()
     await supabase.auth.signOut()
     router.replace('/login')
   }
@@ -58,12 +74,14 @@ export default function AuthProvider({ children }) {
     const session = { id: emp.id, name: emp.name, position: emp.position || '' }
     setEmpMode(session)
     try { localStorage.setItem('emp_session', JSON.stringify(session)) } catch {}
+    setEmpCookie()
     router.replace('/pos')
   }
 
   function empLogout() {
     setEmpMode(null)
     try { localStorage.removeItem('emp_session') } catch {}
+    clearEmpCookie()
   }
 
   const role = empMode ? 'employee' : 'admin'

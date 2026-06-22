@@ -1,4 +1,7 @@
+import { requireAuth, unauthorizedResponse } from '@/lib/authApi'
+
 export async function POST(req) {
+  if (!await requireAuth(req)) return unauthorizedResponse()
   try {
     const { url } = await req.json()
     if (!url) return Response.json({ error: 'No URL' }, { status: 400 })
