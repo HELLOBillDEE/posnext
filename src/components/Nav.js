@@ -64,17 +64,17 @@ const IC = {
   ),
 }
 
-const TABS = [
-  { href:'/',          label:'หน้าหลัก',  icon: IC.home },
+const ALL_TABS = [
+  { href:'/',          label:'หน้าหลัก',  icon: IC.home,      adminOnly: true },
   { href:'/pos',       label:'ขาย',       icon: IC.pos },
   { href:'/products',  label:'สินค้า',    icon: IC.product },
-  { href:'/po',        label:'สั่งซื้อ',  icon: IC.po },
+  { href:'/po',        label:'สั่งซื้อ',  icon: IC.po,        adminOnly: true },
   { href:'/documents', label:'เอกสาร',    icon: IC.doc },
-  { href:'/reports',   label:'รายงาน',    icon: IC.report },
-  { href:'/employees', label:'พนักงาน',   icon: IC.employees },
-  { href:'/expenses',   label:'ค่าใช้จ่าย', icon: IC.expense },
-  { href:'/shifts',     label:'กะ',          icon: IC.shift },
-  { href:'/admin',     label:'ตั้งค่า',   icon: IC.settings },
+  { href:'/reports',   label:'รายงาน',    icon: IC.report,    adminOnly: true },
+  { href:'/employees', label:'พนักงาน',   icon: IC.employees, adminOnly: true },
+  { href:'/expenses',  label:'ค่าใช้จ่าย', icon: IC.expense,  adminOnly: true },
+  { href:'/shifts',    label:'กะ',         icon: IC.shift,    adminOnly: true },
+  { href:'/admin',     label:'ตั้งค่า',   icon: IC.settings,  adminOnly: true },
 ]
 
 export default function Nav() {
