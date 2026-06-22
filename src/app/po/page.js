@@ -23,6 +23,7 @@ export default function POPage() {
   const [scanInput, setScanInput]    = useState('')
   const [scanItems, setScanItems]    = useState([])
   const [scanSaving, setScanSaving]  = useState(false)
+  const [minMargin, setMinMargin]     = useState(30)
   // AI อ่านใบส่งของ
   const [aiModal, setAiModal]        = useState(false)
   const [aiLoading, setAiLoading]    = useState(false)
@@ -34,14 +35,16 @@ export default function POPage() {
   useEffect(() => { loadAll() }, [])
 
   async function loadAll() {
-    const [{ data: p }, { data: s }, { data: pr }] = await Promise.all([
+    const [{ data: p }, { data: s }, { data: pr }, { data: cfg }] = await Promise.all([
       supabase.from('purchase_orders').select('*, suppliers(name), po_items(count)').order('created_at', { ascending: false }),
       supabase.from('suppliers').select('*').order('name'),
       supabase.from('products').select('id,name,barcode,unit,cost,price').eq('active',true).order('name'),
+      supabase.from('settings').select('key,value').eq('key', 'min_margin'),
     ])
     setPOs(p || [])
     setSuppliers(s || [])
     setProducts(pr || [])
+    if (cfg?.[0]?.value) setMinMargin(parseFloat(cfg[0].value) || 30)
   }
 
   async function openDetail(po) {
@@ -176,13 +179,15 @@ export default function POPage() {
           || products.find(p => p.name?.toLowerCase() === ai.name?.toLowerCase())
           || products.find(p => ai.name && p.name?.toLowerCase().includes(ai.name.toLowerCase().substring(0, 5)))
         const aiCost = ai.unit_cost || (ai.total && ai.qty ? (ai.total / ai.qty) : null)
+        const mult = 1 + minMargin / 100
+        const minPrice = aiCost ? Math.ceil(aiCost * mult) : null
         return {
           ...ai,
           matched: match || null,
           product_id: match?.id || null,
           isNew: !match,
           cost: aiCost,
-          price: match?.price ?? (aiCost ? Math.ceil(aiCost * 1.3) : null),
+          price: match?.price ?? minPrice,
           currentStock: match?.stock ?? null,
           newStock: (match?.stock ?? 0) + (ai.qty || 0),
           currentCost: match?.cost ?? null,
@@ -512,10 +517,21 @@ export default function POPage() {
                               className="w-full border border-gray-200 rounded px-1 py-1 text-center" />
                           </div>
                           <div>
-                            <label className="text-gray-400 block mb-0.5">ราคาขาย ฿</label>
+                            <label className="text-gray-400 block mb-0.5">
+                              ราคาขาย ฿
+                              {item.cost && item.price && item.price < item.cost * (1 + minMargin/100) && (
+                                <span className="text-red-500 ml-1">⚠️</span>
+                              )}
+                            </label>
                             <input type="number" value={item.price||''} min="0" step="0.01"
                               onChange={e => setAiReview(p => { const n=[...p]; n[idx]={...n[idx],price:parseFloat(e.target.value)||0}; return n })}
-                              className="w-full border border-gray-200 rounded px-1 py-1 text-center" />
+                              className={`w-full border rounded px-1 py-1 text-center ${item.cost && item.price && item.price < item.cost*(1+minMargin/100) ? 'border-red-300 bg-red-50' : 'border-gray-200'}`} />
+                            {item.cost && item.price && item.price < item.cost*(1+minMargin/100) && (
+                              <button onClick={() => setAiReview(p => { const n=[...p]; n[idx]={...n[idx],price:Math.ceil(n[idx].cost*(1+minMargin/100))}; return n })}
+                                className="text-[9px] text-brand mt-0.5 block">
+                                แนะนำ ฿{Math.ceil(item.cost*(1+minMargin/100))}
+                              </button>
+                            )}
                           </div>
                         </div>
 
@@ -535,13 +551,27 @@ export default function POPage() {
             </div>
 
             {/* Summary bar */}
-            <div className="px-4 py-2 bg-purple-50 border-t border-purple-100 flex justify-between text-xs">
-              <span className="text-purple-700 font-medium">
-                {aiReview.filter(i=>i.enabled && (!i.product_id||i.product_id==='new')).length} รายการใหม่ ·{' '}
-                {aiReview.filter(i=>i.enabled && i.product_id && i.product_id!=='new').length} รายการอัปเดต
-              </span>
-              <span className="text-purple-500">ตรวจสอบก่อน Approve</span>
-            </div>
+            {(() => {
+              const belowMargin = aiReview.filter(i => i.enabled && i.cost && i.price && i.price < i.cost*(1+minMargin/100))
+              return belowMargin.length > 0 ? (
+                <div className="px-4 py-2 bg-red-50 border-t border-red-100 flex justify-between items-center text-xs">
+                  <span className="text-red-600 font-medium">⚠️ {belowMargin.length} รายการราคาต่ำกว่า {minMargin}%</span>
+                  <button onClick={() => setAiReview(p => p.map(i => {
+                    if (!i.enabled || !i.cost) return i
+                    const min = Math.ceil(i.cost*(1+minMargin/100))
+                    return (!i.price || i.price < min) ? {...i, price: min} : i
+                  }))} className="text-brand font-bold">แก้ทั้งหมด</button>
+                </div>
+              ) : (
+                <div className="px-4 py-2 bg-purple-50 border-t border-purple-100 flex justify-between text-xs">
+                  <span className="text-purple-700 font-medium">
+                    {aiReview.filter(i=>i.enabled && (!i.product_id||i.product_id==='new')).length} ใหม่ ·{' '}
+                    {aiReview.filter(i=>i.enabled && i.product_id && i.product_id!=='new').length} อัปเดต
+                  </span>
+                  <span className="text-purple-500">✓ ราคาผ่านขั้นต้ำ {minMargin}%</span>
+                </div>
+              )
+            })()}
 
             <div className="p-3 border-t border-gray-100 flex gap-2">
               <label className="flex-1 border border-purple-300 text-purple-600 py-2.5 rounded-xl text-sm font-medium text-center cursor-pointer">
@@ -549,7 +579,8 @@ export default function POPage() {
                 <input type="file" accept="image/*" capture="environment" className="hidden"
                   onChange={e => { if(e.target.files[0]) analyzeDelivery(e.target.files[0]) }} />
               </label>
-              <button onClick={confirmAiReceive} disabled={aiLoading || aiReview.filter(i=>i.enabled).length===0}
+              <button onClick={confirmAiReceive}
+                disabled={aiLoading || aiReview.filter(i=>i.enabled).length===0 || aiReview.some(i=>i.enabled&&i.cost&&i.price&&i.price<i.cost*(1+minMargin/100))}
                 className="flex-1 bg-purple-600 text-white py-2.5 rounded-xl text-sm font-bold disabled:opacity-40">
                 ✅ Approve {aiReview.filter(i=>i.enabled).length} รายการ
               </button>
