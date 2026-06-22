@@ -120,12 +120,7 @@ export default function Nav() {
     const next = adminPin + d
     setAdminPin(next)
     if (next.length === 4) {
-      if (!storedAdminPin) {
-        setAdminPinError('ยังไม่ได้ตั้ง PIN แอดมิน — ไปตั้งที่หน้าตั้งค่าก่อน')
-        setAdminPin('')
-        return
-      }
-      if (next === storedAdminPin) {
+      if (!storedAdminPin || next === storedAdminPin) {
         auth.empLogout()
         setShowAdminPin(false)
       } else {
@@ -334,7 +329,9 @@ export default function Nav() {
                   <div key={i} className={`w-4 h-4 rounded-full transition-all ${i < adminPin.length ? 'bg-red-400 scale-110' : 'bg-white/20'}`} />
                 ))}
               </div>
-              <p className="text-center text-white/40 text-xs mb-3">กรอก PIN แอดมิน 4 หลัก</p>
+              <p className="text-center text-white/40 text-xs mb-3">
+                {storedAdminPin ? 'กรอก PIN แอดมิน 4 หลัก' : 'ยังไม่มี PIN — กด ✓ เพื่อเข้าได้เลย'}
+              </p>
               {adminPinError && <p className="text-center text-red-400 text-xs mb-2">{adminPinError}</p>}
               <div className="grid grid-cols-3 gap-2">
                 {[1,2,3,4,5,6,7,8,9].map(d => (
@@ -344,7 +341,11 @@ export default function Nav() {
                     {d}
                   </button>
                 ))}
-                <div />
+                <button onClick={() => { if (!storedAdminPin) { auth.empLogout(); setShowAdminPin(false) } }}
+                  className="py-3 rounded-2xl active:scale-95 transition-all"
+                  style={{ background: !storedAdminPin ? 'rgba(239,68,68,0.25)' : 'transparent' }}>
+                  {!storedAdminPin ? <span className="text-red-400 font-bold text-xl">✓</span> : ''}
+                </button>
                 <button onClick={() => handleAdminPinDigit('0')}
                   className="py-3 rounded-2xl text-xl font-bold text-white active:scale-95 transition-all"
                   style={{ background: 'rgba(255,255,255,0.1)' }}>

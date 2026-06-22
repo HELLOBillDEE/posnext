@@ -27,8 +27,7 @@ const HID_SHIFT = {
 
 const PAY_METHODS = [
   { id:'cash',     label:'เงินสด', icon:'💵' },
-  { id:'transfer', label:'โอน',    icon:'📱' },
-  { id:'qr',       label:'QR',     icon:'🔲' },
+  { id:'transfer', label:'โอน/QR', icon:'📱' },
   { id:'credit',   label:'เชื่อ',  icon:'📝' },
 ]
 
@@ -44,6 +43,8 @@ export default function POSPage() {
   const [showPay, setShowPay]       = useState(false)
   const [payMethod, setPayMethod]   = useState('cash')
   const [payAmount, setPayAmount]   = useState('')
+  const [payMode, setPayMode]       = useState('single') // 'single' | 'mixed'
+  const [mixAmounts, setMixAmounts] = useState({ cash: '', transfer: '', credit: '' })
   const [billDiscount, setBillDiscount] = useState('')
   const [note, setNote]             = useState('')
   const [saving, setSaving]         = useState(false)
@@ -278,9 +279,82 @@ export default function POSPage() {
   const total    = Math.max(0, subtotal - billDisc + vatAmt)
   const change   = (parseFloat(payAmount) || 0) - total
 
+  // mixed payment totals
+  const mixCash     = parseFloat(mixAmounts.cash)     || 0
+  const mixTransfer = parseFloat(mixAmounts.transfer) || 0
+  const mixCredit   = parseFloat(mixAmounts.credit)   || 0
+  const mixTotal    = mixCash + mixTransfer + mixCredit
+  const mixRemain   = total - mixTotal
+
+  async function printQRSlip(amount) {
+    const cfg = JSON.parse(localStorage.getItem('printer_receipt') || '{}')
+    if (!cfg.ip) {
+      // fallback — เปิดหน้าต่างพิมพ์
+      const html = `<html><body style="text-align:center;font-family:sans-serif;padding:20px">
+        <p style="font-size:18px;font-weight:bold">${settings.shop_name || 'ร้านค้า'}</p>
+        <p>สแกน QR เพื่อชำระ</p>
+        <img src="${settings.payment_qr}" style="width:200px;height:200px"/>
+        <p style="font-size:24px;font-weight:bold">฿${fmt(amount)}</p>
+        <script>window.print();window.close()<\/script></body></html>`
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+      window.open(URL.createObjectURL(blob))
+      return
+    }
+    // ESC/POS: render QR image + amount as bitmap
+    const pw  = (parseInt(cfg.paper_width) || 80) >= 80 ? 576 : 384
+    const pad = 10
+    const canvas = document.createElement('canvas')
+    canvas.width = pw
+    // load QR image first to measure height
+    let qrImg = null
+    if (settings.payment_qr) {
+      qrImg = await new Promise(res => {
+        const img = new Image(); img.crossOrigin = 'anonymous'
+        img.onload = () => res(img); img.onerror = () => res(null)
+        img.src = settings.payment_qr
+      })
+    }
+    const qrH = qrImg ? Math.min(pw - pad*2, 300) : 0
+    const totalH = 60 + qrH + 80
+    canvas.height = totalH
+    const ctx = canvas.getContext('2d')
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, pw, totalH)
+    ctx.fillStyle = '#000'
+    let y = 10
+    ctx.font = `bold 24px Sarabun, Arial, sans-serif`
+    ctx.textAlign = 'center'
+    ctx.fillText(settings.shop_name || 'ร้านค้า', pw/2, y+24); y += 40
+    ctx.font = `18px Sarabun, Arial, sans-serif`
+    ctx.fillText('สแกน QR เพื่อชำระ', pw/2, y+18); y += 28
+    if (qrImg) { ctx.drawImage(qrImg, (pw-qrH)/2, y, qrH, qrH); y += qrH + 8 }
+    ctx.font = `bold 34px Sarabun, Arial, sans-serif`
+    ctx.fillText('฿' + fmt(amount), pw/2, y+34)
+    const imgData = ctx.getImageData(0, 0, pw, canvas.height)
+    const wBytes = Math.ceil(pw/8)
+    const bitmap = new Uint8Array(wBytes * canvas.height)
+    for (let row = 0; row < canvas.height; row++)
+      for (let col = 0; col < pw; col++) {
+        const i = (row*pw+col)*4
+        const lum = (imgData.data[i]*299+imgData.data[i+1]*587+imgData.data[i+2]*114)/1000
+        if (lum < 128) bitmap[row*wBytes+(col>>3)] |= (0x80>>(col&7))
+      }
+    const GS = 0x1D
+    const bytes = new Uint8Array([0x1B,0x40, GS,0x76,0x30,0x00,
+      wBytes&0xFF,(wBytes>>8)&0xFF, canvas.height&0xFF,(canvas.height>>8)&0xFF,
+      ...bitmap, GS,0x56,0x00])
+    printViaBridge(cfg.bridge_url||'', cfg.ip, cfg.port||9100, bytes)
+      .catch(e => console.warn('QR print error:', e.message))
+  }
+
   async function completeSale() {
     if (cart.length === 0) return alert('กรุณาเพิ่มสินค้า')
-    if (payMethod === 'cash' && parseFloat(payAmount || 0) < total) return alert('จำนวนเงินที่รับไม่เพียงพอ')
+    if (payMode === 'single') {
+      if (payMethod === 'cash' && parseFloat(payAmount || 0) < total) return alert('จำนวนเงินที่รับไม่เพียงพอ')
+      if (payMethod === 'credit' && !customer) return alert('กรุณาเลือกลูกค้าสำหรับการขายเชื่อ')
+    } else {
+      if (Math.abs(mixRemain) > 0.01) return alert(`ยอดรวมไม่ครบ — ยังขาด ฿${fmt(Math.abs(mixRemain))}`)
+      if (mixCredit > 0 && !customer) return alert('กรุณาเลือกลูกค้าสำหรับยอดเชื่อ')
+    }
 
     const cfg = JSON.parse(localStorage.getItem('printer_receipt') || '{}')
     const useBridge = !!cfg.ip  // ถ้ามี IP เครื่องพิมพ์ → พิมพ์ผ่าน API โดยตรง
@@ -288,12 +362,29 @@ export default function POSPage() {
     setSaving(true)
     try {
       const receiptNo = genReceiptNo()
+      let saveMethod, saveAmount, saveChange, saveNote
+      if (payMode === 'mixed') {
+        const parts = []
+        if (mixCash > 0)     parts.push(`สด ฿${fmt(mixCash)}`)
+        if (mixTransfer > 0) parts.push(`โอน ฿${fmt(mixTransfer)}`)
+        if (mixCredit > 0)   parts.push(`เชื่อ ฿${fmt(mixCredit)}`)
+        saveMethod = 'mixed'
+        saveAmount = total
+        saveChange = 0
+        saveNote = `[ผสม: ${parts.join(' + ')}]${note ? ' ' + note : ''}`
+      } else {
+        saveMethod = payMethod
+        saveAmount = payMethod === 'cash' ? parseFloat(payAmount) : total
+        saveChange = Math.max(0, change)
+        saveNote   = note
+      }
       const { data: sale, error } = await supabase.from('sales').insert({
         receipt_no: receiptNo, subtotal, discount: billDisc, vat: vatAmt, total,
-        payment_method: payMethod,
-        payment_amount: payMethod === 'cash' ? parseFloat(payAmount) : total,
-        change_amount: Math.max(0, change),
-        note,
+        payment_method: saveMethod,
+        payment_amount: saveAmount,
+        change_amount:  saveChange,
+        note: saveNote,
+        customer_id: customer?.id || null,
       }).select().single()
       if (error) throw error
 
@@ -349,7 +440,9 @@ export default function POSPage() {
         settings.shop_name || ''
       )
 
-      setCart([]); setBillDiscount(''); setPayAmount(''); setNote(''); setCustomer(null); setShowPay(false)
+      setCart([]); setBillDiscount(''); setPayAmount(''); setNote(''); setCustomer(null)
+      setPayMode('single'); setPayMethod('cash'); setMixAmounts({ cash:'', transfer:'', credit:'' })
+      setShowPay(false)
     } catch (e) {
       alert('เกิดข้อผิดพลาด: ' + (e?.message || JSON.stringify(e)))
     } finally {
@@ -593,14 +686,13 @@ export default function POSPage() {
               <button onClick={() => setShowPay(false)} className="text-2xl leading-none opacity-70">×</button>
             </div>
             <div className="p-4 space-y-3">
-              {/* Payment method */}
-              <div className="grid grid-cols-4 gap-2">
-                {PAY_METHODS.map(m => (
-                  <button key={m.id} onClick={() => setPayMethod(m.id)}
-                    className={`flex flex-col items-center py-3 rounded-2xl border-2 transition-all gap-1
-                      ${payMethod === m.id ? 'border-brand bg-brand/5 text-brand' : 'border-slate-200 text-slate-500 active:bg-slate-50'}`}>
-                    <span className="text-xl">{m.icon}</span>
-                    <span className="text-[10px] font-semibold">{m.label}</span>
+              {/* Mode toggle: single / mixed */}
+              <div className="flex gap-2">
+                {[['single','จ่ายเดี่ยว'],['mixed','ผสม']].map(([m,l]) => (
+                  <button key={m} onClick={() => setPayMode(m)}
+                    className={`flex-1 py-2 rounded-xl text-xs font-bold border-2 transition-all
+                      ${payMode === m ? 'border-brand bg-brand/5 text-brand' : 'border-slate-200 text-slate-400'}`}>
+                    {l}
                   </button>
                 ))}
               </div>
@@ -611,46 +703,128 @@ export default function POSPage() {
                 <p className="font-heading font-bold text-4xl text-brand">฿{fmt(total)}</p>
               </div>
 
-              {/* QR payment */}
-              {payMethod === 'qr' && (
-                <div className="flex flex-col items-center gap-2 py-2">
-                  {settings.payment_qr ? (
-                    <>
-                      <img src={settings.payment_qr} alt="QR รับเงิน" className="w-56 h-56 rounded-xl border border-slate-200 object-contain bg-white" />
-                      <p className="text-xs text-slate-500 text-center">สแกน QR เพื่อชำระ ฿{fmt(total)}</p>
-                    </>
-                  ) : (
-                    <p className="text-sm text-amber-600 text-center py-4">
-                      ยังไม่ได้อัปโหลด QR รับเงิน<br/>
-                      <span className="text-xs text-slate-400">ไปที่ ตั้งค่า → QR รับเงิน</span>
-                    </p>
-                  )}
+              {payMode === 'single' ? (<>
+                {/* Single payment method */}
+                <div className="grid grid-cols-3 gap-2">
+                  {PAY_METHODS.map(m => (
+                    <button key={m.id} onClick={() => setPayMethod(m.id)}
+                      className={`flex flex-col items-center py-3 rounded-2xl border-2 transition-all gap-1
+                        ${payMethod === m.id ? 'border-brand bg-brand/5 text-brand' : 'border-slate-200 text-slate-500 active:bg-slate-50'}`}>
+                      <span className="text-xl">{m.icon}</span>
+                      <span className="text-[10px] font-semibold">{m.label}</span>
+                    </button>
+                  ))}
                 </div>
-              )}
 
-              {/* Cash input */}
-              {payMethod === 'cash' && (
-                <>
-                  <div>
-                    <label className="text-xs font-semibold text-slate-500 block mb-1.5">รับเงิน (บาท)</label>
-                    <input type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)}
-                      autoFocus placeholder="0.00"
-                      className="w-full border-2 border-slate-200 rounded-2xl px-4 py-3 text-2xl text-right font-bold focus:border-brand outline-none" />
+                {/* QR/Transfer */}
+                {payMethod === 'transfer' && (
+                  <div className="flex flex-col items-center gap-2 py-1">
+                    {settings.payment_qr ? (
+                      <>
+                        <button onClick={() => printQRSlip(total)} className="relative group">
+                          <img src={settings.payment_qr} alt="QR รับเงิน"
+                            className="w-52 h-52 rounded-xl border-2 border-slate-200 object-contain bg-white hover:border-brand transition-colors cursor-pointer" />
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/10 rounded-xl transition-all">
+                            <span className="opacity-0 group-hover:opacity-100 text-white font-bold text-sm bg-black/60 px-3 py-1 rounded-lg transition-all">🖨️ พิมพ์</span>
+                          </div>
+                        </button>
+                        <p className="text-xs text-slate-500 text-center">กดที่ภาพเพื่อพิมพ์ · ฿{fmt(total)}</p>
+                      </>
+                    ) : (
+                      <p className="text-sm text-amber-600 text-center py-4">ยังไม่ได้อัปโหลด QR รับเงิน<br/><span className="text-xs text-slate-400">ไปที่ ตั้งค่า → QR รับเงิน</span></p>
+                    )}
                   </div>
-                  <div className="grid grid-cols-5 gap-1.5">
-                    {QUICK_CASH.map(n => (
-                      <button key={n} onClick={() => setPayAmount(String(n))}
-                        className="bg-slate-100 text-slate-700 rounded-xl py-2 text-xs font-semibold active:bg-slate-200">{n}</button>
+                )}
+
+                {/* Cash input */}
+                {payMethod === 'cash' && (
+                  <>
+                    <div>
+                      <label className="text-xs font-semibold text-slate-500 block mb-1.5">รับเงิน (บาท)</label>
+                      <input type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)}
+                        autoFocus placeholder="0.00"
+                        className="w-full border-2 border-slate-200 rounded-2xl px-4 py-3 text-2xl text-right font-bold focus:border-brand outline-none" />
+                    </div>
+                    <div className="grid grid-cols-5 gap-1.5">
+                      {QUICK_CASH.map(n => (
+                        <button key={n} onClick={() => setPayAmount(String(n))}
+                          className="bg-slate-100 text-slate-700 rounded-xl py-2 text-xs font-semibold active:bg-slate-200">{n}</button>
+                      ))}
+                    </div>
+                    {payAmount && (
+                      <div className={`flex justify-between items-center rounded-2xl p-3 font-bold text-lg ${change >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-500'}`}>
+                        <span>เงินทอน</span><span>฿{fmt(Math.abs(change))}</span>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Credit — must pick customer */}
+                {payMethod === 'credit' && !customer && (
+                  <button onClick={() => setShowCustModal(true)}
+                    className="w-full border-2 border-dashed border-amber-300 bg-amber-50 text-amber-700 rounded-2xl py-3 text-sm font-semibold">
+                    ⚠️ กรุณาเลือกลูกค้าก่อนขายเชื่อ
+                  </button>
+                )}
+              </>) : (<>
+                {/* Mixed payment */}
+                <div className="space-y-2">
+                  {[
+                    { key:'cash',     label:'💵 เงินสด',  },
+                    { key:'transfer', label:'📱 โอน/QR',  },
+                    { key:'credit',   label:'📝 เชื่อ',   },
+                  ].map(({ key, label }) => (
+                    <div key={key} className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-slate-500 w-20 shrink-0">{label}</span>
+                      <input type="number" min="0" placeholder="0"
+                        value={mixAmounts[key]}
+                        onChange={e => setMixAmounts(p => ({ ...p, [key]: e.target.value }))}
+                        className="flex-1 border-2 border-slate-200 rounded-xl px-3 py-2 text-right font-bold text-lg focus:border-brand outline-none" />
+                    </div>
+                  ))}
+                </div>
+
+                {/* Remaining indicator */}
+                <div className={`flex justify-between items-center rounded-2xl p-3 font-bold text-base
+                  ${Math.abs(mixRemain) < 0.01 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-500'}`}>
+                  <span>{mixRemain > 0.01 ? 'ยังขาด' : mixRemain < -0.01 ? 'เกิน' : '✓ ครบแล้ว'}</span>
+                  <span>{Math.abs(mixRemain) > 0.01 ? `฿${fmt(Math.abs(mixRemain))}` : ''}</span>
+                </div>
+
+                {/* Quick fill remaining */}
+                {mixRemain > 0.01 && (
+                  <div className="flex gap-2">
+                    {[['cash','💵'],['transfer','📱'],['credit','📝']].map(([k,ic]) => (
+                      <button key={k} onClick={() => setMixAmounts(p => ({ ...p, [k]: String(((parseFloat(p[k])||0) + mixRemain).toFixed(2)) }))}
+                        className="flex-1 bg-slate-100 text-slate-600 rounded-xl py-1.5 text-[10px] font-semibold active:bg-slate-200">
+                        {ic} +{fmt(mixRemain)}
+                      </button>
                     ))}
                   </div>
-                  {payAmount && (
-                    <div className={`flex justify-between items-center rounded-2xl p-3 font-bold text-lg ${change >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-500'}`}>
-                      <span>เงินทอน</span>
-                      <span>฿{fmt(Math.abs(change))}</span>
-                    </div>
-                  )}
-                </>
-              )}
+                )}
+
+                {/* Credit in mixed — require customer */}
+                {mixCredit > 0 && !customer && (
+                  <button onClick={() => setShowCustModal(true)}
+                    className="w-full border-2 border-dashed border-amber-300 bg-amber-50 text-amber-700 rounded-2xl py-3 text-sm font-semibold">
+                    ⚠️ มียอดเชื่อ — กรุณาเลือกลูกค้า
+                  </button>
+                )}
+
+                {/* QR in mixed */}
+                {mixTransfer > 0 && settings.payment_qr && (
+                  <div className="flex flex-col items-center gap-1">
+                    <button onClick={() => printQRSlip(mixTransfer)} className="relative group">
+                      <img src={settings.payment_qr} alt="QR"
+                        className="w-40 h-40 rounded-xl border-2 border-slate-200 object-contain bg-white hover:border-brand cursor-pointer transition-colors" />
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/10 rounded-xl transition-all">
+                        <span className="opacity-0 group-hover:opacity-100 text-white font-bold text-sm bg-black/60 px-3 py-1 rounded-lg transition-all">🖨️ พิมพ์</span>
+                      </div>
+                    </button>
+                    <p className="text-xs text-slate-500">โอน ฿{fmt(mixTransfer)} · กดพิมพ์</p>
+                  </div>
+                )}
+              </>)}
 
               {/* Bill discount */}
               <div className="flex items-center gap-2">
