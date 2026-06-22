@@ -76,15 +76,21 @@ function numberToThaiText(amount) {
  * @param {Object} shop    - from settings table (key→value map)
  * @param {Object} opts    - {doc_no, date, valid_until, prepared_by, paid_amount, paid_date, note, payment_method}
  */
+function formatThaiDate(d) {
+  if (!d) return new Date().toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const dt = new Date(d)
+  if (isNaN(dt.getTime())) return d
+  return dt.toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
 export function buildFormalDocHTML(docType, items, totals, customer, shop, opts = {}) {
   const title  = DOC_TITLES[docType] || DOC_TITLES.receipt
   const accent = '#e07a00'
   const isDelivery  = docType === 'delivery'
   const isQuotation = docType === 'quotation'
-  const isReceipt   = docType === 'receipt'
 
   const docNo = opts.doc_no || ''
-  const today = opts.date || new Date().toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const today = formatThaiDate(opts.date)
 
   const subtotal = Number(totals.subtotal) || 0
   const discAmt  = Number(totals.discount) || 0
@@ -160,7 +166,7 @@ export function buildFormalDocHTML(docType, items, totals, customer, shop, opts 
       <table style="margin-left:auto;border-collapse:collapse">
         <tr><td style="font-size:12pt;color:#555;padding:2px 10px 2px 0;text-align:right">เลขที่</td><td style="font-size:12pt;font-weight:bold;padding:2px 0;min-width:130px">${docNo || '—'}</td></tr>
         <tr><td style="font-size:12pt;color:#555;padding:2px 10px 2px 0;text-align:right">วันที่</td><td style="font-size:12pt;padding:2px 0">${today}</td></tr>
-        ${isQuotation && opts.valid_until ? `<tr><td style="font-size:12pt;color:#555;padding:2px 10px 2px 0;text-align:right">ใช้ได้ถึง</td><td style="font-size:12pt;padding:2px 0">${opts.valid_until}</td></tr>` : ''}
+        ${isQuotation && opts.valid_until ? `<tr><td style="font-size:12pt;color:#555;padding:2px 10px 2px 0;text-align:right">ใช้ได้ถึง</td><td style="font-size:12pt;padding:2px 0">${formatThaiDate(opts.valid_until)}</td></tr>` : ''}
         ${opts.prepared_by ? `<tr><td style="font-size:12pt;color:#555;padding:2px 10px 2px 0;text-align:right">ผู้ขาย</td><td style="font-size:12pt;padding:2px 0">${opts.prepared_by}</td></tr>` : ''}
       </table>
     </td>
