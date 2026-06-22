@@ -15,8 +15,10 @@ const SETTING_FIELDS = [
   { key:'vat_rate',        label:'อัตรา VAT (%)',                     placeholder:'7 หรือ 0 (ถ้าไม่คิด VAT)' },
   { key:'ot_rate',         label:'อัตรา OT/ชม. (บาท)',               placeholder:'75' },
   { key:'receipt_footer',  label:'ข้อความท้ายใบเสร็จ',               placeholder:'ขอบคุณที่ใช้บริการ' },
-  { key:'min_margin',      label:'กำไรขั้นต้ำ (%)',                   placeholder:'30 (ราคาขาย = ทุน × 1.3 อย่างน้อย)' },
-  { key:'admin_pin',       label:'PIN เข้าโหมดแอดมิน (4 หลัก)',     placeholder:'ตัวเลข 4 หลัก เช่น 1234' },
+  { key:'min_margin',           label:'กำไรขั้นต้ำ (%)',                   placeholder:'30 (ราคาขาย = ทุน × 1.3 อย่างน้อย)' },
+  { key:'admin_pin',            label:'PIN เข้าโหมดแอดมิน (4 หลัก)',     placeholder:'ตัวเลข 4 หลัก เช่น 1234' },
+  { key:'line_channel_token',   label:'LINE Channel Access Token',         placeholder:'วาง Long-lived token จาก LINE Developers' },
+  { key:'line_group_id',        label:'LINE Group ID (บันทึกอัตโนมัติ)',   placeholder:'C... (ระบบกรอกให้เองเมื่อเพิ่ม Bot เข้ากลุ่ม)' },
 ]
 
 const TABS = ['ตั้งค่าร้าน', 'เครื่องพิมพ์', 'ลูกค้า', 'ซัพพลายเออร์', 'ประวัติสต็อก', '🔗 BillDEE Sync']
@@ -358,9 +360,26 @@ export default function AdminPage() {
             <div key={f.key}>
               <label className="text-xs font-semibold text-slate-500 block mb-1.5">{f.label}</label>
               <input value={settings[f.key] || ''} onChange={e => setSettings(p => ({...p, [f.key]: e.target.value}))}
-                placeholder={f.placeholder} className="field w-full" />
+                placeholder={f.placeholder} className="field w-full"
+                readOnly={f.key === 'line_group_id' && !!settings.line_group_id} />
             </div>
           ))}
+
+          {/* LINE Bot setup guide */}
+          <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-xs text-green-800 space-y-1.5">
+            <p className="font-bold text-sm">📲 วิธีตั้งค่าแจ้งเตือน LINE กลุ่ม</p>
+            <p>1. ไปที่ <span className="font-mono bg-white/70 px-1 rounded">developers.line.biz</span> → สร้าง Provider → Create Messaging API channel</p>
+            <p>2. ไปที่ Basic settings → Issue <strong>Long-lived channel access token</strong> → คัดลอกใส่ช่องด้านบน</p>
+            <p>3. ไปที่ Messaging API settings → Webhook URL ใส่:</p>
+            <p className="font-mono bg-white/70 px-2 py-1 rounded select-all break-all">
+              {typeof window !== 'undefined' ? window.location.origin : 'https://your-domain'}/api/line-webhook
+            </p>
+            <p>4. เปิด <strong>Use webhook</strong> → <strong>เพิ่ม Bot เข้ากลุ่ม LINE</strong> ที่ต้องการ</p>
+            <p>5. ส่งข้อความใดก็ได้ในกลุ่ม → ระบบจะดึง Group ID ให้อัตโนมัติ → บันทึกการตั้งค่า</p>
+            {settings.line_group_id && <p className="text-green-700 font-semibold">✅ Group ID: {settings.line_group_id}</p>}
+            {settings.line_channel_token && !settings.line_group_id && <p className="text-amber-600">⏳ รอ Group ID — เพิ่ม Bot เข้ากลุ่มก่อน</p>}
+          </div>
+
           <button onClick={saveSettings} disabled={saving}
             className={`w-full py-3.5 rounded-xl text-sm font-bold transition-all shadow active:scale-95
               ${saved ? 'bg-emerald-600 text-white' : 'btn-primary'}`}>

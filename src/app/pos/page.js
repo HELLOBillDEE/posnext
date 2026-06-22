@@ -432,12 +432,21 @@ export default function POSPage() {
         window.open(URL.createObjectURL(blob))
       }
 
-      // Sync to BillDEE (fire-and-forget, never blocks POS)
+      // Sync to BillDEE (fire-and-forget)
       syncSaleToBillDee(
         sale,
         cart.map(i => ({ product_name: i.name, qty: i.qty, price: i.price, subtotal: i.price * i.qty - i.disc })),
         settings.shop_name || ''
       )
+
+      // แจ้งเตือน LINE กลุ่ม (fire-and-forget)
+      if (settings.line_channel_token && settings.line_group_id) {
+        fetch('/api/notify-line', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sale: receipt }),
+        }).catch(() => {})
+      }
 
       setCart([]); setBillDiscount(''); setPayAmount(''); setNote(''); setCustomer(null)
       setPayMode('single'); setPayMethod('cash'); setMixAmounts({ cash:'', transfer:'', credit:'' })
