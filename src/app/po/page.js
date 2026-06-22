@@ -26,6 +26,8 @@ export default function POPage() {
   // AI อ่านใบส่งของ
   const [aiModal, setAiModal]        = useState(false)
   const [aiLoading, setAiLoading]    = useState(false)
+  const [aiLoadMsg, setAiLoadMsg]    = useState('')
+  const [aiError, setAiError]        = useState('')
   const [aiResult, setAiResult]      = useState(null)   // { supplier, items:[...] }
   const [aiReview, setAiReview]      = useState([])     // items พร้อม matched/new flag
 
@@ -131,8 +133,10 @@ export default function POPage() {
 
   async function analyzeDelivery(file) {
     setAiLoading(true)
+    setAiError('')
     setAiResult(null)
     setAiReview([])
+    setAiLoadMsg('⏳ กำลังโหลดภาพ...')
     try {
       // บีบรูปก่อนส่ง ลดให้ไม่เกิน 1400px เพื่อหลีกเลี่ยง 413 error
       const base64 = await new Promise((res, rej) => {
@@ -154,6 +158,7 @@ export default function POPage() {
       })
       const mediaType = 'image/jpeg'
 
+      setAiLoadMsg('🤖 AI กำลังอ่านใบส่งของ...')
       const resp = await fetch('/api/analyze-delivery', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -188,9 +193,10 @@ export default function POPage() {
       })
       setAiReview(reviewed)
     } catch (e) {
-      alert('วิเคราะห์ไม่สำเร็จ: ' + e.message)
+      setAiError(e.message)
     } finally {
       setAiLoading(false)
+      setAiLoadMsg('')
     }
   }
 
@@ -371,7 +377,7 @@ export default function POPage() {
           <label className="bg-purple-600 text-white px-3 py-2 rounded-xl text-sm font-medium shadow active:scale-95 cursor-pointer">
             📸 AI อ่านใบส่งของ
             <input type="file" accept="image/*" capture="environment" className="hidden"
-              onChange={e => { if(e.target.files[0]) { setAiModal(true); analyzeDelivery(e.target.files[0]) } }} />
+              onChange={e => { if(e.target.files[0]) { setAiModal(true); setAiError(''); analyzeDelivery(e.target.files[0]) } }} />
           </label>
           <button onClick={() => { setItems([addItemRow()]); setView('create') }}
             className="bg-brand text-white px-4 py-2 rounded-xl text-sm font-medium shadow active:scale-95 transition-transform">
@@ -744,13 +750,27 @@ export default function POPage() {
       <div className="bg-white rounded-t-2xl w-full max-w-lg shadow-2xl max-h-[92vh] flex flex-col">
         <div className="bg-purple-600 text-white px-4 py-3 flex justify-between items-center rounded-t-2xl">
           <h2 className="font-bold">📸 AI วิเคราะห์ใบส่งของ</h2>
-          <button onClick={() => { setAiModal(false); setAiResult(null); setAiReview([]) }} className="text-2xl opacity-70">×</button>
+          <button onClick={() => { setAiModal(false); setAiResult(null); setAiReview([]); setAiError('') }} className="text-2xl opacity-70">×</button>
         </div>
 
         {aiLoading && (
-          <div className="flex-1 flex flex-col items-center justify-center gap-3 py-12">
-            <div className="w-12 h-12 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin" />
-            <p className="text-gray-500 text-sm">AI กำลังอ่านใบส่งของ...</p>
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 py-12">
+            <div className="w-14 h-14 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin" />
+            <p className="text-gray-600 text-base font-medium">{aiLoadMsg || 'กำลังประมวลผล...'}</p>
+            <p className="text-gray-400 text-xs">อาจใช้เวลา 10-20 วินาที</p>
+          </div>
+        )}
+
+        {!aiLoading && aiError && (
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 py-12">
+            <div className="text-5xl">⚠️</div>
+            <p className="text-red-600 font-semibold text-center">อ่านไม่สำเร็จ</p>
+            <p className="text-gray-500 text-xs text-center">{aiError}</p>
+            <label className="bg-purple-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold cursor-pointer">
+              📷 ลองถ่ายใหม่
+              <input type="file" accept="image/*" capture="environment" className="hidden"
+                onChange={e => { if(e.target.files[0]) analyzeDelivery(e.target.files[0]) }} />
+            </label>
           </div>
         )}
 
