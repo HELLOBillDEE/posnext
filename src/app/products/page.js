@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/components/AuthProvider'
 import { fmt } from '@/lib/utils'
 
 // pw=page width, ph=row height, cols=columns per row, m=outer margin (mm)
@@ -25,6 +26,7 @@ function parseCSV(text) {
 }
 
 export default function ProductsPage() {
+  const { role } = useAuth()
   const [products, setProducts]       = useState([])
   const [categories, setCategories]   = useState([])
   const [search, setSearch]           = useState('')
@@ -347,7 +349,7 @@ export default function ProductsPage() {
                   <td className="px-3 py-2.5 text-slate-400 text-xs hidden md:table-cell font-mono">{p.barcode || '—'}</td>
                   <td className="px-3 py-2.5 text-xs text-slate-500 hidden sm:table-cell">{p.categories?.name || '—'}</td>
                   <td className="px-3 py-2.5 text-right font-bold text-brand">฿{fmt(p.price)}</td>
-                  <td className="px-3 py-2.5 text-right text-slate-400 text-xs hidden sm:table-cell">฿{fmt(p.cost)}</td>
+                  {role === 'admin' && <td className="px-3 py-2.5 text-right text-slate-400 text-xs hidden sm:table-cell">฿{fmt(p.cost)}</td>}
                   <td className="px-3 py-2.5 text-right text-slate-700 font-medium">{p.stock} <span className="text-xs text-slate-400">{p.unit}</span></td>
                   <td className="px-3 py-2.5 text-center">{stockBadge(p)}</td>
                   <td className="px-3 py-2.5 pr-3">
@@ -389,7 +391,7 @@ export default function ProductsPage() {
                 <Field label="หน่วย" value={form.unit} onChange={v => setForm(p=>({...p,unit:v}))} placeholder="ชิ้น" />
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <Field label="ราคาทุน (฿)" value={form.cost} onChange={v => setForm(p=>({...p,cost:v}))} type="number" placeholder="0" />
+                {role === 'admin' && <Field label="ราคาทุน (฿)" value={form.cost} onChange={v => setForm(p=>({...p,cost:v}))} type="number" placeholder="0" />}
                 <Field label="ราคาขาย (฿) *" value={form.price} onChange={v => setForm(p=>({...p,price:v}))} type="number" placeholder="0" />
               </div>
               <div className="grid grid-cols-2 gap-3">

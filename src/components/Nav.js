@@ -80,6 +80,8 @@ export default function Nav() {
   const auth = useAuth()
   if (path === '/login' || !auth?.user) return null
 
+  const isAdmin = auth.role === 'admin'
+  const TABS = ALL_TABS.filter(t => isAdmin || !t.adminOnly)
   const isActive = (href) => href === '/' ? path === '/' : path === href || path.startsWith(href + '/')
 
   return (
@@ -145,24 +147,42 @@ export default function Nav() {
           <div className="mx-0 h-px bg-white/8 mb-3" />
           {/* User chip */}
           <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl mb-1"
-            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
+            style={{ background: auth.empMode ? 'rgba(16,185,129,0.12)' : 'rgba(255,255,255,0.05)', border: auth.empMode ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(255,255,255,0.08)' }}>
             <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 text-white"
-              style={{ background: 'linear-gradient(135deg, #3B5BDB, #748FFC)' }}>
-              {auth.user.email?.[0]?.toUpperCase() ?? 'U'}
+              style={{ background: auth.empMode ? 'linear-gradient(135deg,#059669,#34d399)' : 'linear-gradient(135deg, #3B5BDB, #748FFC)' }}>
+              {auth.empMode ? auth.empMode.name[0] : (auth.user.email?.[0]?.toUpperCase() ?? 'U')}
             </div>
-            <p className="text-[11px] text-white/45 truncate flex-1">{auth.user.email}</p>
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] text-white/70 truncate font-semibold">
+                {auth.empMode ? auth.empMode.name : auth.user.email}
+              </p>
+              {auth.empMode && <p className="text-[9px] text-emerald-400">{auth.empMode.position}</p>}
+            </div>
           </div>
-          {/* Logout */}
-          <button onClick={auth.logout}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-white/40 transition-all group"
-            style={{ fontFamily: 'Sarabun, sans-serif' }}
-            onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.12)'}
-            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-            <div className="icon-glass icon-glass-inactive group-hover:border-red-500/30 w-8 h-8 rounded-lg">
-              <span className="text-white/40 group-hover:text-red-400 transition-colors">{IC.logout}</span>
-            </div>
-            <span className="group-hover:text-red-400 transition-colors">ออกจากระบบ</span>
-          </button>
+          {/* Switch / Logout */}
+          {auth.empMode ? (
+            <button onClick={auth.empLogout}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-white/40 transition-all group"
+              style={{ fontFamily: 'Sarabun, sans-serif' }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(16,185,129,0.1)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+              <div className="icon-glass icon-glass-inactive w-8 h-8 rounded-lg">
+                <span className="text-emerald-400 text-sm">🔄</span>
+              </div>
+              <span className="group-hover:text-emerald-400 transition-colors">สลับผู้ใช้</span>
+            </button>
+          ) : (
+            <button onClick={auth.logout}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-white/40 transition-all group"
+              style={{ fontFamily: 'Sarabun, sans-serif' }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.12)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+              <div className="icon-glass icon-glass-inactive group-hover:border-red-500/30 w-8 h-8 rounded-lg">
+                <span className="text-white/40 group-hover:text-red-400 transition-colors">{IC.logout}</span>
+              </div>
+              <span className="group-hover:text-red-400 transition-colors">ออกจากระบบ</span>
+            </button>
+          )}
         </div>
       </aside>
 

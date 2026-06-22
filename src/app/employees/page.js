@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { fmt, fmtDate, MONTHS_TH } from '@/lib/utils'
 
 const now = new Date()
-const EMPTY_EMP = { code:'', name:'', position:'', salary:'', ot_rate:'', social_security:'750', bank_account:'', bank_name:'', start_date:'', active:true }
+const EMPTY_EMP = { code:'', name:'', position:'', salary:'', ot_rate:'', social_security:'750', bank_account:'', bank_name:'', start_date:'', pin:'', can_login:true, active:true }
 const EMPTY_SLIP = { ot_hours:'0', ot_rate:'', bonus:'0', allowance:'0', absent_days:'0', other_deduct:'0', note:'' }
 
 export default function EmployeesPage() {
@@ -46,6 +46,7 @@ export default function EmployeesPage() {
       ot_rate: parseFloat(form.ot_rate) || parseFloat(settings.ot_rate) || 75,
       social_security: parseFloat(form.social_security) || 750,
       bank_account: form.bank_account, bank_name: form.bank_name,
+      pin: form.pin || null, can_login: form.can_login !== false,
       start_date: form.start_date || null, active: form.active,
     }
     try {
@@ -175,6 +176,19 @@ export default function EmployeesPage() {
               <div className="grid grid-cols-2 gap-3">
                 <EmpField label="ธนาคาร" k="bank_name" form={form} setForm={setForm} placeholder="กสิกร" />
                 <EmpField label="เลขบัญชี" k="bank_account" form={form} setForm={setForm} placeholder="xxx-x-xxxxx-x" />
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">PIN เข้าระบบ (4 หลัก)</label>
+                  <input value={form.pin||''} onChange={e => setForm(p=>({...p,pin:e.target.value.replace(/\D/g,'').slice(0,4)}))}
+                    type="text" inputMode="numeric" maxLength={4} placeholder="ไม่กรอก = ไม่ต้องใส่ PIN"
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:border-brand outline-none font-mono tracking-widest" />
+                  <p className="text-[10px] text-gray-400 mt-0.5">พนักงานใช้ PIN นี้ล็อกอินในแท็บ "พนักงาน"</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input type="checkbox" id="can_login" checked={form.can_login !== false}
+                    onChange={e => setForm(p=>({...p,can_login:e.target.checked}))}
+                    className="w-4 h-4 rounded accent-brand" />
+                  <label htmlFor="can_login" className="text-xs text-gray-600">อนุญาตให้ Login ได้</label>
+                </div>
               </div>
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <input type="checkbox" checked={form.active} onChange={e => setForm(p=>({...p,active:e.target.checked}))} className="w-4 h-4 accent-brand" />
