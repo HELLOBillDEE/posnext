@@ -43,6 +43,11 @@ export default function ProductsPage() {
   const [labelPreview, setLabelPreview] = useState(false)
   const [catModal, setCatModal]       = useState(false)
   const [newCat, setNewCat]           = useState('')
+  // Google Sheets import
+  const [sheetModal, setSheetModal]   = useState(false) // false | 'product' | 'stock'
+  const [sheetUrl, setSheetUrl]       = useState('')
+  const [sheetLoading, setSheetLoading] = useState(false)
+  const [sheetError, setSheetError]   = useState('')
   // Bulk edit mode
   const [bulkMode, setBulkMode]       = useState(false)
   const [bulkEdits, setBulkEdits]     = useState({}) // { id: { stock, price, cost } }
@@ -170,6 +175,36 @@ export default function ProductsPage() {
     if (!confirm('ลบหมวดหมู่นี้?')) return
     await supabase.from('categories').delete().eq('id', id)
     load()
+  }
+
+  // ── Google Sheets Import ──
+  async function fetchSheet() {
+    if (!sheetUrl.trim()) return
+    setSheetLoading(true)
+    setSheetError('')
+    try {
+      const res = await fetch('/api/fetch-sheet', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: sheetUrl.trim() }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'ดึงข้อมูลไม่สำเร็จ')
+      }
+      const text = await res.text()
+      const rows = parseCSV(text)
+      if (!rows.length) throw new Error('ไม่พบข้อมูลในชีท')
+      setImportRows(rows)
+      setImportModal(sheetModal)
+      setImportDone(null)
+      setSheetModal(false)
+      setSheetUrl('')
+    } catch (e) {
+      setSheetError(e.message)
+    } finally {
+      setSheetLoading(false)
+    }
   }
 
   // ── Bulk Mode ──
@@ -346,6 +381,8 @@ export default function ProductsPage() {
             <button onClick={() => stockRef.current?.click()}
               className="btn-secondary text-sm px-3 py-2">📊 ปรับสต็อก CSV</button>
             <input ref={stockRef} type="file" accept=".csv,.txt" className="hidden" onChange={onStockCSV} />
+            <button onClick={() => { setSheetModal('product'); setSheetUrl(''); setSheetError('') }}
+              className="btn-secondary text-sm px-3 py-2">🟢 นำเข้า Sheet</button>
             <button onClick={() => setCatModal(true)} className="btn-secondary text-sm px-3 py-2">🗂️ หมวดหมู่</button>
             <button onClick={enterBulkMode} className="btn-secondary text-sm px-3 py-2">✏️ จัดการ</button>
             <button onClick={openAdd} className="btn-primary text-sm px-4 py-2">+ เพิ่มสินค้า</button>
@@ -487,6 +524,61 @@ export default function ProductsPage() {
               className="bg-brand text-white px-5 py-2.5 rounded-xl text-sm font-bold disabled:opacity-50 active:scale-95 transition-transform shadow">
               {bulkSaving ? 'กำลังบันทึก...' : '💾 บันทึกการเปลี่ยนแปลง'}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Google Sheets Modal ── */}
+      {sheetModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end md:items-center justify-center p-3"
+          onClick={e => e.target === e.currentTarget && setSheetModal(false)}>
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden fade-in">
+            <div className="bg-emerald-600 text-white px-4 py-3.5 flex justify-between items-center">
+              <h2 className="font-heading font-bold">🟢 นำเข้าจาก Google Sheets</h2>
+              <button onClick={() => setSheetModal(false)} className="text-2xl opacity-70 leading-none">×</button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-xs text-emerald-800 space-y-1.5">
+                <p className="font-semibold">วิธีใช้:</p>
+                <p>1. เปิด Google Sheet → กด <strong>แชร์</strong> → <strong>"Anyone with the link"</strong></p>
+                <p>2. คัดลอก URL แล้ววางด้านล่าง</p>
+                <p>3. หัวคอลัมน์ชีทต้องมี: <span className="font-mono bg-white/70 px-1 rounded">name / ชื่อสินค้า</span></p>
+                <p className="text-emerald-600">คอลัมน์อื่น: barcode, unit, cost, price, stock, หมวดหมู่</p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-slate-500 block">ประเภทการนำเข้า</label>
+                <div className="flex gap-2">
+                  <button onClick={() => setSheetModal('product')}
+                    className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${sheetModal==='product' ? 'bg-emerald-600 text-white border-emerald-600' : 'border-gray-200 text-gray-600'}`}>
+                    สินค้า
+                  </button>
+                  <button onClick={() => setSheetModal('stock')}
+                    className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${sheetModal==='stock' ? 'bg-emerald-600 text-white border-emerald-600' : 'border-gray-200 text-gray-600'}`}>
+                    ปรับสต็อก
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-500 block mb-1.5">Google Sheets URL</label>
+                <input value={sheetUrl} onChange={e => setSheetUrl(e.target.value)}
+                  placeholder="https://docs.google.com/spreadsheets/d/..."
+                  className="field w-full text-xs" />
+              </div>
+
+              {sheetError && (
+                <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-xs text-red-600">{sheetError}</div>
+              )}
+
+              <div className="flex gap-2 pt-1">
+                <button onClick={() => setSheetModal(false)} className="flex-1 btn-secondary">ยกเลิก</button>
+                <button onClick={fetchSheet} disabled={sheetLoading || !sheetUrl.trim()}
+                  className="flex-1 bg-emerald-600 text-white py-3 rounded-xl text-sm font-bold disabled:opacity-50 active:scale-95 transition-transform shadow">
+                  {sheetLoading ? '⏳ กำลังดึงข้อมูล...' : '📥 ดึงข้อมูล'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
