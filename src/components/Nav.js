@@ -2,6 +2,8 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useAuth } from '@/components/AuthProvider'
+import { useState, useEffect } from 'react'
+import { supabase } from '@/lib/supabase'
 
 /* ── SVG Icon set ── */
 const IC = {
@@ -78,11 +80,41 @@ const TABS = [
 export default function Nav() {
   const path = usePathname()
   const auth = useAuth()
+  const [showEmpPicker, setShowEmpPicker] = useState(false)
+  const [employees, setEmployees]         = useState([])
+  const [selEmp, setSelEmp]               = useState(null)
+  const [pin, setPin]                     = useState('')
+  const [pinError, setPinError]           = useState('')
+
   if (path === '/login' || !auth?.user) return null
 
   const isAdmin = auth.role === 'admin'
   const TABS = ALL_TABS.filter(t => isAdmin || !t.adminOnly)
   const isActive = (href) => href === '/' ? path === '/' : path === href || path.startsWith(href + '/')
+
+  async function openEmpPicker() {
+    const { data } = await supabase.from('employees')
+      .select('id,name,position,pin').eq('active', true).eq('can_login', true).order('name')
+    setEmployees(data || [])
+    setSelEmp(null)
+    setPin('')
+    setPinError('')
+    setShowEmpPicker(true)
+  }
+
+  function handlePinDigit(d) {
+    if (pin.length >= 4) return
+    const next = pin + d
+    setPin(next)
+    if (next.length === 4) verifyPin(next)
+  }
+
+  function verifyPin(p) {
+    if (!selEmp) return
+    if (!selEmp.pin) { auth.empLogin(selEmp); setShowEmpPicker(false); return }
+    if (p === selEmp.pin) { auth.empLogin(selEmp); setShowEmpPicker(false) }
+    else { setPinError('PIN ไม่ถูกต้อง'); setPin('') }
+  }
 
   return (
     <>
@@ -172,16 +204,28 @@ export default function Nav() {
               <span className="group-hover:text-emerald-400 transition-colors">สลับผู้ใช้</span>
             </button>
           ) : (
-            <button onClick={auth.logout}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-white/40 transition-all group"
-              style={{ fontFamily: 'Sarabun, sans-serif' }}
-              onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.12)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-              <div className="icon-glass icon-glass-inactive group-hover:border-red-500/30 w-8 h-8 rounded-lg">
-                <span className="text-white/40 group-hover:text-red-400 transition-colors">{IC.logout}</span>
-              </div>
-              <span className="group-hover:text-red-400 transition-colors">ออกจากระบบ</span>
-            </button>
+            <>
+              <button onClick={openEmpPicker}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm text-white/40 transition-all group mb-1"
+                style={{ fontFamily: 'Sarabun, sans-serif' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(16,185,129,0.1)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                <div className="icon-glass icon-glass-inactive w-8 h-8 rounded-lg">
+                  <span className="text-emerald-400 text-sm">👷</span>
+                </div>
+                <span className="group-hover:text-emerald-400 transition-colors text-xs">โหมดพนักงาน</span>
+              </button>
+              <button onClick={auth.logout}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-white/40 transition-all group"
+                style={{ fontFamily: 'Sarabun, sans-serif' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.12)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                <div className="icon-glass icon-glass-inactive group-hover:border-red-500/30 w-8 h-8 rounded-lg">
+                  <span className="text-white/40 group-hover:text-red-400 transition-colors">{IC.logout}</span>
+                </div>
+                <span className="group-hover:text-red-400 transition-colors">ออกจากระบบ</span>
+              </button>
+            </>
           )}
         </div>
       </aside>
@@ -227,6 +271,86 @@ export default function Nav() {
           })}
         </div>
       </nav>
+
+      {/* ── Employee Picker Modal ── */}
+      {showEmpPicker && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)' }}
+          onClick={e => { if (e.target === e.currentTarget) setShowEmpPicker(false) }}>
+          <div className="w-full max-w-xs rounded-3xl overflow-hidden"
+            style={{ background: 'linear-gradient(135deg,#0b1120,#1e1b4b)', border: '1px solid rgba(255,255,255,0.15)' }}>
+
+            <div className="px-5 pt-5 pb-3 flex items-center justify-between">
+              <p className="font-bold text-white text-base">
+                {selEmp ? selEmp.name : '👷 เลือกพนักงาน'}
+              </p>
+              <button onClick={() => { if (selEmp) { setSelEmp(null); setPin('') } else setShowEmpPicker(false) }}
+                className="text-white/40 hover:text-white text-xl leading-none">
+                {selEmp ? '←' : '✕'}
+              </button>
+            </div>
+
+            {!selEmp ? (
+              <div className="px-4 pb-5 space-y-2 max-h-72 overflow-y-auto">
+                {employees.length === 0
+                  ? <p className="text-center text-white/40 text-sm py-6">ยังไม่มีพนักงาน<br/><span className="text-xs">ไปหน้าพนักงานเพื่อเพิ่มและตั้ง PIN</span></p>
+                  : employees.map(emp => (
+                    <button key={emp.id} onClick={() => { setSelEmp(emp); setPin(''); setPinError('') }}
+                      className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-left transition-all active:scale-[0.98]"
+                      style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white shrink-0"
+                        style={{ background: 'linear-gradient(135deg,#059669,#34d399)' }}>
+                        {emp.name[0]}
+                      </div>
+                      <div>
+                        <p className="font-semibold text-white text-sm">{emp.name}</p>
+                        <p className="text-white/40 text-xs">{emp.position}</p>
+                      </div>
+                      <span className="ml-auto text-white/30">→</span>
+                    </button>
+                  ))
+                }
+              </div>
+            ) : (
+              <div className="px-5 pb-6">
+                <div className="flex justify-center gap-4 mb-2 mt-2">
+                  {[0,1,2,3].map(i => (
+                    <div key={i} className={`w-4 h-4 rounded-full transition-all ${i < pin.length ? 'bg-emerald-400 scale-110' : 'bg-white/20'}`} />
+                  ))}
+                </div>
+                <p className="text-center text-white/40 text-xs mb-3">
+                  {!selEmp.pin ? 'ยังไม่มี PIN — กด ✓ เพื่อเข้าใช้งาน' : 'กรอก PIN 4 หลัก'}
+                </p>
+                {pinError && <p className="text-center text-red-400 text-xs mb-2">{pinError}</p>}
+                <div className="grid grid-cols-3 gap-2">
+                  {[1,2,3,4,5,6,7,8,9].map(d => (
+                    <button key={d} onClick={() => handlePinDigit(String(d))}
+                      className="py-3 rounded-2xl text-xl font-bold text-white active:scale-95 transition-all"
+                      style={{ background: 'rgba(255,255,255,0.1)' }}>
+                      {d}
+                    </button>
+                  ))}
+                  <button onClick={() => { if (!selEmp.pin) { auth.empLogin(selEmp); setShowEmpPicker(false) } }}
+                    className="py-3 rounded-2xl active:scale-95 transition-all"
+                    style={{ background: !selEmp.pin ? 'rgba(16,185,129,0.25)' : 'transparent' }}>
+                    {!selEmp.pin ? <span className="text-emerald-400 font-bold text-xl">✓</span> : ''}
+                  </button>
+                  <button onClick={() => handlePinDigit('0')}
+                    className="py-3 rounded-2xl text-xl font-bold text-white active:scale-95 transition-all"
+                    style={{ background: 'rgba(255,255,255,0.1)' }}>
+                    0
+                  </button>
+                  <button onClick={() => { setPin(p => p.slice(0,-1)); setPinError('') }}
+                    className="py-3 rounded-2xl text-white/50 active:scale-95 transition-all text-lg"
+                    style={{ background: 'rgba(255,255,255,0.05)' }}>
+                    ⌫
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </>
   )
 }
