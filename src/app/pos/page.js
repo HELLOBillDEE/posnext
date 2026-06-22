@@ -47,7 +47,6 @@ export default function POSPage() {
   const [note, setNote]             = useState('')
   const [saving, setSaving]         = useState(false)
   const [lastDone, setLastDone]     = useState(null)
-  const [qrDataUrl, setQrDataUrl]   = useState(null)
   const [customer, setCustomer]     = useState(null)  // { id, name, phone }
   const [showCustModal, setShowCustModal] = useState(false)
   const [shift, setShift]           = useState(null)   // current open shift
@@ -72,19 +71,6 @@ export default function POSPage() {
   // Cleanup HID on unmount
   useEffect(() => () => { if (hidDevice?.opened) hidDevice.close() }, [hidDevice])
 
-  // Generate PromptPay QR when method = qr (dynamic import to avoid SSR issues)
-  useEffect(() => {
-    if (payMethod !== 'qr' || !settings.promptpay_id || total <= 0) { setQrDataUrl(null); return }
-    let cancelled = false
-    Promise.all([import('promptpay-qr'), import('qrcode')]).then(([ppMod, qrMod]) => {
-      const generatePayload = ppMod.default || ppMod
-      const QRCode = qrMod.default || qrMod
-      const payload = generatePayload(settings.promptpay_id.replace(/-/g, ''), { amount: total })
-      return QRCode.toDataURL(payload, { width: 280, margin: 1 })
-    }).then(url => { if (!cancelled) setQrDataUrl(url) })
-      .catch(() => { if (!cancelled) setQrDataUrl(null) })
-    return () => { cancelled = true }
-  }, [payMethod, total, settings.promptpay_id])
 
   async function loadData() {
     const [{ data: prods, error: prodErr }, { data: cats }, { data: cfg }] = await Promise.all([
@@ -587,18 +573,18 @@ export default function POSPage() {
                 <p className="font-heading font-bold text-4xl text-brand">฿{fmt(total)}</p>
               </div>
 
-              {/* QR PromptPay */}
+              {/* QR payment */}
               {payMethod === 'qr' && (
                 <div className="flex flex-col items-center gap-2 py-2">
-                  {qrDataUrl ? (
+                  {settings.payment_qr ? (
                     <>
-                      <img src={qrDataUrl} alt="QR PromptPay" className="w-56 h-56 rounded-xl border border-slate-200" />
+                      <img src={settings.payment_qr} alt="QR รับเงิน" className="w-56 h-56 rounded-xl border border-slate-200 object-contain bg-white" />
                       <p className="text-xs text-slate-500 text-center">สแกน QR เพื่อชำระ ฿{fmt(total)}</p>
                     </>
                   ) : (
                     <p className="text-sm text-amber-600 text-center py-4">
-                      ยังไม่ได้ตั้งค่า PromptPay ID<br/>
-                      <span className="text-xs text-slate-400">ไปที่ ตั้งค่า → พร้อมเพย์</span>
+                      ยังไม่ได้อัปโหลด QR รับเงิน<br/>
+                      <span className="text-xs text-slate-400">ไปที่ ตั้งค่า → QR รับเงิน</span>
                     </p>
                   )}
                 </div>

@@ -54,6 +54,7 @@ export default function AdminPage() {
   const [billdee, setBilldee] = useState(loadBillDeeConfig)
   const [billdeeStatus, setBilldeeStatus] = useState(null) // null | 'testing' | 'ok' | 'error'
   const [logoUploading, setLogoUploading] = useState(false)
+  const [qrUploading, setQrUploading]   = useState(false)
 
   useEffect(() => { loadAll() }, [tab])
 
@@ -91,6 +92,26 @@ export default function AdminPage() {
       alert('อัปโหลดไม่สำเร็จ: ' + e.message)
     } finally {
       setLogoUploading(false)
+    }
+  }
+
+  async function uploadQR(file) {
+    setQrUploading(true)
+    try {
+      const ext  = file.name.split('.').pop()
+      const path = `payment-qr.${ext}`
+      const { error: upErr } = await supabase.storage.from('shop-assets').upload(path, file, { upsert: true })
+      if (upErr) throw upErr
+      const { data } = supabase.storage.from('shop-assets').getPublicUrl(path)
+      const url = data.publicUrl + '?t=' + Date.now()
+      const { error: setErr } = await supabase.from('settings').upsert({ key: 'payment_qr', value: url }, { onConflict: 'key' })
+      if (setErr) throw setErr
+      setSettings(p => ({ ...p, payment_qr: url }))
+      alert('อัปโหลด QR สำเร็จ')
+    } catch (e) {
+      alert('อัปโหลดไม่สำเร็จ: ' + e.message)
+    } finally {
+      setQrUploading(false)
     }
   }
 
@@ -311,6 +332,22 @@ export default function AdminPage() {
                 {logoUploading ? 'กำลังอัปโหลด...' : settings.shop_logo ? '🔄 เปลี่ยนรูป' : '📷 อัปโหลดโลโก้'}
                 <input type="file" accept="image/*" className="hidden" disabled={logoUploading}
                   onChange={e => e.target.files[0] && uploadLogo(e.target.files[0])} />
+              </label>
+            </div>
+          </div>
+
+          {/* QR payment upload */}
+          <div>
+            <label className="text-xs font-semibold text-slate-500 block mb-1.5">QR รับเงิน (แสดงตอนเลือกจ่ายด้วย QR)</label>
+            <div className="flex items-center gap-3">
+              {settings.payment_qr && (
+                <img src={settings.payment_qr} alt="QR" className="h-20 w-20 object-contain border border-slate-200 rounded-xl bg-white p-1" />
+              )}
+              <label className={`cursor-pointer px-4 py-2 rounded-xl border-2 border-dashed text-sm font-semibold transition-all
+                ${qrUploading ? 'border-slate-300 text-slate-400' : 'border-brand/40 text-brand hover:bg-brand/5'}`}>
+                {qrUploading ? 'กำลังอัปโหลด...' : settings.payment_qr ? '🔄 เปลี่ยน QR' : '📷 อัปโหลด QR'}
+                <input type="file" accept="image/*" className="hidden" disabled={qrUploading}
+                  onChange={e => e.target.files[0] && uploadQR(e.target.files[0])} />
               </label>
             </div>
           </div>
