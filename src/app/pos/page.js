@@ -47,6 +47,7 @@ export default function POSPage() {
   const [note, setNote]             = useState('')
   const [saving, setSaving]         = useState(false)
   const [lastDone, setLastDone]     = useState(null)
+  const [numpad, setNumpad]         = useState(null) // { idx, field, value }
   const [customer, setCustomer]     = useState(null)  // { id, name, phone }
   const [showCustModal, setShowCustModal] = useState(false)
   const [shift, setShift]           = useState(null)   // current open shift
@@ -218,7 +219,7 @@ export default function POSPage() {
         n[idx] = { ...n[idx], qty: n[idx].qty + qty }
         return n
       }
-      return [...prev, { pid: prod.id, name: prod.name, barcode: prod.barcode, unit: prod.unit, price: prod.price, cost: prod.cost || 0, qty, disc: 0 }]
+      return [...prev, { pid: prod.id, name: prod.name, barcode: prod.barcode, unit: prod.unit, price: prod.price, cost: prod.cost || 0, qty, disc: 0, note: '' }]
     })
   }
 
@@ -237,6 +238,35 @@ export default function POSPage() {
   function setItemDisc(idx, disc) {
     const v = parseFloat(disc) || 0
     setCart(p => { const n=[...p]; n[idx]={...n[idx],disc:v}; return n })
+  }
+
+  function setItemNote(idx, note) {
+    setCart(p => { const n=[...p]; n[idx]={...n[idx],note}; return n })
+  }
+
+  function openNumpad(idx, field) {
+    const val = field === 'qty' ? String(cart[idx].qty) : field === 'price' ? String(cart[idx].price) : String(cart[idx].disc || '')
+    setNumpad({ idx, field, value: val })
+  }
+
+  function numpadKey(k) {
+    setNumpad(p => {
+      if (!p) return p
+      if (k === '⌫') return { ...p, value: p.value.slice(0,-1) || '0' }
+      if (k === '.' && p.value.includes('.')) return p
+      if (k === '.' && p.field === 'qty') return p
+      const next = p.value === '0' && k !== '.' ? k : p.value + k
+      return { ...p, value: next }
+    })
+  }
+
+  function numpadConfirm() {
+    if (!numpad) return
+    const { idx, field, value } = numpad
+    if (field === 'qty') setQty(idx, value)
+    else if (field === 'price') setItemPrice(idx, value)
+    else setItemDisc(idx, value)
+    setNumpad(null)
   }
 
   const subtotal = cart.reduce((s, i) => s + i.price * i.qty - i.disc, 0)
@@ -270,7 +300,7 @@ export default function POSPage() {
           sale_id: sale.id, product_id: i.pid, product_name: i.name,
           barcode: i.barcode, unit: i.unit, qty: i.qty,
           price: i.price, cost: i.cost, discount: i.disc,
-          subtotal: i.price * i.qty - i.disc,
+          subtotal: i.price * i.qty - i.disc, note: i.note || null,
         }))
       )
 
@@ -491,33 +521,35 @@ export default function POSPage() {
               <div className="divide-y divide-gray-50">
                 {cart.map((item, idx) => (
                   <div key={idx} className="px-4 py-3 hover:bg-gray-50/60 transition-colors">
-                    <div className="flex justify-between items-start mb-2.5">
+                    <div className="flex justify-between items-start mb-2">
                       <p className="text-sm font-semibold flex-1 leading-snug text-slate-800 pr-2">{item.name}</p>
                       <button onClick={() => setCart(p => p.filter((_,i)=>i!==idx))}
                         className="w-6 h-6 flex items-center justify-center rounded-full text-slate-300 hover:bg-red-100 hover:text-red-400 transition-colors text-sm shrink-0">✕</button>
                     </div>
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between mb-1.5">
                       <div className="flex items-center gap-2">
                         <button onClick={() => setQty(idx, item.qty - 1)}
                           className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-slate-700 font-bold text-lg leading-none transition-colors active:scale-95">−</button>
-                        <input type="number" value={item.qty} onChange={e => setQty(idx, e.target.value)}
-                          className="w-12 text-center border border-gray-200 rounded-lg py-1 text-sm font-bold focus:border-brand outline-none" />
+                        <button onClick={() => openNumpad(idx, 'qty')}
+                          className="w-12 text-center border border-gray-200 rounded-lg py-1 text-sm font-bold text-slate-800 bg-white active:bg-brand/10">{item.qty}</button>
                         <button onClick={() => setQty(idx, item.qty + 1)}
                           className="w-8 h-8 rounded-full bg-brand hover:bg-brand/90 flex items-center justify-center text-white font-bold text-lg leading-none transition-colors active:scale-95">+</button>
                       </div>
                       <span className="font-bold text-brand text-base">฿{fmt(item.price * item.qty - item.disc)}</span>
                     </div>
-                    <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="text-[10px] text-slate-400">ราคา</span>
-                      <input type="number" value={item.price} onChange={e => setItemPrice(idx, e.target.value)}
-                        className="w-[72px] text-right border border-gray-100 rounded-lg px-1.5 py-0.5 text-xs font-semibold text-brand focus:border-brand outline-none bg-white" />
+                      <button onClick={() => openNumpad(idx, 'price')}
+                        className="min-w-[60px] text-right border border-gray-100 rounded-lg px-1.5 py-0.5 text-xs font-semibold text-brand bg-white active:bg-brand/10">{item.price}</button>
                       <span className="text-[10px] text-slate-400">× {item.qty} {item.unit}</span>
-                      <span className="text-[10px] text-slate-300 ml-1">|</span>
+                      <span className="text-[10px] text-slate-300 mx-0.5">|</span>
                       <span className="text-[10px] text-slate-400">ส่วนลด</span>
-                      <input type="number" value={item.disc || ''} onChange={e => setItemDisc(idx, e.target.value)}
-                        placeholder="0"
-                        className="w-14 text-right border border-gray-100 rounded-lg px-1.5 py-0.5 text-xs text-red-400 focus:border-red-300 outline-none bg-white" />
+                      <button onClick={() => openNumpad(idx, 'disc')}
+                        className="min-w-[48px] text-right border border-gray-100 rounded-lg px-1.5 py-0.5 text-xs text-red-400 bg-white active:bg-red-50">{item.disc || 0}</button>
                     </div>
+                    <input value={item.note || ''} onChange={e => setItemNote(idx, e.target.value)}
+                      placeholder="📝 โน๊ต..."
+                      className="mt-1.5 w-full text-xs border-0 border-b border-dashed border-slate-200 bg-transparent py-0.5 text-slate-500 placeholder-slate-300 focus:outline-none focus:border-brand" />
                   </div>
                 ))}
               </div>
@@ -653,6 +685,28 @@ export default function POSPage() {
           onSelect={c => { setCustomer(c); setShowCustModal(false) }}
           onClose={() => setShowCustModal(false)}
         />
+      )}
+
+      {/* ── Numpad Modal ── */}
+      {numpad && (
+        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/30" onClick={() => setNumpad(null)}>
+          <div className="bg-white rounded-t-3xl w-full max-w-sm pb-safe shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="px-5 pt-4 pb-2">
+              <p className="text-xs text-slate-400 mb-1">{numpad.field === 'qty' ? 'จำนวน' : numpad.field === 'price' ? 'ราคา' : 'ส่วนลด'}</p>
+              <p className="text-3xl font-bold text-slate-800 text-right tracking-wide">{numpad.value || '0'}</p>
+            </div>
+            <div className="grid grid-cols-3 gap-2 px-4 pb-4">
+              {['7','8','9','4','5','6','1','2','3','.','0','⌫'].map(k => (
+                <button key={k} onClick={() => numpadKey(k)}
+                  className={`h-14 rounded-2xl text-xl font-semibold transition-colors active:scale-95 ${k==='⌫' ? 'bg-red-50 text-red-400' : 'bg-slate-100 text-slate-800 hover:bg-slate-200'}`}>
+                  {k}
+                </button>
+              ))}
+              <button onClick={() => setNumpad(null)} className="col-span-1 h-14 rounded-2xl bg-slate-200 text-slate-500 font-semibold text-sm active:scale-95">ยกเลิก</button>
+              <button onClick={numpadConfirm} className="col-span-2 h-14 rounded-2xl bg-brand text-white font-bold text-lg active:scale-95">✓ ตกลง</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
@@ -851,7 +905,7 @@ function ShiftModal({ mode, currentShift, onClose, onOpened, onClosed }) {
 function buildReceiptHTML(r) {
   const rows = (r.items || []).map(i => `
     <tr>
-      <td style="padding:4px 0;font-size:16px">${i.name}</td>
+      <td style="padding:4px 0;font-size:16px">${i.name}${i.note ? `<br><span style="font-size:13px;color:#666">${i.note}</span>` : ''}</td>
       <td style="text-align:right;white-space:nowrap;font-size:16px;padding-left:4px">${i.qty}×${Number(i.price).toFixed(2)}</td>
       <td style="text-align:right;font-size:16px;padding-left:4px">${(i.price*i.qty-i.disc).toFixed(2)}</td>
     </tr>`).join('')
