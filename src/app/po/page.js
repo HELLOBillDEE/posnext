@@ -17,6 +17,8 @@ export default function POPage() {
   const [filterStatus, setFilterStatus] = useState('')
   const [saving, setSaving]       = useState(false)
   const [printPO, setPrintPO]     = useState(null)
+  const [editItems, setEditItems] = useState([])
+  const [editForm, setEditForm]   = useState({ supplier_id:'', note:'' })
   const [scanReceive, setScanReceive] = useState(false)
   const [scanInput, setScanInput]    = useState('')
   const [scanItems, setScanItems]    = useState([])
@@ -229,6 +231,81 @@ export default function POPage() {
     }
   }
 
+  function startEditPO(po) {
+    setEditForm({ supplier_id: po.supplier_id ? String(po.supplier_id) : '', note: po.note || '' })
+    setEditItems((po.po_items || []).map(i => ({
+      id: i.id, product_id: String(i.product_id), product_name: i.product_name,
+      barcode: i.barcode||'', unit: i.unit||'', qty: i.qty, cost: String(i.cost),
+      subtotal: i.subtotal,
+    })))
+    setView('edit')
+  }
+
+  async function saveEditPO() {
+    if (editItems.filter(i => i.product_id).length === 0) return alert('ต้องมีสินค้าอย่างน้อย 1 รายการ')
+    setSaving(true)
+    try {
+      const total = editItems.reduce((s,i) => s + parseFloat(i.qty||0)*parseFloat(i.cost||0), 0)
+      // Delete old items
+      await supabase.from('po_items').delete().eq('po_id', selected.id)
+      // Insert new items
+      await supabase.from('po_items').insert(
+        editItems.filter(i => i.product_id).map(i => ({
+          po_id: selected.id,
+          product_id: parseInt(i.product_id),
+          product_name: i.product_name, barcode: i.barcode, unit: i.unit,
+          qty: parseFloat(i.qty)||1, cost: parseFloat(i.cost)||0,
+          subtotal: parseFloat(i.qty||0)*parseFloat(i.cost||0),
+        }))
+      )
+      await supabase.from('purchase_orders').update({
+        supplier_id: editForm.supplier_id ? parseInt(editForm.supplier_id) : null,
+        note: editForm.note||null, total, subtotal: total,
+      }).eq('id', selected.id)
+      await openDetail({ id: selected.id })
+      setView('detail')
+    } catch (e) { alert('เกิดข้อผิดพลาด: ' + e.message)
+    } finally { setSaving(false) }
+  }
+
+  function setEditItemField(idx, field, val) {
+    setEditItems(prev => {
+      const n = [...prev]
+      n[idx] = { ...n[idx], [field]: val }
+      if (field === 'product_id') {
+        const prod = products.find(p => String(p.id) === val)
+        if (prod) n[idx] = { ...n[idx], product_name: prod.name, barcode: prod.barcode||'', unit: prod.unit||'', cost: String(prod.cost||'') }
+      }
+      return n
+    })
+  }
+
+  async function deletePO(po) {
+    const hasStock = po.status === 'received'
+    const msg = hasStock
+      ? `ลบ PO ${po.po_no}? เนื่องจากรับสินค้าแล้ว สต็อกจะถูกหักคืนอัตโนมัติ`
+      : `ลบ PO ${po.po_no}? การกระทำนี้ไม่สามารถย้อนกลับได้`
+    if (!confirm(msg)) return
+    setSaving(true)
+    try {
+      if (hasStock) {
+        // Reverse stock
+        const { data: items } = await supabase.from('po_items').select('*').eq('po_id', po.id)
+        for (const item of (items || [])) {
+          if (!item.product_id) continue
+          const { data: pd } = await supabase.from('products').select('stock').eq('id', item.product_id).single()
+          await supabase.from('products').update({ stock: Math.max(0, (pd?.stock||0) - item.qty) }).eq('id', item.product_id)
+        }
+      }
+      await supabase.from('po_items').delete().eq('po_id', po.id)
+      await supabase.from('purchase_orders').delete().eq('id', po.id)
+      setView('list'); setSelected(null)
+      loadAll()
+      alert('ลบ PO เรียบร้อย' + (hasStock ? ' และหักคืนสต็อกแล้ว' : ''))
+    } catch (e) { alert('เกิดข้อผิดพลาด: ' + e.message)
+    } finally { setSaving(false) }
+  }
+
   function openScanReceive() {
     // เตรียมรายการจาก PO items
     setScanItems((selected?.po_items || []).map(i => ({ ...i, received: 0 })))
@@ -421,6 +498,94 @@ export default function POPage() {
     </div>
   )
 
+  // ===== Edit PO View =====
+  if (view === 'edit' && selected) {
+    const editTotal = editItems.reduce((s,i) => s + parseFloat(i.qty||0)*parseFloat(i.cost||0), 0)
+    return (
+      <div className="max-w-4xl mx-auto px-3 py-4">
+        <div className="flex items-center gap-3 mb-4">
+          <button onClick={() => setView('detail')} className="text-gray-400 text-xl">←</button>
+          <h1 className="font-heading font-bold text-xl text-amber-600">✏️ แก้ไข {selected.po_no}</h1>
+        </div>
+        <div className="bg-white rounded-2xl border border-gray-200 p-4 shadow-sm mb-3 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">ซัพพลายเออร์</label>
+              <select value={editForm.supplier_id} onChange={e => setEditForm(p=>({...p,supplier_id:e.target.value}))}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:border-brand outline-none">
+                <option value="">— เลือก —</option>
+                {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">หมายเหตุ</label>
+              <input value={editForm.note} onChange={e => setEditForm(p=>({...p,note:e.target.value}))} placeholder="หมายเหตุ"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:border-brand outline-none" />
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden mb-3">
+          <div className="px-4 py-3 border-b border-gray-100 flex justify-between">
+            <span className="font-semibold text-sm text-gray-700">รายการสินค้า</span>
+            <button onClick={() => setEditItems(p => [...p, addItemRow()])} className="text-brand text-sm">+ เพิ่มแถว</button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="bg-gray-50 text-xs text-gray-500">
+                <th className="text-left px-3 py-2 font-medium">สินค้า</th>
+                <th className="text-center px-2 py-2 font-medium w-20">จำนวน</th>
+                <th className="text-right px-3 py-2 font-medium w-28">ราคาทุน</th>
+                <th className="text-right px-3 py-2 font-medium w-24">รวม</th>
+                <th className="w-8 py-2"></th>
+              </tr></thead>
+              <tbody className="divide-y divide-gray-50">
+                {editItems.map((item, idx) => (
+                  <tr key={idx}>
+                    <td className="px-3 py-1.5">
+                      <select value={item.product_id} onChange={e => setEditItemField(idx,'product_id',e.target.value)}
+                        className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:border-brand outline-none">
+                        <option value="">— เลือกสินค้า —</option>
+                        {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <input type="number" value={item.qty} min="0"
+                        onChange={e => setEditItemField(idx,'qty',e.target.value)}
+                        className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-center" />
+                    </td>
+                    <td className="px-3 py-1.5">
+                      <input type="number" value={item.cost}
+                        onChange={e => setEditItemField(idx,'cost',e.target.value)}
+                        placeholder="0.00"
+                        className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-right" />
+                    </td>
+                    <td className="px-3 py-1.5 text-right text-xs font-medium text-gray-700">
+                      ฿{fmt(parseFloat(item.qty||0) * parseFloat(item.cost||0))}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <button onClick={() => setEditItems(p => p.filter((_,i)=>i!==idx))} className="text-red-300 text-sm">✕</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="px-4 py-3 border-t border-gray-100 flex justify-between font-bold">
+            <span>รวมทั้งหมด</span>
+            <span className="text-brand">฿{fmt(editTotal)}</span>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => setView('detail')} className="flex-1 border border-gray-300 text-gray-600 py-3 rounded-xl text-sm">ยกเลิก</button>
+          <button onClick={saveEditPO} disabled={saving}
+            className="flex-1 bg-amber-500 text-white py-3 rounded-xl text-sm font-bold disabled:opacity-50 shadow active:scale-95">
+            {saving ? 'กำลังบันทึก...' : '💾 บันทึกการแก้ไข'}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   // ===== Detail View =====
   const po = selected
   if (view === 'detail' && po) return (
@@ -445,11 +610,19 @@ export default function POPage() {
             </button>
           )}
           {['draft','ordered'].includes(po.status) && (
+            <button onClick={() => startEditPO(po)}
+              className="bg-amber-500 text-white px-3 py-2 rounded-xl text-xs font-medium active:scale-95">✏️ แก้ไข</button>
+          )}
+          {['draft','ordered'].includes(po.status) && (
             <button onClick={() => updateStatus(po.id,'cancelled')}
               className="bg-red-500 text-white px-3 py-2 rounded-xl text-xs font-medium">ยกเลิก</button>
           )}
+          <button onClick={() => deletePO(po)} disabled={saving}
+            className="bg-slate-500 text-white px-3 py-2 rounded-xl text-xs font-medium active:scale-95 disabled:opacity-50">
+            🗑️ ลบ
+          </button>
           <button onClick={() => openPrint(po)}
-            className="bg-amber-500 text-white px-3 py-2 rounded-xl text-xs font-medium active:scale-95">🖨️ พิมพ์</button>
+            className="bg-gray-200 text-gray-700 px-3 py-2 rounded-xl text-xs font-medium active:scale-95">🖨️</button>
         </div>
       </div>
 
