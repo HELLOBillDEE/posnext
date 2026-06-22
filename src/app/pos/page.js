@@ -4,8 +4,6 @@ import { supabase } from '@/lib/supabase'
 import { convertThaiBarcode, fmt, genReceiptNo } from '@/lib/utils'
 import { printViaBridge, buildReceiptESCPOS, kickDrawerViaBridge } from '@/lib/printBridge'
 import { syncSaleToBillDee } from '@/lib/billdeeSyncClient'
-import generatePayload from 'promptpay-qr'
-import QRCode from 'qrcode'
 
 // HID keyboard usage-code → ASCII char
 const HID_KEY = {
@@ -74,11 +72,18 @@ export default function POSPage() {
   // Cleanup HID on unmount
   useEffect(() => () => { if (hidDevice?.opened) hidDevice.close() }, [hidDevice])
 
-  // Generate PromptPay QR when method = qr
+  // Generate PromptPay QR when method = qr (dynamic import to avoid SSR issues)
   useEffect(() => {
     if (payMethod !== 'qr' || !settings.promptpay_id || total <= 0) { setQrDataUrl(null); return }
-    const payload = generatePayload(settings.promptpay_id.replace(/-/g, ''), { amount: total })
-    QRCode.toDataURL(payload, { width: 280, margin: 1 }).then(setQrDataUrl).catch(() => setQrDataUrl(null))
+    let cancelled = false
+    Promise.all([import('promptpay-qr'), import('qrcode')]).then(([ppMod, qrMod]) => {
+      const generatePayload = ppMod.default || ppMod
+      const QRCode = qrMod.default || qrMod
+      const payload = generatePayload(settings.promptpay_id.replace(/-/g, ''), { amount: total })
+      return QRCode.toDataURL(payload, { width: 280, margin: 1 })
+    }).then(url => { if (!cancelled) setQrDataUrl(url) })
+      .catch(() => { if (!cancelled) setQrDataUrl(null) })
+    return () => { cancelled = true }
   }, [payMethod, total, settings.promptpay_id])
 
   async function loadData() {
