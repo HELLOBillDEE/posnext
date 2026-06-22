@@ -995,11 +995,19 @@ function ShiftModal({ mode, currentShift, onClose, onOpened, onClosed }) {
   async function loadShiftSummary() {
     const from = currentShift.opened_at
     const { data } = await supabase.from('sales')
-      .select('total,payment_method,status')
+      .select('total,payment_method,note,status')
       .gte('created_at', from).eq('status','completed')
     const salesTotal = (data || []).reduce((s,r) => s + Number(r.total), 0)
-    const cashSales  = (data || []).filter(r => r.payment_method === 'cash').reduce((s,r) => s + Number(r.total), 0)
-    const expected   = Number(currentShift.opening_cash) + cashSales
+    // Count cash from pure-cash sales AND extract cash portion from mixed payments
+    const cashSales = (data || []).reduce((s, r) => {
+      if (r.payment_method === 'cash') return s + Number(r.total)
+      if (r.payment_method === 'mixed' && r.note) {
+        const m = r.note.match(/สด ฿([\d,]+(?:\.\d+)?)/)
+        if (m) return s + parseFloat(m[1].replace(/,/g, ''))
+      }
+      return s
+    }, 0)
+    const expected = Number(currentShift.opening_cash) + cashSales
     setShiftSummary({ salesTotal, cashSales, expected, count: data?.length || 0 })
   }
 

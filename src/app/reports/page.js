@@ -102,21 +102,23 @@ export default function ReportsPage() {
       const lastDay = new Date(lastYM.slice(0,4), parseInt(lastYM.slice(5,7)), 0).getDate()
       const to = lastYM + '-' + String(lastDay).padStart(2, '0')
 
-      const [{ data: sales }, { data: pos }] = await Promise.all([
+      const [{ data: sales }, { data: pos }, { data: cfgRows }] = await Promise.all([
         supabase.from('sales').select('id,created_at,total,payment_method,note')
           .gte('created_at', from + 'T00:00:00').lte('created_at', to + 'T23:59:59')
           .eq('status', 'completed').order('created_at'),
-        supabase.from('purchase_orders').select('id,po_date,total,note')
-          .gte('po_date', from).lte('po_date', to).order('po_date'),
+        supabase.from('purchase_orders').select('id,created_at,total,note')
+          .gte('created_at', from + 'T00:00:00').lte('created_at', to + 'T23:59:59')
+          .order('created_at'),
+        supabase.from('settings').select('key,value'),
       ])
 
-      const cfg  = JSON.parse(localStorage.getItem('shop_settings') || '{}')
+      const cfg = Object.fromEntries((cfgRows || []).map(r => [r.key, r.value]))
       const rows = []
 
       // header
       const months = sorted.map(ym => {
         const m = parseInt(ym.slice(5, 7))
-        return MONTHS_TH[m - 1] + '  ' + (parseInt(ym.slice(0, 4)) + 543)
+        return MONTHS_TH[m] + '  ' + (parseInt(ym.slice(0, 4)) + 543)
       }).join(' - ')
 
       rows.push(['รายงานเงินสดรับ - จ่าย'])
@@ -141,7 +143,7 @@ export default function ReportsPage() {
           note: s.payment_method === 'cash' ? 'เงินสด' : s.payment_method === 'transfer' ? 'โอนเงิน' : (s.payment_method||''),
         })),
         ...(pos||[]).map(p => ({
-          date: p.po_date,
+          date: p.created_at?.slice(0, 10),
           label: 'ซื้อสินค้า',
           income: 0, buy: Number(p.total), other: 0,
           note: p.note || '',

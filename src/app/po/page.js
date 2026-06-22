@@ -237,21 +237,32 @@ export default function POPage() {
         let productId = item.product_id && item.product_id !== 'new' ? item.product_id : null
         if (item.isNew || item.product_id === 'new') {
           const { data: newProd } = await supabase.from('products').insert({
-            name: item.name,
-            barcode: item.barcode || null,
-            unit: item.unit || 'ชิ้น',
-            cost: item.cost || 0,
-            price: item.price || 0,
-            stock: item.qty || 0,
-            active: true,
+            name: item.name, barcode: item.barcode || null,
+            unit: item.unit || 'ชิ้น', cost: item.cost || 0,
+            price: item.price || 0, stock: item.qty || 0, active: true,
           }).select('id').single()
           productId = newProd?.id
+          if (productId && item.qty > 0) {
+            await supabase.from('stock_history').insert({
+              product_id: productId, type: 'receive',
+              qty_before: 0, qty_change: item.qty || 0, qty_after: item.qty || 0,
+              note: 'รับสินค้า AI สแกน (สินค้าใหม่)',
+            })
+          }
         } else if (productId) {
+          const qtyBefore = item.currentStock ?? 0
           await supabase.from('products').update({
             stock: item.newStock,
             ...(item.cost  ? { cost:  item.cost  } : {}),
             ...(item.price ? { price: item.price } : {}),
           }).eq('id', productId)
+          if ((item.qty || 0) > 0) {
+            await supabase.from('stock_history').insert({
+              product_id: productId, type: 'receive',
+              qty_before: qtyBefore, qty_change: item.qty || 0, qty_after: item.newStock,
+              note: 'รับสินค้า AI สแกน',
+            })
+          }
         }
         if (productId) {
           poItemsData.push({
@@ -357,12 +368,19 @@ export default function POPage() {
     setSaving(true)
     try {
       if (hasStock) {
-        // Reverse stock
         const { data: items } = await supabase.from('po_items').select('*').eq('po_id', po.id)
         for (const item of (items || [])) {
-          if (!item.product_id) continue
-          const { data: pd } = await supabase.from('products').select('stock').eq('id', item.product_id).single()
-          await supabase.from('products').update({ stock: Math.max(0, (pd?.stock||0) - item.qty) }).eq('id', item.product_id)
+          if (!item.product_id || !item.qty) continue
+          try {
+            const { error: rpcErr } = await supabase.rpc('adjust_stock', {
+              p_product_id: item.product_id, p_qty_change: -item.qty,
+              p_type: 'po_delete', p_ref_id: po.id,
+            })
+            if (rpcErr) throw rpcErr
+          } catch {
+            const { data: pd } = await supabase.from('products').select('stock').eq('id', item.product_id).single()
+            await supabase.from('products').update({ stock: (pd?.stock || 0) - item.qty }).eq('id', item.product_id)
+          }
         }
       }
       await supabase.from('po_items').delete().eq('po_id', po.id)

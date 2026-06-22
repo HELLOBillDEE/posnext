@@ -488,13 +488,13 @@ function AddExpenseModal({ onClose, onSaved }) {
   async function scanBill(file) {
     setScanError('')
     setScanning(true)
-    try {
-      const reader = new FileReader()
-      reader.readAsDataURL(file)
-      reader.onload = async () => {
+    const reader = new FileReader()
+    reader.readAsDataURL(file)
+    reader.onload = async () => {
+      try {
         const base64 = reader.result.split(',')[1]
         const mediaType = file.type || 'image/jpeg'
-        setImageUrl(reader.result) // preview
+        setImageUrl(reader.result)
         const res = await fetch('/api/analyze-expense', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -507,12 +507,13 @@ function AddExpenseModal({ onClose, onSaved }) {
         if (json.category)    setCategory(CATS.includes(json.category) ? json.category : 'อื่นๆ')
         if (json.expense_date) setDate(json.expense_date)
         setScanError('')
+      } catch (e) {
+        setScanError('สแกนไม่ได้: ' + e.message)
+      } finally {
+        setScanning(false)
       }
-    } catch (e) {
-      setScanError('สแกนไม่ได้: ' + e.message)
-    } finally {
-      setScanning(false)
     }
+    reader.onerror = () => { setScanError('อ่านไฟล์ไม่ได้'); setScanning(false) }
   }
 
   async function save() {

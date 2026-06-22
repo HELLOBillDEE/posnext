@@ -1,9 +1,6 @@
 import { NextResponse } from 'next/server'
 
-// Routes employees are allowed to access
-const EMP_ALLOWED = ['/pos', '/documents']
-
-// Routes that require admin (not accessible in employee mode)
+// Routes that require admin (employees are redirected away)
 const ADMIN_ONLY = ['/admin', '/employees', '/reports', '/expenses', '/shifts', '/po']
 
 export function middleware(request) {

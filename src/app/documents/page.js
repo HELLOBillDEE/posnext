@@ -68,7 +68,16 @@ export default function DocumentsPage() {
       if (error) throw error
       for (const item of items) {
         if (!item.product_id) continue
-        await supabase.rpc('increment_stock', { p_id: item.product_id, qty: Number(item.qty) })
+        try {
+          const { error: rpcErr } = await supabase.rpc('adjust_stock', {
+            p_product_id: item.product_id, p_qty_change: Number(item.qty),
+            p_type: 'void', p_ref_id: id,
+          })
+          if (rpcErr) throw rpcErr
+        } catch {
+          const { data: pd } = await supabase.from('products').select('stock').eq('id', item.product_id).single()
+          await supabase.from('products').update({ stock: (pd?.stock || 0) + Number(item.qty) }).eq('id', item.product_id)
+        }
       }
       setDetail(null)
       loadData()
@@ -338,13 +347,13 @@ function EditBillModal({ sale, onClose, onSaved }) {
   useEffect(() => {
     setItems((sale.sale_items || []).map(i => ({
       id: i.id, pid: i.product_id, name: i.product_name, qty: i.qty,
-      price: i.price, disc: i.discount || 0, unit: i.unit,
+      price: i.price, cost: i.cost || 0, disc: i.discount || 0, unit: i.unit,
     })))
   }, [sale])
 
   useEffect(() => {
     if (!prodSearch.trim()) { setProdResults([]); return }
-    supabase.from('products').select('id,name,price,unit,barcode')
+    supabase.from('products').select('id,name,price,cost,unit,barcode')
       .ilike('name', '%'+prodSearch+'%').eq('active', true).limit(8)
       .then(({ data }) => setProdResults(data || []))
   }, [prodSearch])
@@ -355,7 +364,7 @@ function EditBillModal({ sale, onClose, onSaved }) {
       if (idx >= 0) {
         const n = [...prev]; n[idx] = { ...n[idx], qty: n[idx].qty + 1 }; return n
       }
-      return [...prev, { id: null, pid: p.id, name: p.name, qty: 1, price: p.price, disc: 0, unit: p.unit }]
+      return [...prev, { id: null, pid: p.id, name: p.name, qty: 1, price: p.price, cost: p.cost || 0, disc: 0, unit: p.unit }]
     })
     setProdSearch(''); setProdResults([])
   }
@@ -386,7 +395,8 @@ function EditBillModal({ sale, onClose, onSaved }) {
       await supabase.from('sale_items').insert(
         items.map(i => ({
           sale_id: sale.id, product_id: i.pid, product_name: i.name,
-          unit: i.unit, qty: i.qty, price: i.price, discount: i.disc || 0,
+          unit: i.unit, qty: i.qty, price: i.price, cost: i.cost || 0,
+          discount: i.disc || 0,
           subtotal: i.price * i.qty - (i.disc || 0),
         }))
       )
