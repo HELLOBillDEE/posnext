@@ -86,6 +86,11 @@ export default function Nav() {
   const [pin, setPin]                     = useState('')
   const [pinError, setPinError]           = useState('')
 
+  const [showAdminPin, setShowAdminPin]     = useState(false)
+  const [adminPin, setAdminPin]             = useState('')
+  const [adminPinError, setAdminPinError]   = useState('')
+  const [storedAdminPin, setStoredAdminPin] = useState(null)
+
   if (path === '/login' || !auth?.user) return null
 
   const isAdmin = auth.role === 'admin'
@@ -100,6 +105,34 @@ export default function Nav() {
     setPin('')
     setPinError('')
     setShowEmpPicker(true)
+  }
+
+  async function openAdminPin() {
+    const { data } = await supabase.from('settings').select('value').eq('key', 'admin_pin').single()
+    setStoredAdminPin(data?.value || null)
+    setAdminPin('')
+    setAdminPinError('')
+    setShowAdminPin(true)
+  }
+
+  function handleAdminPinDigit(d) {
+    if (adminPin.length >= 4) return
+    const next = adminPin + d
+    setAdminPin(next)
+    if (next.length === 4) {
+      if (!storedAdminPin) {
+        setAdminPinError('ยังไม่ได้ตั้ง PIN แอดมิน — ไปตั้งที่หน้าตั้งค่าก่อน')
+        setAdminPin('')
+        return
+      }
+      if (next === storedAdminPin) {
+        auth.empLogout()
+        setShowAdminPin(false)
+      } else {
+        setAdminPinError('PIN ไม่ถูกต้อง')
+        setAdminPin('')
+      }
+    }
   }
 
   function handlePinDigit(d) {
@@ -193,16 +226,28 @@ export default function Nav() {
           </div>
           {/* Switch / Logout */}
           {auth.empMode ? (
-            <button onClick={auth.empLogout}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-white/40 transition-all group"
-              style={{ fontFamily: 'Sarabun, sans-serif' }}
-              onMouseEnter={e => e.currentTarget.style.background = 'rgba(16,185,129,0.1)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-              <div className="icon-glass icon-glass-inactive w-8 h-8 rounded-lg">
-                <span className="text-emerald-400 text-sm">🔄</span>
-              </div>
-              <span className="group-hover:text-emerald-400 transition-colors">สลับผู้ใช้</span>
-            </button>
+            <>
+              <button onClick={openEmpPicker}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm text-white/40 transition-all group mb-1"
+                style={{ fontFamily: 'Sarabun, sans-serif' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(16,185,129,0.1)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                <div className="icon-glass icon-glass-inactive w-8 h-8 rounded-lg">
+                  <span className="text-emerald-400 text-sm">🔄</span>
+                </div>
+                <span className="group-hover:text-emerald-400 transition-colors text-xs">สลับพนักงาน</span>
+              </button>
+              <button onClick={openAdminPin}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm text-white/40 transition-all group"
+                style={{ fontFamily: 'Sarabun, sans-serif' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.1)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                <div className="icon-glass icon-glass-inactive w-8 h-8 rounded-lg">
+                  <span className="text-red-400 text-sm">🔐</span>
+                </div>
+                <span className="group-hover:text-red-400 transition-colors text-xs">โหมดแอดมิน</span>
+              </button>
+            </>
           ) : (
             <>
               <button onClick={openEmpPicker}
@@ -271,6 +316,50 @@ export default function Nav() {
           })}
         </div>
       </nav>
+
+      {/* ── Admin PIN Modal ── */}
+      {showAdminPin && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)' }}
+          onClick={e => { if (e.target === e.currentTarget) setShowAdminPin(false) }}>
+          <div className="w-full max-w-xs rounded-3xl overflow-hidden"
+            style={{ background: 'linear-gradient(135deg,#0b1120,#1e1b4b)', border: '1px solid rgba(255,255,255,0.15)' }}>
+            <div className="px-5 pt-5 pb-3 flex items-center justify-between">
+              <p className="font-bold text-white text-base">🔐 เข้าโหมดแอดมิน</p>
+              <button onClick={() => setShowAdminPin(false)} className="text-white/40 hover:text-white text-xl leading-none">✕</button>
+            </div>
+            <div className="px-5 pb-6">
+              <div className="flex justify-center gap-4 mb-2 mt-2">
+                {[0,1,2,3].map(i => (
+                  <div key={i} className={`w-4 h-4 rounded-full transition-all ${i < adminPin.length ? 'bg-red-400 scale-110' : 'bg-white/20'}`} />
+                ))}
+              </div>
+              <p className="text-center text-white/40 text-xs mb-3">กรอก PIN แอดมิน 4 หลัก</p>
+              {adminPinError && <p className="text-center text-red-400 text-xs mb-2">{adminPinError}</p>}
+              <div className="grid grid-cols-3 gap-2">
+                {[1,2,3,4,5,6,7,8,9].map(d => (
+                  <button key={d} onClick={() => handleAdminPinDigit(String(d))}
+                    className="py-3 rounded-2xl text-xl font-bold text-white active:scale-95 transition-all"
+                    style={{ background: 'rgba(255,255,255,0.1)' }}>
+                    {d}
+                  </button>
+                ))}
+                <div />
+                <button onClick={() => handleAdminPinDigit('0')}
+                  className="py-3 rounded-2xl text-xl font-bold text-white active:scale-95 transition-all"
+                  style={{ background: 'rgba(255,255,255,0.1)' }}>
+                  0
+                </button>
+                <button onClick={() => { setAdminPin(p => p.slice(0,-1)); setAdminPinError('') }}
+                  className="py-3 rounded-2xl text-white/50 active:scale-95 transition-all text-lg"
+                  style={{ background: 'rgba(255,255,255,0.05)' }}>
+                  ⌫
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Employee Picker Modal ── */}
       {showEmpPicker && (

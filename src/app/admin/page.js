@@ -15,6 +15,7 @@ const SETTING_FIELDS = [
   { key:'vat_rate',        label:'อัตรา VAT (%)',                     placeholder:'7 หรือ 0 (ถ้าไม่คิด VAT)' },
   { key:'ot_rate',         label:'อัตรา OT/ชม. (บาท)',               placeholder:'75' },
   { key:'receipt_footer',  label:'ข้อความท้ายใบเสร็จ',               placeholder:'ขอบคุณที่ใช้บริการ' },
+  { key:'admin_pin',       label:'PIN เข้าโหมดแอดมิน (4 หลัก)',     placeholder:'ตัวเลข 4 หลัก เช่น 1234' },
 ]
 
 const TABS = ['ตั้งค่าร้าน', 'เครื่องพิมพ์', 'ลูกค้า', 'ซัพพลายเออร์', 'ประวัติสต็อก', '🔗 BillDEE Sync']
