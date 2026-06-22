@@ -16,10 +16,12 @@ function tis620(str) {
   return out
 }
 
-// ส่ง ESC/POS ไปเครื่องพิมพ์ผ่าน local print bridge
+// ส่ง ESC/POS ไปเครื่องพิมพ์ผ่าน Next.js API route (ไม่ต้องมี bridge server)
 export async function printViaBridge(bridgeUrl, ip, port, bytes) {
   const b64 = btoa(Array.from(bytes).map(b => String.fromCharCode(b)).join(''))
-  const url = bridgeUrl.replace(/\/$/, '') + '/print'
+  // bridgeUrl ใช้ origin ของ Next.js server (Mac ในร้าน)
+  const origin = bridgeUrl || (typeof window !== 'undefined' ? window.location.origin : '')
+  const url = origin.replace(/\/$/, '') + '/api/print-raw'
   const ctrl = new AbortController()
   const tid = setTimeout(() => ctrl.abort(), 8000)
   try {
@@ -29,7 +31,7 @@ export async function printViaBridge(bridgeUrl, ip, port, bytes) {
       body: JSON.stringify({ ip, port: parseInt(port) || 9100, data: b64 }),
       signal: ctrl.signal,
     })
-    if (!res.ok) throw new Error('Bridge: ' + await res.text())
+    if (!res.ok) throw new Error('Print error: ' + await res.text())
   } finally {
     clearTimeout(tid)
   }

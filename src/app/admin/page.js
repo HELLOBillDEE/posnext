@@ -264,15 +264,7 @@ export default function AdminPage() {
             />
           </div>
 
-          <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 text-sm text-blue-700 space-y-1.5">
-            <p className="font-semibold">📌 วิธีตั้งค่า Print Bridge</p>
-            <p>1. ติดตั้ง <strong>Node.js</strong> (nodejs.org) ที่คอมในร้าน</p>
-            <p>2. ดับเบิลคลิก <code className="bg-blue-100 px-1 rounded text-xs">start.bat</code> ใน folder print-bridge</p>
-            <p>3. จะขึ้น Bridge URL เช่น <strong>https://192.168.x.x:9001</strong></p>
-            <p>4. เปิด URL นั้นบน iPad → กด <strong>ดาวน์โหลด Certificate</strong> → ไปติดตั้งใน Settings</p>
-            <p>5. ใส่ Bridge URL และ IP เครื่องพิมพ์ด้านบน แล้วกดบันทึก</p>
-            <p className="text-blue-500 text-xs">ℹ️ ถ้า HTTPS ไม่ผ่าน ใส่ http://[IP]:9000 แทน (ก่อนติดตั้ง cert)</p>
-          </div>
+
 
           <button onClick={savePrinters}
             className={`w-full py-3.5 rounded-xl text-sm font-bold transition-all shadow active:scale-95
@@ -512,15 +504,9 @@ function PrinterFields({ values, onChange, paperOptions }) {
           ))}
         </div>
       </div>
-      {/* Print Bridge URL */}
-      <div className="pt-1 border-t border-slate-100">
-        <label className="text-xs font-semibold text-slate-500 block mb-1.5">
-          Print Bridge URL
-          <span className="ml-1.5 font-normal text-slate-400">(สำหรับพิมพ์ตรง IP ไม่ผ่าน dialog)</span>
-        </label>
-        <input value={values.bridge_url || ''} onChange={e => onChange({ bridge_url: e.target.value })}
-          className="field w-full font-mono text-xs" placeholder="http://192.168.2.100:9001" />
-        <p className="text-[10px] text-slate-400 mt-1">รัน bridge.js ที่คอมในร้าน แล้วใส่ IP คอม:9001 ที่นี่</p>
+      <div className="pt-1 border-t border-slate-100 bg-emerald-50 rounded-xl px-3 py-2">
+        <p className="text-[11px] text-emerald-700 font-semibold">✅ พิมพ์ผ่าน WiFi โดยตรง</p>
+        <p className="text-[10px] text-emerald-600 mt-0.5">ใส่ IP เครื่องพิมพ์ด้านบน แล้วเปิดแอปบน Mac ในร้าน — iPad จะพิมพ์ได้ทันที ไม่ต้องตั้งค่าเพิ่ม</p>
       </div>
     </div>
   )

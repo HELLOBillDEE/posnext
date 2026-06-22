@@ -47,6 +47,8 @@ export default function POSPage() {
   const [note, setNote]             = useState('')
   const [saving, setSaving]         = useState(false)
   const [lastDone, setLastDone]     = useState(null)
+  const [customer, setCustomer]     = useState(null)  // { id, name, phone }
+  const [showCustModal, setShowCustModal] = useState(false)
   // Web HID scanner
   const [hidDevice, setHidDevice]   = useState(null)
   const [hidError, setHidError]     = useState('')
@@ -67,11 +69,13 @@ export default function POSPage() {
   useEffect(() => () => { if (hidDevice?.opened) hidDevice.close() }, [hidDevice])
 
   async function loadData() {
-    const [{ data: prods }, { data: cats }, { data: cfg }] = await Promise.all([
+    const [{ data: prods, error: prodErr }, { data: cats }, { data: cfg }] = await Promise.all([
       supabase.from('products').select('*, categories(name)').eq('active', true).order('name'),
       supabase.from('categories').select('*').order('name'),
       supabase.from('settings').select('*'),
     ])
+    if (prodErr) console.error('❌ products error:', prodErr)
+    console.log('✅ products loaded:', prods?.length, prods?.[0])
     setProducts(prods || [])
     setCategories(cats || [])
     if (cfg) setSettings(Object.fromEntries(cfg.map(r => [r.key, r.value])))
@@ -231,7 +235,7 @@ export default function POSPage() {
     // เปิด popup ทันทีใน user-gesture context (ก่อน await ใดๆ)
     // Safari block popup ถ้าเรียกหลัง async — ต้องเปิดก่อน แล้ว write ทีหลัง
     const cfg = JSON.parse(localStorage.getItem('printer_receipt') || '{}')
-    const useBridge = !!(cfg.bridge_url && cfg.ip)
+    const useBridge = !!cfg.ip  // ถ้ามี IP เครื่องพิมพ์ → พิมพ์ผ่าน API โดยตรง
     let receiptWin = null
     if (!useBridge) {
       receiptWin = window.open('', '_blank', 'width=320,height=600')
@@ -282,10 +286,10 @@ export default function POSPage() {
       // พิมพ์อัตโนมัติ + เปิดลิ้นชัก
       if (useBridge) {
         buildReceiptESCPOS(receipt, parseInt(cfg.paper_width) || 80).then(bytes =>
-          printViaBridge(cfg.bridge_url, cfg.ip, cfg.port || 9100, bytes)
-            .catch(e => console.warn('Bridge print error:', e.message))
+          printViaBridge('', cfg.ip, cfg.port || 9100, bytes)
+            .catch(e => console.warn('Print error:', e.message))
         )
-        kickDrawerViaBridge(cfg.bridge_url, cfg.ip, cfg.port || 9100)
+        kickDrawerViaBridge('', cfg.ip, cfg.port || 9100)
           .catch(e => console.warn('Drawer kick error:', e.message))
       } else if (receiptWin) {
         // Popup fallback (ต้องเปิดไว้ก่อนแล้ว)
@@ -301,7 +305,7 @@ export default function POSPage() {
         settings.shop_name || ''
       )
 
-      setCart([]); setBillDiscount(''); setPayAmount(''); setNote(''); setShowPay(false)
+      setCart([]); setBillDiscount(''); setPayAmount(''); setNote(''); setCustomer(null); setShowPay(false)
     } catch (e) {
       if (receiptWin) receiptWin.close()
       alert('เกิดข้อผิดพลาด: ' + (e?.message || JSON.stringify(e)))
@@ -312,12 +316,12 @@ export default function POSPage() {
 
   async function openReceipt(r) {
     const cfg = JSON.parse(localStorage.getItem('printer_receipt') || '{}')
-    if (cfg.bridge_url && cfg.ip) {
+    if (cfg.ip) {
       try {
         const bytes = await buildReceiptESCPOS(r, parseInt(cfg.paper_width) || 80)
-        await printViaBridge(cfg.bridge_url, cfg.ip, cfg.port || 9100, bytes)
+        await printViaBridge('', cfg.ip, cfg.port || 9100, bytes)
         return
-      } catch (e) { console.warn('Bridge print failed:', e.message) }
+      } catch (e) { console.warn('Print failed:', e.message) }
     }
     const w = window.open('', '_blank', 'width=320,height=600')
     if (!w) return
@@ -439,6 +443,18 @@ export default function POSPage() {
                 className="text-xs text-red-400 px-3 py-1.5 rounded-lg hover:bg-red-50 font-medium transition-colors">ล้าง</button>
             )}
           </div>
+          {/* Customer row */}
+          <button onClick={() => setShowCustModal(true)}
+            className="w-full px-4 py-2.5 flex items-center gap-2 bg-blue-50/60 border-b border-blue-100 hover:bg-blue-50 transition-colors text-left">
+            <span className="text-base shrink-0">{customer ? '👤' : '➕'}</span>
+            <span className="text-sm font-medium text-blue-700 flex-1 truncate">
+              {customer ? customer.name : 'เลือก / เพิ่มลูกค้า'}
+            </span>
+            {customer && (
+              <button onClick={e => { e.stopPropagation(); setCustomer(null) }}
+                className="text-blue-300 hover:text-red-400 text-lg leading-none shrink-0">×</button>
+            )}
+          </button>
 
           {/* Cart items */}
           <div className="flex-1 overflow-y-auto">
@@ -568,6 +584,83 @@ export default function POSPage() {
           </div>
         </div>
       )}
+
+      {/* ── Customer Modal ── */}
+      {showCustModal && (
+        <CustomerModal
+          onSelect={c => { setCustomer(c); setShowCustModal(false) }}
+          onClose={() => setShowCustModal(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+function CustomerModal({ onSelect, onClose }) {
+  const [search, setSearch]   = useState('')
+  const [customers, setCustomers] = useState([])
+  const [name, setName]       = useState('')
+  const [phone, setPhone]     = useState('')
+  const [saving, setSaving]   = useState(false)
+
+  useEffect(() => { loadCustomers() }, [search])
+
+  async function loadCustomers() {
+    const q = supabase.from('customers').select('id,name,phone').order('name').limit(20)
+    const { data } = search ? await q.ilike('name', '%'+search+'%') : await q
+    setCustomers(data || [])
+  }
+
+  async function addNew() {
+    if (!name.trim()) return
+    setSaving(true)
+    const { data, error } = await supabase.from('customers')
+      .insert({ name: name.trim(), phone: phone.trim() }).select().single()
+    setSaving(false)
+    if (!error && data) onSelect({ id: data.id, name: data.name, phone: data.phone })
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-end md:items-center justify-center p-3"
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden fade-in">
+        <div className="bg-blue-700 text-white px-4 py-3.5 flex justify-between items-center">
+          <h2 className="font-bold text-base">👤 เลือกลูกค้า</h2>
+          <button onClick={onClose} className="text-2xl leading-none opacity-70">×</button>
+        </div>
+        <div className="p-4 space-y-3">
+          <input value={search} onChange={e => setSearch(e.target.value)} autoFocus
+            placeholder="ค้นหาชื่อลูกค้า..."
+            className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-blue-400 outline-none" />
+
+          <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-100 divide-y divide-slate-50">
+            {customers.map(c => (
+              <button key={c.id} onClick={() => onSelect({ id: c.id, name: c.name, phone: c.phone })}
+                className="w-full px-4 py-3 text-left hover:bg-blue-50 transition-colors flex justify-between items-center">
+                <span className="font-medium text-sm text-slate-700">{c.name}</span>
+                <span className="text-xs text-slate-400">{c.phone}</span>
+              </button>
+            ))}
+            {customers.length === 0 && <p className="text-center py-4 text-slate-400 text-sm">ไม่พบลูกค้า</p>}
+          </div>
+
+          <div className="border-t border-slate-100 pt-3">
+            <p className="text-xs font-semibold text-slate-500 mb-2">เพิ่มลูกค้าใหม่</p>
+            <div className="flex gap-2 mb-2">
+              <input value={name} onChange={e => setName(e.target.value)}
+                placeholder="ชื่อลูกค้า *"
+                className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:border-blue-400 outline-none" />
+              <input value={phone} onChange={e => setPhone(e.target.value)}
+                placeholder="เบอร์โทร"
+                className="w-32 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:border-blue-400 outline-none" />
+            </div>
+            <button onClick={addNew} disabled={!name.trim() || saving}
+              className="w-full bg-blue-600 text-white font-bold py-2.5 rounded-xl text-sm disabled:opacity-40">
+              {saving ? '⏳...' : '+ บันทึกและเลือก'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

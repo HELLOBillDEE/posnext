@@ -22,10 +22,8 @@ export default function DocumentsPage() {
     setLoading(true)
     const { data: cfg } = await supabase.from('settings').select('*')
     if (cfg) setSettings(Object.fromEntries(cfg.map(r => [r.key, r.value])))
-
     const from = dateFrom + 'T00:00:00'
     const to   = dateTo   + 'T23:59:59'
-
     if (tab === 0) {
       const { data } = await supabase.from('sales')
         .select('*, customers(name)')
@@ -60,20 +58,14 @@ export default function DocumentsPage() {
   async function voidSale(id) {
     if (!confirm('ยกเลิกบิลนี้? สต็อกจะถูกคืนอัตโนมัติ')) return
     try {
-      // โหลด sale_items ก่อน (อาจมีใน detail แล้ว)
       const items = detail?.data?.sale_items
         ?? (await supabase.from('sale_items').select('*').eq('sale_id', id)).data ?? []
-
-      // void ก่อน
       const { error } = await supabase.from('sales').update({ status: 'voided' }).eq('id', id)
       if (error) throw error
-
-      // คืนสต็อกทีละชิ้น (increment stock)
       for (const item of items) {
         if (!item.product_id) continue
         await supabase.rpc('increment_stock', { p_id: item.product_id, qty: Number(item.qty) })
       }
-
       setDetail(null)
       loadData()
       alert('ยกเลิกบิลและคืนสต็อกเรียบร้อย')
@@ -84,13 +76,15 @@ export default function DocumentsPage() {
 
   function printDetail() {
     if (!detail) return
-    const win = window.open('', '_blank', 'width=640,height=800')
-    if (!win) return
-    win.document.write(detail.type === 'sale'
+    const html = detail.type === 'sale'
       ? buildFullReceiptHTML(detail.data, settings)
-      : buildFullPOHTML(detail.data, settings))
-    win.document.close()
-    setTimeout(() => win.print(), 400)
+      : buildFullPOHTML(detail.data, settings)
+    // Blob URL avoids Safari popup blocker and works with AirPrint
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+    const url  = URL.createObjectURL(blob)
+    const win  = window.open(url, '_blank')
+    setTimeout(() => URL.revokeObjectURL(url), 60000)
+    if (!win) alert('กรุณาอนุญาต Popup ใน Safari Settings → เพื่อใช้งาน AirPrint')
   }
 
   const filteredSales = sales.filter(s => !search || s.receipt_no.includes(search) || s.customers?.name?.includes(search))
@@ -100,7 +94,6 @@ export default function DocumentsPage() {
     <div className="max-w-4xl mx-auto px-3 py-4">
       <h1 className="font-heading font-bold text-xl text-brand mb-4">🧾 เอกสาร</h1>
 
-      {/* Tab bar */}
       <div className="flex gap-1 mb-4 overflow-x-auto scroll-hidden">
         {TABS.map((t, i) => (
           <button key={i} onClick={() => { setTab(i); setDetail(null) }}
@@ -109,7 +102,6 @@ export default function DocumentsPage() {
         ))}
       </div>
 
-      {/* Filters */}
       <div className="flex flex-wrap gap-2 mb-3">
         <input value={search} onChange={e => setSearch(e.target.value)}
           placeholder="ค้นหาเลขที่ / ชื่อ"
@@ -123,11 +115,9 @@ export default function DocumentsPage() {
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">
-        {/* List */}
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
           {loading && <div className="text-center py-8 text-gray-400 text-sm">กำลังโหลด...</div>}
 
-          {/* Sales list */}
           {tab === 0 && !loading && (
             <div className="divide-y divide-gray-50">
               {filteredSales.map(s => (
@@ -148,7 +138,6 @@ export default function DocumentsPage() {
             </div>
           )}
 
-          {/* PO list */}
           {tab === 1 && !loading && (
             <div className="divide-y divide-gray-50">
               {filteredPOs.map(p => (
@@ -176,7 +165,6 @@ export default function DocumentsPage() {
           )}
         </div>
 
-        {/* Detail panel */}
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
           {!detail && <div className="flex items-center justify-center h-full min-h-48 text-gray-300 text-sm">← กดเลือกรายการ</div>}
           {detail?.type === 'sale' && <SaleDetail d={detail.data} onVoid={() => voidSale(detail.data.id)} onPrint={printDetail} />}
@@ -196,11 +184,18 @@ function SaleDetail({ d, onVoid, onPrint }) {
           <p className="text-[10px] opacity-70">{fmtDT(d.created_at)}</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={onPrint} className="bg-white/20 text-white px-3 py-1.5 rounded-lg text-xs font-medium">🖨️ พิมพ์</button>
+          <button onClick={onPrint} className="bg-white/20 text-white px-3 py-1.5 rounded-lg text-xs font-medium">📄 A4 / AirPrint</button>
           {d.status !== 'voided' && <button onClick={onVoid} className="bg-red-500 text-white px-3 py-1.5 rounded-lg text-xs">ยกเลิก</button>}
         </div>
       </div>
       <div className="p-4 space-y-2">
+        {d.customers?.name && (
+          <div className="flex items-center gap-2 bg-blue-50 rounded-xl px-3 py-2 mb-1">
+            <span>👤</span>
+            <span className="text-sm font-medium text-blue-700">{d.customers.name}</span>
+            {d.customers.phone && <span className="text-xs text-blue-500">{d.customers.phone}</span>}
+          </div>
+        )}
         {(d.sale_items || []).map(i => (
           <div key={i.id} className="flex justify-between text-sm">
             <span className="flex-1 text-gray-700">{i.product_name} × {i.qty}</span>
@@ -229,7 +224,7 @@ function PODetail({ d, onPrint }) {
           <h2 className="font-bold text-sm">{d.po_no}</h2>
           <p className="text-[10px] opacity-70">{d.suppliers?.name || '—'}</p>
         </div>
-        <button onClick={onPrint} className="bg-white/20 text-white px-3 py-1.5 rounded-lg text-xs">🖨️ พิมพ์</button>
+        <button onClick={onPrint} className="bg-white/20 text-white px-3 py-1.5 rounded-lg text-xs">📄 A4 / AirPrint</button>
       </div>
       <div className="p-4 space-y-2">
         {(d.po_items || []).map(i => (
@@ -258,16 +253,20 @@ function buildFullReceiptHTML(d, s) {
   const rows = (d.sale_items || []).map(i => `
     <tr><td>${i.product_name}</td><td style="text-align:center">${i.qty}</td><td style="text-align:right">฿${fmt(i.price)}</td><td style="text-align:right">฿${fmt(i.subtotal)}</td></tr>`).join('')
   return `<!DOCTYPE html><html><head><meta charset="UTF-8">
-  <style>body{font-family:'Sarabun',sans-serif;font-size:12px;max-width:21cm;margin:auto;padding:15mm}
-  h2{font-size:18px;text-align:center}table{width:100%;border-collapse:collapse;margin:10px 0}
-  th{background:#1a4731;color:white;padding:6px}td{padding:5px 8px;border-bottom:1px solid #eee}
-  .total{font-weight:bold;font-size:14px}.right{text-align:right}
-  @media print{body{margin:5mm;padding:5mm}}</style></head><body>
+  <style>
+  @page { size: A4; margin: 15mm; }
+  body{font-family:'Sarabun',sans-serif;font-size:13px;max-width:21cm;margin:auto}
+  h2{font-size:20px;text-align:center;margin-bottom:4px}
+  table{width:100%;border-collapse:collapse;margin:10px 0}
+  th{background:#1a4731;color:white;padding:7px}td{padding:5px 8px;border-bottom:1px solid #eee}
+  .total{font-weight:bold;font-size:15px}.right{text-align:right}
+  .cust{background:#f0f7ff;border:1px solid #cce0ff;border-radius:8px;padding:8px 12px;margin:8px 0}
+  </style></head><body>
   <h2>${s.shop_name || 'ร้านค้า'}</h2>
-  <p style="text-align:center">${s.shop_address || ''} ${s.shop_phone ? '| โทร: '+s.shop_phone : ''}</p>
+  <p style="text-align:center;color:#555">${s.shop_address || ''} ${s.shop_phone ? '| โทร: '+s.shop_phone : ''}</p>
   <hr>
-  <table><tr><td><b>เลขที่บิล:</b> ${d.receipt_no}</td><td class="right"><b>วันที่:</b> ${fmtDT(d.created_at)}</td></tr>
-  ${d.customers?.name ? `<tr><td colspan="2"><b>ลูกค้า:</b> ${d.customers.name}</td></tr>` : ''}</table>
+  <table><tr><td><b>เลขที่บิล:</b> ${d.receipt_no}</td><td class="right"><b>วันที่:</b> ${fmtDT(d.created_at)}</td></tr></table>
+  ${d.customers?.name ? `<div class="cust">👤 <b>ลูกค้า:</b> ${d.customers.name}${d.customers.phone ? ' &nbsp;&nbsp;📞 '+d.customers.phone : ''}</div>` : ''}
   <table><thead><tr><th>สินค้า</th><th>จำนวน</th><th>ราคา</th><th>รวม</th></tr></thead><tbody>${rows}</tbody></table>
   <table style="width:50%;margin-left:auto">
     <tr><td>รวม</td><td class="right">฿${fmt(d.subtotal)}</td></tr>
@@ -282,11 +281,13 @@ function buildFullPOHTML(d, s) {
   const rows = (d.po_items || []).map(i => `
     <tr><td>${i.product_name}</td><td style="text-align:center">${i.qty} ${i.unit||''}</td><td style="text-align:right">฿${fmt(i.cost)}</td><td style="text-align:right">฿${fmt(i.subtotal)}</td></tr>`).join('')
   return `<!DOCTYPE html><html><head><meta charset="UTF-8">
-  <style>body{font-family:'Sarabun',sans-serif;font-size:12px;max-width:21cm;margin:auto;padding:15mm}
-  h2{font-size:18px}table{width:100%;border-collapse:collapse;margin:10px 0}
-  th{background:#1e4a8a;color:white;padding:6px}td{padding:5px 8px;border-bottom:1px solid #eee}
-  .total{font-weight:bold;font-size:14px}.right{text-align:right}
-  @media print{body{margin:5mm;padding:5mm}}</style></head><body>
+  <style>
+  @page { size: A4; margin: 15mm; }
+  body{font-family:'Sarabun',sans-serif;font-size:13px;max-width:21cm;margin:auto}
+  h2{font-size:20px}table{width:100%;border-collapse:collapse;margin:10px 0}
+  th{background:#1e4a8a;color:white;padding:7px}td{padding:5px 8px;border-bottom:1px solid #eee}
+  .total{font-weight:bold;font-size:15px}.right{text-align:right}
+  </style></head><body>
   <h2>ใบสั่งซื้อ (Purchase Order)</h2>
   <p>${s.shop_name || ''} ${s.shop_address ? '| '+s.shop_address : ''}</p>
   <hr>

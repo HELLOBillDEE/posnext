@@ -16,6 +16,7 @@ const IC = {
   receipt: <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M19.5 3.5L18 2l-1.5 1.5L15 2l-1.5 1.5L12 2l-1.5 1.5L9 2 7.5 3.5 6 2 4.5 3.5 3 2v20l1.5-1.5L6 22l1.5-1.5L9 22l1.5-1.5L12 22l1.5-1.5L15 22l1.5-1.5L18 22l1.5-1.5L21 22V2l-1.5 1.5zM19 19.09H5V4.91h14v14.18zM6 15h12v2H6zm0-4h12v2H6zm0-4h12v2H6z"/></svg>,
   trend: <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M16 6l2.29 2.29-4.88 4.88-4-4L2 16.59 3.41 18l6-6 4 4 6.3-6.29L22 12V6z"/></svg>,
   avg: <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14l-5-5 1.41-1.41L12 14.17l7.59-7.59L21 8l-9 9z"/></svg>,
+  expense: <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z"/></svg>,
   cal: <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M20 3h-1V1h-2v2H7V1H5v2H4c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 18H4V8h16v13z"/></svg>,
 }
 
@@ -27,6 +28,7 @@ const QUICK = [
   { label:'รายงาน', href:'/reports',  icon: IC.report,    grad:'linear-gradient(135deg,#059669,#34d399)' },
   { label:'เอกสาร', href:'/documents',icon: IC.doc,       grad:'linear-gradient(135deg,#d97706,#fbbf24)' },
   { label:'พนักงาน', href:'/employees',icon: IC.employees, grad:'linear-gradient(135deg,#e11d48,#fb7185)' },
+  { label:'ค่าใช้จ่าย', href:'/expenses', icon: IC.expense,   grad:'linear-gradient(135deg,#ea580c,#fb923c)' },
 ]
 
 export default function Dashboard() {
@@ -36,6 +38,7 @@ export default function Dashboard() {
   const [settings, setSettings]   = useState({})
   const [dateRange, setDateRange] = useState({ from: todayISO(), to: todayISO() })
   const [loading, setLoading]     = useState(true)
+  const [totalExpenses, setTotalExpenses] = useState(0)
 
   useEffect(() => { loadAll() }, [dateRange])
 
@@ -48,17 +51,20 @@ export default function Dashboard() {
       { data: low },
       { data: cfg },
       { data: recent },
+      { data: expData },
     ] = await Promise.all([
       supabase.from('sales').select('total,status').gte('created_at', from).lte('created_at', to).eq('status','completed'),
       supabase.from('products').select('id,name,stock,min_stock,unit').filter('stock','lte','min_stock').eq('active',true).order('stock').limit(8),
       supabase.from('settings').select('*'),
       supabase.from('sales').select('id,receipt_no,total,payment_method,created_at,status').gte('created_at', from).lte('created_at', to).order('created_at',{ascending:false}).limit(8),
+      supabase.from('expenses').select('amount').gte('expense_date', dateRange.from).lte('expense_date', dateRange.to),
     ])
     const completed = (salesData || []).filter(s => s.status === 'completed')
     const revenue = completed.reduce((s, r) => s + Number(r.total), 0)
     const orders  = completed.length
     setStats({ revenue, orders, avg: orders ? revenue / orders : 0 })
     setRecentSales(recent || [])
+    setTotalExpenses((expData || []).reduce((s, e) => s + Number(e.amount), 0))
     setLowStock((low || []).filter(p => p.stock <= p.min_stock))
     if (cfg) setSettings(Object.fromEntries(cfg.map(r => [r.key, r.value])))
     setLoading(false)
@@ -105,7 +111,7 @@ export default function Dashboard() {
       </div>
 
       {/* ── KPI Cards ── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
 
         {/* Revenue */}
         <div className="card p-4">
@@ -157,6 +163,19 @@ export default function Dashboard() {
           </div>
           <p className="font-bold text-lg text-violet-600 leading-none">{fmtDate(todayISO())}</p>
           <p className="text-xs text-slate-400 mt-2">ปัจจุบัน</p>
+        </div>
+
+        {/* Expenses */}
+        <div className="card p-4 col-span-2 md:col-span-1">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">ค่าใช้จ่าย</p>
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center text-orange-500"
+              style={{ background:'rgba(234,88,12,0.1)' }}>
+              {IC.expense}
+            </div>
+          </div>
+          <p className="font-bold text-2xl text-orange-500 leading-none">฿{fmt(totalExpenses)}</p>
+          <p className="text-xs text-slate-400 mt-2"><Link href="/expenses" className="underline">ดูรายละเอียด →</Link></p>
         </div>
       </div>
 
