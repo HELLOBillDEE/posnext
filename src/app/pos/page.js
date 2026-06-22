@@ -49,6 +49,9 @@ export default function POSPage() {
   const [lastDone, setLastDone]     = useState(null)
   const [customer, setCustomer]     = useState(null)  // { id, name, phone }
   const [showCustModal, setShowCustModal] = useState(false)
+  const [shift, setShift]           = useState(null)   // current open shift
+  const [showShiftModal, setShowShiftModal] = useState(false)
+  const [shiftModalMode, setShiftModalMode] = useState('open') // 'open' | 'close'
   // Web HID scanner
   const [hidDevice, setHidDevice]   = useState(null)
   const [hidError, setHidError]     = useState('')
@@ -79,6 +82,9 @@ export default function POSPage() {
     setProducts(prods || [])
     setCategories(cats || [])
     if (cfg) setSettings(Object.fromEntries(cfg.map(r => [r.key, r.value])))
+    // Load current open shift
+    const { data: openShift } = await supabase.from('shifts').select('*').eq('status','open').order('opened_at',{ascending:false}).limit(1).maybeSingle()
+    setShift(openShift || null)
   }
 
   // ── Web HID Scanner ──
@@ -219,6 +225,17 @@ export default function POSPage() {
     const q = parseFloat(qty)
     if (isNaN(q) || q <= 0) { setCart(p => p.filter((_,i) => i !== idx)); return }
     setCart(p => { const n=[...p]; n[idx]={...n[idx],qty:q}; return n })
+  }
+
+  function setItemPrice(idx, price) {
+    const v = parseFloat(price)
+    if (isNaN(v) || v < 0) return
+    setCart(p => { const n=[...p]; n[idx]={...n[idx],price:v}; return n })
+  }
+
+  function setItemDisc(idx, disc) {
+    const v = parseFloat(disc) || 0
+    setCart(p => { const n=[...p]; n[idx]={...n[idx],disc:v}; return n })
   }
 
   const subtotal = cart.reduce((s, i) => s + i.price * i.qty - i.disc, 0)
@@ -374,6 +391,21 @@ export default function POSPage() {
         <div className="bg-red-600 text-white text-xs px-4 py-2 text-center">{hidError}</div>
       )}
 
+      {/* Shift banner */}
+      {shift ? (
+        <div className="bg-emerald-700 text-white px-4 py-2 flex items-center justify-between text-xs shrink-0">
+          <span className="font-semibold">🟢 กะเปิดอยู่ · เงินเริ่มต้น ฿{fmt(shift.opening_cash)} · เปิดเมื่อ {new Date(shift.opened_at).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})}</span>
+          <button onClick={() => { setShiftModalMode('close'); setShowShiftModal(true) }}
+            className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg font-semibold transition-colors">ปิดกะ</button>
+        </div>
+      ) : (
+        <div className="bg-slate-700 text-white px-4 py-2 flex items-center justify-between text-xs shrink-0">
+          <span className="opacity-60">ยังไม่ได้เปิดกะ</span>
+          <button onClick={() => { setShiftModalMode('open'); setShowShiftModal(true) }}
+            className="bg-brand hover:bg-brand/80 px-3 py-1 rounded-lg font-semibold transition-colors">เปิดกะ</button>
+        </div>
+      )}
+
       <div className="flex flex-1 overflow-hidden">
 
         {/* ── Product panel ── */}
@@ -484,7 +516,17 @@ export default function POSPage() {
                       </div>
                       <span className="font-bold text-brand text-base">฿{fmt(item.price * item.qty - item.disc)}</span>
                     </div>
-                    <div className="text-xs text-slate-400 mt-1.5">฿{fmt(item.price)} × {item.qty} {item.unit}</div>
+                    <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                      <span className="text-[10px] text-slate-400">ราคา</span>
+                      <input type="number" value={item.price} onChange={e => setItemPrice(idx, e.target.value)}
+                        className="w-[72px] text-right border border-gray-100 rounded-lg px-1.5 py-0.5 text-xs font-semibold text-brand focus:border-brand outline-none bg-white" />
+                      <span className="text-[10px] text-slate-400">× {item.qty} {item.unit}</span>
+                      <span className="text-[10px] text-slate-300 ml-1">|</span>
+                      <span className="text-[10px] text-slate-400">ส่วนลด</span>
+                      <input type="number" value={item.disc || ''} onChange={e => setItemDisc(idx, e.target.value)}
+                        placeholder="0"
+                        className="w-14 text-right border border-gray-100 rounded-lg px-1.5 py-0.5 text-xs text-red-400 focus:border-red-300 outline-none bg-white" />
+                    </div>
                   </div>
                 ))}
               </div>
@@ -585,6 +627,18 @@ export default function POSPage() {
         </div>
       )}
 
+      {/* ── Shift Modal ── */}
+      {showShiftModal && (
+        <ShiftModal
+          mode={shiftModalMode}
+          currentShift={shift}
+          salesTotal={total}
+          onClose={() => setShowShiftModal(false)}
+          onOpened={s => { setShift(s); setShowShiftModal(false) }}
+          onClosed={() => { setShift(null); setShowShiftModal(false) }}
+        />
+      )}
+
       {/* ── Customer Modal ── */}
       {showCustModal && (
         <CustomerModal
@@ -659,6 +713,127 @@ function CustomerModal({ onSelect, onClose }) {
               {saving ? '⏳...' : '+ บันทึกและเลือก'}
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ShiftModal({ mode, currentShift, onClose, onOpened, onClosed }) {
+  const [openCash, setOpenCash]   = useState('')
+  const [closeCash, setCloseCash] = useState('')
+  const [note, setNote]           = useState('')
+  const [saving, setSaving]       = useState(false)
+  const [shiftSummary, setShiftSummary] = useState(null)
+
+  useEffect(() => {
+    if (mode === 'close' && currentShift) loadShiftSummary()
+  }, [mode, currentShift])
+
+  async function loadShiftSummary() {
+    const from = currentShift.opened_at
+    const { data } = await supabase.from('sales')
+      .select('total,payment_method,status')
+      .gte('created_at', from).eq('status','completed')
+    const salesTotal = (data || []).reduce((s,r) => s + Number(r.total), 0)
+    const cashSales  = (data || []).filter(r => r.payment_method === 'cash').reduce((s,r) => s + Number(r.total), 0)
+    const expected   = Number(currentShift.opening_cash) + cashSales
+    setShiftSummary({ salesTotal, cashSales, expected, count: data?.length || 0 })
+  }
+
+  async function openShift() {
+    if (!openCash) return alert('กรุณาใส่เงินเริ่มต้นในเก๊ะ')
+    setSaving(true)
+    const { data, error } = await supabase.from('shifts')
+      .insert({ opening_cash: parseFloat(openCash), note: note.trim()||null })
+      .select().single()
+    setSaving(false)
+    if (error) return alert('เกิดข้อผิดพลาด: ' + error.message)
+    onOpened(data)
+  }
+
+  async function closeShift() {
+    if (!closeCash) return alert('กรุณาใส่ยอดเงินที่นับได้')
+    setSaving(true)
+    const closing = parseFloat(closeCash)
+    const expected = shiftSummary?.expected || 0
+    const diff = closing - expected
+    const { error } = await supabase.from('shifts').update({
+      closed_at: new Date().toISOString(),
+      closing_cash: closing,
+      expected_cash: expected,
+      difference: diff,
+      sales_total: shiftSummary?.salesTotal || 0,
+      sales_count: shiftSummary?.count || 0,
+      note: note.trim() || null,
+      status: 'closed',
+    }).eq('id', currentShift.id)
+    setSaving(false)
+    if (error) return alert('เกิดข้อผิดพลาด: ' + error.message)
+    onClosed()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-end md:items-center justify-center p-3"
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden fade-in">
+        <div className={`text-white px-4 py-3.5 flex justify-between items-center ${mode==='open' ? 'bg-emerald-700' : 'bg-red-600'}`}>
+          <h2 className="font-bold text-base">{mode==='open' ? '🟢 เปิดกะ' : '🔴 ปิดกะ'}</h2>
+          <button onClick={onClose} className="text-2xl leading-none opacity-70">×</button>
+        </div>
+        <div className="p-4 space-y-3">
+          {mode === 'open' && (
+            <>
+              <div>
+                <label className="text-xs font-semibold text-slate-500 block mb-1.5">เงินเริ่มต้นในเก๊ะ (บาท) *</label>
+                <input type="number" value={openCash} onChange={e => setOpenCash(e.target.value)} autoFocus
+                  placeholder="0.00"
+                  className="w-full border-2 border-slate-200 rounded-2xl px-4 py-3 text-2xl text-right font-bold focus:border-emerald-500 outline-none" />
+              </div>
+              <input value={note} onChange={e => setNote(e.target.value)}
+                placeholder="หมายเหตุ (ถ้ามี)"
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+              <button onClick={openShift} disabled={saving}
+                className="w-full bg-emerald-600 text-white font-bold py-3.5 rounded-2xl text-base disabled:opacity-50">
+                {saving ? '⏳...' : '✓ เปิดกะ'}
+              </button>
+            </>
+          )}
+
+          {mode === 'close' && (
+            <>
+              {shiftSummary && (
+                <div className="bg-slate-50 rounded-2xl p-3 space-y-1.5 border border-slate-100">
+                  <div className="flex justify-between text-sm"><span className="text-slate-500">ยอดขายกะนี้</span><span className="font-bold text-brand">฿{fmt(shiftSummary.salesTotal)}</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-slate-500">เงินสดรับ</span><span className="font-semibold text-slate-700">฿{fmt(shiftSummary.cashSales)}</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-slate-500">เงินเริ่มต้น</span><span className="font-semibold text-slate-700">฿{fmt(currentShift.opening_cash)}</span></div>
+                  <div className="flex justify-between text-sm font-bold border-t border-slate-200 pt-1.5 mt-1">
+                    <span className="text-slate-700">ควรมีในเก๊ะ</span>
+                    <span className="text-emerald-600">฿{fmt(shiftSummary.expected)}</span>
+                  </div>
+                </div>
+              )}
+              <div>
+                <label className="text-xs font-semibold text-slate-500 block mb-1.5">เงินที่นับได้ในเก๊ะ (บาท) *</label>
+                <input type="number" value={closeCash} onChange={e => setCloseCash(e.target.value)} autoFocus
+                  placeholder="0.00"
+                  className="w-full border-2 border-slate-200 rounded-2xl px-4 py-3 text-2xl text-right font-bold focus:border-red-400 outline-none" />
+              </div>
+              {closeCash && shiftSummary && (
+                <div className={`rounded-2xl p-3 text-center font-bold text-lg ${(parseFloat(closeCash)-shiftSummary.expected) >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
+                  {(parseFloat(closeCash)-shiftSummary.expected) >= 0 ? '✅ เงินเกิน' : '⚠️ เงินขาด'}&nbsp;
+                  ฿{fmt(Math.abs(parseFloat(closeCash)-shiftSummary.expected))}
+                </div>
+              )}
+              <input value={note} onChange={e => setNote(e.target.value)}
+                placeholder="หมายเหตุ"
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+              <button onClick={closeShift} disabled={saving}
+                className="w-full bg-red-500 text-white font-bold py-3.5 rounded-2xl text-base disabled:opacity-50">
+                {saving ? '⏳...' : '✓ ปิดกะ'}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

@@ -15,6 +15,7 @@ export default function DocumentsPage() {
   const [search, setSearch]   = useState('')
   const [detail, setDetail]   = useState(null)
   const [loading, setLoading] = useState(false)
+  const [showEdit, setShowEdit] = useState(false)
 
   useEffect(() => { loadData() }, [tab, dateFrom, dateTo])
 
@@ -79,12 +80,11 @@ export default function DocumentsPage() {
     const html = detail.type === 'sale'
       ? buildFullReceiptHTML(detail.data, settings)
       : buildFullPOHTML(detail.data, settings)
-    // Blob URL avoids Safari popup blocker and works with AirPrint
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
     const url  = URL.createObjectURL(blob)
     const win  = window.open(url, '_blank')
     setTimeout(() => URL.revokeObjectURL(url), 60000)
-    if (!win) alert('กรุณาอนุญาต Popup ใน Safari Settings → เพื่อใช้งาน AirPrint')
+    if (!win) alert('กรุณาอนุญาต Popup ใน Safari Settings')
   }
 
   const filteredSales = sales.filter(s => !search || s.receipt_no.includes(search) || s.customers?.name?.includes(search))
@@ -167,24 +167,47 @@ export default function DocumentsPage() {
 
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
           {!detail && <div className="flex items-center justify-center h-full min-h-48 text-gray-300 text-sm">← กดเลือกรายการ</div>}
-          {detail?.type === 'sale' && <SaleDetail d={detail.data} onVoid={() => voidSale(detail.data.id)} onPrint={printDetail} />}
+          {detail?.type === 'sale' && (
+            <SaleDetail
+              d={detail.data}
+              onVoid={() => voidSale(detail.data.id)}
+              onPrint={printDetail}
+              onEdit={() => setShowEdit(true)}
+            />
+          )}
           {detail?.type === 'po' && <PODetail d={detail.data} onPrint={printDetail} />}
         </div>
       </div>
+
+      {/* Edit Bill Modal */}
+      {showEdit && detail?.type === 'sale' && (
+        <EditBillModal
+          sale={detail.data}
+          onClose={() => setShowEdit(false)}
+          onSaved={async () => {
+            setShowEdit(false)
+            await openSaleDetail({ id: detail.data.id })
+            loadData()
+          }}
+        />
+      )}
     </div>
   )
 }
 
-function SaleDetail({ d, onVoid, onPrint }) {
+function SaleDetail({ d, onVoid, onPrint, onEdit }) {
   return (
     <div>
-      <div className="bg-brand text-white px-4 py-3 flex justify-between items-center">
+      <div className="bg-brand text-white px-4 py-3 flex justify-between items-center flex-wrap gap-2">
         <div>
           <h2 className="font-bold text-sm">{d.receipt_no}</h2>
           <p className="text-[10px] opacity-70">{fmtDT(d.created_at)}</p>
         </div>
-        <div className="flex gap-2">
-          <button onClick={onPrint} className="bg-white/20 text-white px-3 py-1.5 rounded-lg text-xs font-medium">📄 A4 / AirPrint</button>
+        <div className="flex gap-1.5 flex-wrap">
+          {d.status !== 'voided' && (
+            <button onClick={onEdit} className="bg-amber-400 text-white px-3 py-1.5 rounded-lg text-xs font-medium">✏️ แก้ไข</button>
+          )}
+          <button onClick={onPrint} className="bg-white/20 text-white px-3 py-1.5 rounded-lg text-xs font-medium">📄 A4</button>
           {d.status !== 'voided' && <button onClick={onVoid} className="bg-red-500 text-white px-3 py-1.5 rounded-lg text-xs">ยกเลิก</button>}
         </div>
       </div>
@@ -245,6 +268,176 @@ function Row({ label, val, bold, cls='' }) {
   return (
     <div className={`flex justify-between text-sm ${bold ? 'font-bold text-brand text-base' : 'text-gray-600'} ${cls}`}>
       <span>{label}</span><span>{val}</span>
+    </div>
+  )
+}
+
+/* ── Edit Bill Modal ── */
+function EditBillModal({ sale, onClose, onSaved }) {
+  const [items, setItems]       = useState([])
+  const [discount, setDiscount] = useState(String(sale.discount || 0))
+  const [note, setNote]         = useState(sale.note || '')
+  const [prodSearch, setProdSearch] = useState('')
+  const [prodResults, setProdResults] = useState([])
+  const [saving, setSaving]     = useState(false)
+
+  useEffect(() => {
+    setItems((sale.sale_items || []).map(i => ({
+      id: i.id, pid: i.product_id, name: i.product_name, qty: i.qty,
+      price: i.price, disc: i.discount || 0, unit: i.unit,
+    })))
+  }, [sale])
+
+  useEffect(() => {
+    if (!prodSearch.trim()) { setProdResults([]); return }
+    supabase.from('products').select('id,name,price,unit,barcode')
+      .ilike('name', '%'+prodSearch+'%').eq('active', true).limit(8)
+      .then(({ data }) => setProdResults(data || []))
+  }, [prodSearch])
+
+  function addProduct(p) {
+    setItems(prev => {
+      const idx = prev.findIndex(i => i.pid === p.id)
+      if (idx >= 0) {
+        const n = [...prev]; n[idx] = { ...n[idx], qty: n[idx].qty + 1 }; return n
+      }
+      return [...prev, { id: null, pid: p.id, name: p.name, qty: 1, price: p.price, disc: 0, unit: p.unit }]
+    })
+    setProdSearch(''); setProdResults([])
+  }
+
+  function setQty(idx, qty) {
+    const q = parseFloat(qty)
+    if (isNaN(q) || q <= 0) { setItems(p => p.filter((_,i) => i !== idx)); return }
+    setItems(p => { const n=[...p]; n[idx]={...n[idx],qty:q}; return n })
+  }
+
+  function setPrice(idx, price) {
+    const v = parseFloat(price); if (isNaN(v)) return
+    setItems(p => { const n=[...p]; n[idx]={...n[idx],price:v}; return n })
+  }
+
+  const subtotal = items.reduce((s, i) => s + i.price * i.qty - (i.disc||0), 0)
+  const discAmt  = parseFloat(discount) || 0
+  const total    = Math.max(0, subtotal - discAmt)
+
+  async function save() {
+    if (items.length === 0) return alert('ต้องมีสินค้าอย่างน้อย 1 รายการ')
+    setSaving(true)
+    try {
+      // Delete all old sale_items
+      await supabase.from('sale_items').delete().eq('sale_id', sale.id)
+
+      // Re-insert items
+      await supabase.from('sale_items').insert(
+        items.map(i => ({
+          sale_id: sale.id, product_id: i.pid, product_name: i.name,
+          unit: i.unit, qty: i.qty, price: i.price, discount: i.disc || 0,
+          subtotal: i.price * i.qty - (i.disc || 0),
+        }))
+      )
+
+      // Update sale totals
+      await supabase.from('sales').update({
+        subtotal, discount: discAmt, total,
+        note: note.trim() || null,
+      }).eq('id', sale.id)
+
+      onSaved()
+    } catch (e) {
+      alert('เกิดข้อผิดพลาด: ' + e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-end md:items-center justify-center p-3"
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden fade-in flex flex-col max-h-[90vh]">
+        <div className="bg-amber-500 text-white px-4 py-3.5 flex justify-between items-center shrink-0">
+          <div>
+            <h2 className="font-bold text-base">✏️ แก้ไขบิล</h2>
+            <p className="text-[11px] opacity-80">{sale.receipt_no}</p>
+          </div>
+          <button onClick={onClose} className="text-2xl leading-none opacity-70">×</button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {/* Add product search */}
+          <div className="relative">
+            <input value={prodSearch} onChange={e => setProdSearch(e.target.value)}
+              placeholder="🔍 ค้นหาสินค้าเพื่อเพิ่ม..."
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-amber-400 outline-none" />
+            {prodResults.length > 0 && (
+              <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-lg z-10 max-h-40 overflow-y-auto mt-1">
+                {prodResults.map(p => (
+                  <button key={p.id} onClick={() => addProduct(p)}
+                    className="w-full px-3 py-2.5 text-left hover:bg-amber-50 flex justify-between text-sm border-b border-gray-50 last:border-0">
+                    <span className="font-medium text-slate-700">{p.name}</span>
+                    <span className="text-brand font-semibold">฿{fmt(p.price)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Items */}
+          <div className="space-y-2">
+            {items.map((item, idx) => (
+              <div key={idx} className="border border-gray-100 rounded-2xl p-3 bg-gray-50/50">
+                <div className="flex justify-between items-start mb-2">
+                  <p className="text-sm font-semibold text-slate-800 flex-1 pr-2">{item.name}</p>
+                  <button onClick={() => setItems(p => p.filter((_,i) => i !== idx))}
+                    className="w-6 h-6 flex items-center justify-center rounded-full text-slate-300 hover:bg-red-100 hover:text-red-400 text-sm">✕</button>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => setQty(idx, item.qty - 1)}
+                      className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center font-bold text-base leading-none">−</button>
+                    <input type="number" value={item.qty} onChange={e => setQty(idx, e.target.value)}
+                      className="w-12 text-center border border-gray-200 rounded-lg py-1 text-sm font-bold focus:border-amber-400 outline-none" />
+                    <button onClick={() => setQty(idx, item.qty + 1)}
+                      className="w-7 h-7 rounded-full bg-amber-400 flex items-center justify-center text-white font-bold text-base leading-none">+</button>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-slate-400">ราคา</span>
+                    <input type="number" value={item.price} onChange={e => setPrice(idx, e.target.value)}
+                      className="w-20 text-right border border-gray-200 rounded-lg px-2 py-1 text-sm font-semibold text-brand focus:border-amber-400 outline-none" />
+                  </div>
+                  <span className="text-sm font-bold text-brand ml-auto">฿{fmt(item.price * item.qty - (item.disc||0))}</span>
+                </div>
+              </div>
+            ))}
+            {items.length === 0 && <p className="text-center text-slate-400 text-sm py-4">ยังไม่มีสินค้า</p>}
+          </div>
+
+          {/* Totals */}
+          <div className="border-t border-gray-100 pt-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-slate-500 whitespace-nowrap">ส่วนลดบิล</span>
+              <input type="number" value={discount} onChange={e => setDiscount(e.target.value)}
+                placeholder="0"
+                className="flex-1 text-right border border-gray-200 rounded-xl px-3 py-2 text-sm focus:border-amber-400 outline-none" />
+              <span className="text-xs text-slate-400">บาท</span>
+            </div>
+            <input value={note} onChange={e => setNote(e.target.value)}
+              placeholder="หมายเหตุ"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:border-amber-400 outline-none" />
+            <div className="bg-amber-50 rounded-2xl p-3 flex justify-between items-baseline border border-amber-100">
+              <span className="font-bold text-slate-700">ยอดสุทธิใหม่</span>
+              <span className="font-heading font-bold text-2xl text-amber-600">฿{fmt(total)}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-4 pb-4 pt-2 shrink-0">
+          <button onClick={save} disabled={saving || items.length === 0}
+            className="w-full bg-amber-500 text-white font-bold py-3.5 rounded-2xl text-base disabled:opacity-50 active:scale-[0.98] transition-transform">
+            {saving ? '⏳ กำลังบันทึก...' : '✓ บันทึกการแก้ไข'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
