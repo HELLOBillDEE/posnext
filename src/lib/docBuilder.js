@@ -9,27 +9,36 @@ export const DOC_PREFIXES = {
   paymentvoucher: 'PV',
 }
 
-export async function getNextDocNo(docType) {
+// Preview เลขถัดไปโดยไม่บันทึก (ใช้แสดงใน modal)
+export async function previewNextDocNo(docType) {
   const prefix = DOC_PREFIXES[docType] || 'DOC'
   const now = new Date()
   const ym = String(now.getFullYear()).slice(-2) + String(now.getMonth() + 1).padStart(2, '0')
+  const { data } = await supabase
+    .from('doc_sequences').select('last_seq')
+    .eq('prefix', prefix).eq('year_month', ym).single()
+  const nextSeq = (data?.last_seq || 0) + 1
+  return `${prefix}${ym}${String(nextSeq).padStart(3, '0')}`
+}
 
-  const { data: existing } = await supabase
-    .from('doc_sequences')
-    .select('last_seq')
-    .eq('prefix', prefix)
-    .eq('year_month', ym)
-    .single()
-
-  const nextSeq = (existing?.last_seq || 0) + 1
-
+// บันทึกเลขจริง (เรียกตอนกดสร้างเอกสารเท่านั้น)
+export async function commitNextDocNo(docType) {
+  const prefix = DOC_PREFIXES[docType] || 'DOC'
+  const now = new Date()
+  const ym = String(now.getFullYear()).slice(-2) + String(now.getMonth() + 1).padStart(2, '0')
+  const { data } = await supabase
+    .from('doc_sequences').select('last_seq')
+    .eq('prefix', prefix).eq('year_month', ym).single()
+  const nextSeq = (data?.last_seq || 0) + 1
   await supabase.from('doc_sequences').upsert(
     { prefix, year_month: ym, last_seq: nextSeq },
     { onConflict: 'prefix,year_month' }
   )
-
   return `${prefix}${ym}${String(nextSeq).padStart(3, '0')}`
 }
+
+// Alias เพื่อ backward-compat (ใช้ใน expenses page)
+export const getNextDocNo = commitNextDocNo
 
 const DOC_TITLES = {
   receipt:   { th: 'ใบเสร็จรับเงิน',  en: 'Receipt' },

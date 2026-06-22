@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { convertThaiBarcode, fmt, genReceiptNo } from '@/lib/utils'
 import { printViaBridge, buildReceiptESCPOS, kickDrawerViaBridge } from '@/lib/printBridge'
 import { syncSaleToBillDee } from '@/lib/billdeeSyncClient'
-import { buildFormalDocHTML, getNextDocNo } from '@/lib/docBuilder'
+import { buildFormalDocHTML, previewNextDocNo, commitNextDocNo } from '@/lib/docBuilder'
 
 // HID keyboard usage-code → ASCII char
 const HID_KEY = {
@@ -991,10 +991,11 @@ function CartDocModal({ cart, totals, customer, settings, onClose }) {
   const [validUntil, setValidUntil] = useState('')
 
   useEffect(() => {
-    getNextDocNo(docType).then(no => setDocNo(no))
+    previewNextDocNo(docType).then(no => setDocNo(no))
   }, [docType])
 
-  function generate() {
+  async function generate() {
+    const finalDocNo = await commitNextDocNo(docType)
     const items = cart.map(i => ({
       name: i.name, qty: i.qty, unit: i.unit || '',
       price: i.price, disc: i.disc || 0,
@@ -1004,7 +1005,7 @@ function CartDocModal({ cart, totals, customer, settings, onClose }) {
       docType, items, totals,
       { name: custName, address: custAddr, phone: custPhone, tax_id: custTaxId },
       settings,
-      { doc_no: docNo || undefined, date: docDate, valid_until: validUntil || undefined }
+      { doc_no: finalDocNo, date: docDate, valid_until: validUntil || undefined }
     )
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
     const url = URL.createObjectURL(blob)

@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { fmt, fmtDT, todayISO, PAY_LABEL } from '@/lib/utils'
-import { buildFormalDocHTML, getNextDocNo } from '@/lib/docBuilder'
+import { buildFormalDocHTML, commitNextDocNo } from '@/lib/docBuilder'
 
 const TABS = ['ใบเสร็จขาย', 'ใบสั่งซื้อ (PO)', 'ลูกหนี้ AR', 'เจ้าหนี้ AP']
 
@@ -97,7 +97,7 @@ export default function DocumentsPage() {
       const useDocType = docType || printDocType
       const docNo = useDocType === 'receipt'
         ? d.receipt_no
-        : await getNextDocNo(useDocType)
+        : await commitNextDocNo(useDocType)
       html = buildFormalDocHTML(
         useDocType, items, totals, customer, settings,
         { doc_no: docNo, date: printDate, payment_method: pmMap[d.payment_method] || d.payment_method, note: d.note }
