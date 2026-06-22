@@ -9,7 +9,7 @@ const DOC_TITLES = {
 
 function fmt2(n) {
   const v = Number(n) || 0
-  return v.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '.-'
+  return v.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 function numberToThaiText(amount) {
@@ -41,157 +41,123 @@ function numberToThaiText(amount) {
  * @param {string} docType - 'receipt'|'invoice'|'delivery'|'quotation'
  * @param {Array}  items   - [{name, qty, unit, price, disc, subtotal, note}]
  * @param {Object} totals  - {subtotal, discount, vat, total}
- * @param {Object} customer - {name, address, contact, phone, tax_id}
+ * @param {Object} customer - {name, address, phone, tax_id, contact}
  * @param {Object} shop    - from settings table (key→value map)
  * @param {Object} opts    - {doc_no, date, valid_until, prepared_by, paid_amount, paid_date, note, payment_method}
  */
 export function buildFormalDocHTML(docType, items, totals, customer, shop, opts = {}) {
-  const title = DOC_TITLES[docType] || DOC_TITLES.receipt
-  const isDelivery = docType === 'delivery'
+  const title  = DOC_TITLES[docType] || DOC_TITLES.receipt
+  const accent = '#e07a00'
+  const isDelivery  = docType === 'delivery'
   const isQuotation = docType === 'quotation'
+  const isReceipt   = docType === 'receipt'
 
-  const docNo = opts.doc_no || '—'
+  const docNo = opts.doc_no || ''
   const today = opts.date || new Date().toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: 'numeric' })
-
-  const logoHTML = shop.logo_url
-    ? `<img src="${shop.logo_url}" style="height:52px;object-fit:contain;max-width:80px">`
-    : ''
-
-  const itemRows = (items || []).map((item, idx) => {
-    const disc = Number(item.disc) || 0
-    const sub  = Number(item.subtotal) || (Number(item.price) * Number(item.qty) - disc)
-    return `<tr>
-      <td style="text-align:center;border:1px solid #ddd;padding:8px 6px">${idx + 1}</td>
-      <td style="border:1px solid #ddd;padding:8px 10px">${item.name || ''}${item.note ? `<br><span style="font-size:10pt;color:#666">${item.note}</span>` : ''}</td>
-      <td style="text-align:center;border:1px solid #ddd;padding:8px 6px">${item.qty}</td>
-      <td style="text-align:right;border:1px solid #ddd;padding:8px 10px">${isDelivery ? '—' : fmt2(item.price)}</td>
-      <td style="text-align:center;border:1px solid #ddd;padding:8px 6px">${disc > 0 ? fmt2(disc) : '-'}</td>
-      <td style="text-align:right;border:1px solid #ddd;padding:8px 10px;font-weight:bold">${isDelivery ? '—' : fmt2(sub)}</td>
-    </tr>`
-  }).join('')
-
-  // Empty filler rows (at least 8 rows total)
-  const fillerCount = Math.max(0, 8 - (items || []).length)
-  const fillerRows = Array.from({length: fillerCount}, () =>
-    `<tr style="height:30px"><td style="border:1px solid #ddd"></td><td style="border:1px solid #ddd"></td><td style="border:1px solid #ddd"></td><td style="border:1px solid #ddd"></td><td style="border:1px solid #ddd"></td><td style="border:1px solid #ddd"></td></tr>`
-  ).join('')
 
   const subtotal = Number(totals.subtotal) || 0
   const discAmt  = Number(totals.discount) || 0
   const vatAmt   = Number(totals.vat) || 0
   const total    = Number(totals.total) || 0
 
-  const pmCash   = opts.payment_method === 'cash' || opts.payment_method === 'เงินสด'
-  const pmTransfer = opts.payment_method === 'transfer' || opts.payment_method === 'โอน'
-
-  const bankInfo = (shop.shop_bank_account_name || shop.shop_bank_name || shop.shop_bank_account)
-    ? `<p style="margin:4px 0">- ชื่อบัญชี <strong>${shop.shop_bank_account_name || ''}</strong></p>
-       <p style="margin:4px 0">- ธนาคาร ${shop.shop_bank_name || ''} เลขที่บัญชี ${shop.shop_bank_account || ''}</p>`
+  // Logo
+  const logoHTML = shop.logo_url
+    ? `<img src="${shop.logo_url}" style="height:48px;max-width:100px;object-fit:contain;display:block;margin-bottom:6px" onerror="this.style.display='none'">`
     : ''
 
-  const checkbox = (checked) => `<span style="display:inline-block;width:13px;height:13px;border:1.5px solid #333;margin-right:5px;vertical-align:middle;background:${checked?'#333':'white'};position:relative">${checked?'<span style="position:absolute;color:white;font-size:10px;top:-2px;left:1px">✓</span>':''}</span>`
+  // Item rows
+  const itemRows = (items || []).map((item, idx) => {
+    const disc = Number(item.disc) || 0
+    const sub  = Number(item.subtotal) ?? (Number(item.price) * Number(item.qty) - disc)
+    return `<tr>
+      <td style="padding:8px 8px;border:1px solid #e5e7eb;text-align:center;color:#555;font-size:12pt">${idx + 1}</td>
+      <td style="padding:8px 12px;border:1px solid #e5e7eb;font-size:12pt">${item.name || ''}${item.note ? `<br><span style="font-size:10pt;color:#888">${item.note}</span>` : ''}</td>
+      <td style="padding:8px 8px;border:1px solid #e5e7eb;text-align:center;font-size:12pt">${item.qty}</td>
+      <td style="padding:8px 8px;border:1px solid #e5e7eb;text-align:center;font-size:12pt">${item.unit || ''}</td>
+      <td style="padding:8px 10px;border:1px solid #e5e7eb;text-align:right;font-size:12pt">${isDelivery ? '—' : fmt2(item.price)}</td>
+      <td style="padding:8px 10px;border:1px solid #e5e7eb;text-align:right;font-size:12pt;font-weight:bold">${isDelivery ? '—' : fmt2(sub)}</td>
+    </tr>`
+  }).join('')
+
+  const fillerCount = Math.max(0, 7 - (items || []).length)
+  const fillerRows  = Array.from({ length: fillerCount }, () =>
+    `<tr style="height:28px"><td style="border:1px solid #e5e7eb"></td><td style="border:1px solid #e5e7eb"></td><td style="border:1px solid #e5e7eb"></td><td style="border:1px solid #e5e7eb"></td><td style="border:1px solid #e5e7eb"></td><td style="border:1px solid #e5e7eb"></td></tr>`
+  ).join('')
+
+  // Payment method checkboxes
+  const pmCash     = opts.payment_method === 'cash'     || opts.payment_method === 'เงินสด'
+  const pmTransfer = opts.payment_method === 'transfer' || opts.payment_method === 'โอน'
+  const chk = (on) => `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border:1.5px solid #555;margin-right:5px;vertical-align:middle;background:${on?'#333':'white'};color:white;font-size:9px">${on?'✓':''}</span>`
+
+  const bankInfo = (shop.shop_bank_account_name || shop.shop_bank_name)
+    ? `<div style="font-size:11pt;margin-top:4px;color:#444">
+        ${shop.shop_bank_account_name ? `<div>ชื่อบัญชี <strong>${shop.shop_bank_account_name}</strong></div>` : ''}
+        ${shop.shop_bank_name ? `<div>ธนาคาร ${shop.shop_bank_name}${shop.shop_bank_account ? ` เลขที่บัญชี <strong>${shop.shop_bank_account}</strong>` : ''}</div>` : ''}
+      </div>` : ''
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>${title.th} ${docNo}</title>
 <style>
-  @page { size: A4; margin: 15mm 18mm; }
-  body { font-family: 'Sarabun','TH Sarabun New',Arial,sans-serif; font-size: 13pt; margin: 0; padding: 0; color: #111; }
-  .doc-title-th { font-size: 22pt; font-weight: bold; margin: 0 0 2px; }
-  .doc-title-en { font-size: 14pt; color: #444; margin: 0 0 16px; }
-  .shop-name { font-size: 16pt; font-weight: bold; text-align: right; margin: 0; }
-  .shop-sub  { font-size: 10pt; color: #555; text-align: right; margin: 0; }
-  table.info { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
-  table.info td { padding: 2px 0; font-size: 12pt; vertical-align: top; }
-  .label { color: #222; font-weight: bold; white-space: nowrap; padding-right: 8px; }
-  .val { color: #111; }
-  .val-box { border-bottom: 1px solid #aaa; min-width: 180px; display: inline-block; padding: 0 4px; }
-  .dotted { border: none; border-top: 1px dashed #bbb; margin: 10px 0; }
-  table.items { width: 100%; border-collapse: collapse; margin: 12px 0 0; }
-  table.items th { background: #222; color: white; padding: 8px 10px; font-size: 12pt; border: 1px solid #222; }
-  table.items td { font-size: 12pt; }
-  .sum-row { background: #f8f8f8; }
-  .total-row td { background: #222; color: white; font-weight: bold; font-size: 14pt; padding: 8px 10px; }
-  .sec-title { font-weight: bold; font-size: 12pt; margin: 10px 0 4px; }
-  .pm-row { font-size: 12pt; margin: 4px 0; display: flex; align-items: flex-start; gap: 6px; }
-  .sig-row { display: flex; justify-content: space-around; margin-top: 16px; gap: 12px; }
+  @page { size: A4; margin: 14mm 18mm 14mm; }
+  body { font-family: 'Sarabun','TH Sarabun New',Arial,sans-serif; font-size: 13pt; margin: 0; padding: 0; color: #111; line-height: 1.5; }
+  .accent { color: ${accent}; }
+  .sec-label { font-size: 12pt; font-weight: bold; color: ${accent}; margin-bottom: 3px; }
+  table.items { width: 100%; border-collapse: collapse; margin: 14px 0 0; }
+  table.items th { background: #1e293b; color: white; padding: 9px 10px; font-size: 12pt; border: 1px solid #1e293b; }
+  .sum-label { color: ${accent}; font-size: 12pt; text-align: right; padding: 4px 10px; }
+  .sum-val   { font-size: 12pt; text-align: right; padding: 4px 10px; min-width: 110px; }
+  .total-label { color: ${accent}; font-size: 14pt; font-weight: bold; text-align: right; padding: 6px 10px; }
+  .total-val   { font-size: 14pt; font-weight: bold; text-align: right; padding: 6px 10px; border-top: 1px solid #ddd; }
   .sig-box { flex: 1; text-align: center; }
-  .sig-line { border-bottom: 1px solid #555; height: 38px; margin-bottom: 4px; }
-  .sig-date { font-size: 11pt; color: #555; margin-top: 2px; }
+  .sig-line { border-bottom: 1px solid #999; height: 42px; margin-bottom: 4px; }
   @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
 </style></head><body>
 
-<!-- Header -->
-<table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+<!-- ═══ TOP: Logo + Title ═══ -->
+<table style="width:100%;border-collapse:collapse;margin-bottom:14px">
   <tr>
-    <td style="width:55%;vertical-align:bottom">
-      <p class="doc-title-th">${title.th}</p>
-      <p class="doc-title-en">${title.en}</p>
+    <td style="width:60%;vertical-align:top">
+      ${logoHTML}
+      <p style="font-size:14pt;font-weight:bold;margin:0 0 2px">${shop.shop_name || 'ร้านค้า'}</p>
+      ${shop.shop_address ? `<p style="font-size:11pt;color:#555;margin:0 0 2px;max-width:280px">${shop.shop_address.replace(/\n/g,'<br>')}</p>` : ''}
+      ${shop.shop_tax_id ? `<p style="font-size:11pt;color:#555;margin:0 0 2px">เลขประจำตัวผู้เสียภาษี ${shop.shop_tax_id}</p>` : ''}
+      ${shop.shop_phone ? `<p style="font-size:11pt;color:#555;margin:0 0 2px">โทร. ${shop.shop_phone}</p>` : ''}
+      ${shop.shop_email ? `<p style="font-size:11pt;color:#555;margin:0">อีเมล ${shop.shop_email}</p>` : ''}
     </td>
-    <td style="text-align:right;vertical-align:top">
-      <div style="display:inline-flex;align-items:center;gap:12px">
-        ${logoHTML}
-        <div>
-          <p class="shop-name">${shop.shop_name || 'ร้านค้า'}</p>
-          ${shop.shop_address ? `<p class="shop-sub">${shop.shop_address}</p>` : ''}
-          ${shop.shop_tax_id ? `<p class="shop-sub">เลขที่ผู้เสียภาษี ${shop.shop_tax_id}</p>` : ''}
-        </div>
-      </div>
-    </td>
-  </tr>
-</table>
-
-<!-- Customer + Doc Info -->
-<table class="info">
-  <tr>
-    <td style="width:55%">
-      <table><tr><td class="label">ลูกค้า:</td><td class="val">${customer?.name || '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'}</td></tr>
-      <tr><td class="label">ที่อยู่:</td><td class="val">${customer?.address || '&nbsp;'}</td></tr>
-      ${customer?.contact ? `<tr><td class="label">ผู้ติดต่อ:</td><td class="val">${customer.contact}</td></tr>` : ''}
-      <tr><td class="label">เบอร์ติดต่อ:</td><td class="val">${customer?.phone || '—'}</td></tr>
-      ${customer?.tax_id ? `<tr><td class="label">เลขที่ผู้เสียภาษี:</td><td class="val">${customer.tax_id}</td></tr>` : ''}
-      </table>
-    </td>
-    <td style="text-align:right;vertical-align:top">
-      <table style="margin-left:auto">
-        <tr><td class="label" style="text-align:right">เลขที่:</td><td class="val" style="padding-left:8px"><span class="val-box">${docNo}</span></td></tr>
-        <tr><td class="label" style="text-align:right">วันที่:</td><td class="val" style="padding-left:8px"><span class="val-box">${today}</span></td></tr>
-        ${isQuotation && opts.valid_until ? `<tr><td class="label" style="text-align:right">ใช้ได้ถึง:</td><td class="val" style="padding-left:8px"><span class="val-box">${opts.valid_until}</span></td></tr>` : ''}
+    <td style="vertical-align:top;text-align:right">
+      <p style="font-size:28pt;font-weight:bold;color:${accent};margin:0 0 12px;line-height:1.1">${title.th}</p>
+      <table style="margin-left:auto;border-collapse:collapse">
+        <tr><td style="font-size:12pt;color:#555;padding:2px 10px 2px 0;text-align:right">เลขที่</td><td style="font-size:12pt;font-weight:bold;padding:2px 0;min-width:130px">${docNo || '—'}</td></tr>
+        <tr><td style="font-size:12pt;color:#555;padding:2px 10px 2px 0;text-align:right">วันที่</td><td style="font-size:12pt;padding:2px 0">${today}</td></tr>
+        ${isQuotation && opts.valid_until ? `<tr><td style="font-size:12pt;color:#555;padding:2px 10px 2px 0;text-align:right">ใช้ได้ถึง</td><td style="font-size:12pt;padding:2px 0">${opts.valid_until}</td></tr>` : ''}
+        ${opts.prepared_by ? `<tr><td style="font-size:12pt;color:#555;padding:2px 10px 2px 0;text-align:right">ผู้ขาย</td><td style="font-size:12pt;padding:2px 0">${opts.prepared_by}</td></tr>` : ''}
       </table>
     </td>
   </tr>
 </table>
 
-<hr class="dotted">
+<hr style="border:none;border-top:1px solid #ddd;margin:10px 0">
 
-<!-- Issuer Info -->
-<table class="info" style="margin-bottom:12px">
-  <tr>
-    <td style="width:55%">
-      <table>
-        <tr><td class="label">ผู้ออก:</td><td class="val">${shop.shop_name || ''}</td></tr>
-        <tr><td class="label">ที่อยู่:</td><td class="val">${shop.shop_address || ''}</td></tr>
-      </table>
-    </td>
-    <td>
-      <table>
-        ${opts.prepared_by ? `<tr><td class="label">จัดเตรียมโดย:</td><td class="val" style="padding-left:8px">${opts.prepared_by}</td></tr>` : ''}
-        ${shop.shop_phone ? `<tr><td class="label">เบอร์ติดต่อ:</td><td class="val" style="padding-left:8px">${shop.shop_phone}</td></tr>` : ''}
-        ${shop.shop_email ? `<tr><td class="label">อีเมล:</td><td class="val" style="padding-left:8px">${shop.shop_email}</td></tr>` : ''}
-      </table>
-    </td>
-  </tr>
-</table>
+<!-- ═══ Customer Info ═══ -->
+<div style="margin-bottom:14px">
+  <p class="sec-label">ลูกค้า</p>
+  ${customer?.name ? `<p style="font-size:13pt;font-weight:bold;margin:0 0 2px">${customer.name}</p>` : '<p style="font-size:13pt;margin:0 0 2px;color:#aaa">— ไม่ระบุ —</p>'}
+  ${customer?.address ? `<p style="font-size:11pt;color:#555;margin:0 0 2px;max-width:380px">${customer.address.replace(/\n/g,'<br>')}</p>` : ''}
+  ${customer?.tax_id ? `<p style="font-size:11pt;color:#555;margin:0 0 2px">เลขประจำตัวผู้เสียภาษี ${customer.tax_id}</p>` : ''}
+  ${customer?.contact ? `<p style="font-size:11pt;color:#555;margin:0 0 2px">ผู้ติดต่อ ${customer.contact}</p>` : ''}
+  ${customer?.phone ? `<p style="font-size:11pt;color:#555;margin:0">โทร. ${customer.phone}</p>` : ''}
+</div>
 
-<!-- Items Table -->
+<!-- ═══ Items Table ═══ -->
 <table class="items">
   <thead>
     <tr>
-      <th style="width:50px">ลำดับที่</th>
-      <th>รายละเอียด</th>
-      <th style="width:70px">จำนวน</th>
-      <th style="width:110px;text-align:right">${isDelivery ? 'หน่วย' : 'ราคาต่อหน่วย'}</th>
-      <th style="width:90px;text-align:center">อื่นๆ</th>
-      <th style="width:110px;text-align:right">รวมเป็นเงิน</th>
+      <th style="width:44px;text-align:center">#</th>
+      <th style="text-align:left">รายละเอียด</th>
+      <th style="width:60px;text-align:center">จำนวน</th>
+      <th style="width:60px;text-align:center">หน่วย</th>
+      <th style="width:110px;text-align:right">${isDelivery ? '—' : 'ราคาต่อหน่วย'}</th>
+      <th style="width:110px;text-align:right">ยอดรวม</th>
     </tr>
   </thead>
   <tbody>
@@ -200,51 +166,49 @@ export function buildFormalDocHTML(docType, items, totals, customer, shop, opts 
   </tbody>
 </table>
 
-<!-- Summary -->
-<table style="width:100%;border-collapse:collapse">
+<!-- ═══ Summary ═══ -->
+<table style="width:100%;border-collapse:collapse;margin-top:0">
   <tr>
-    <td style="vertical-align:top;padding:10px 0 0;font-size:12pt">
-      <strong>หมายเหตุ:</strong> ${opts.note || ''}
+    <td style="vertical-align:top;padding:10px 0 0;font-size:12pt;width:55%">
+      <p style="margin:0 0 4px;color:#555;font-size:11pt">(${numberToThaiText(total)})</p>
+      ${opts.note ? `<p style="margin:4px 0;font-size:11pt;color:#555">หมายเหตุ: ${opts.note}</p>` : ''}
     </td>
-    <td style="width:300px;vertical-align:top">
+    <td style="vertical-align:top;padding-top:10px">
       <table style="width:100%;border-collapse:collapse">
-        <tr class="sum-row"><td style="padding:6px 10px;border:1px solid #ddd;font-size:12pt">ราคารวมสินค้า (บาท)</td><td style="padding:6px 10px;border:1px solid #ddd;text-align:right;font-size:12pt">${fmt2(subtotal)}</td></tr>
-        ${discAmt > 0 ? `<tr class="sum-row"><td style="padding:6px 10px;border:1px solid #ddd;font-size:12pt">ส่วนลด</td><td style="padding:6px 10px;border:1px solid #ddd;text-align:right;font-size:12pt">${fmt2(discAmt)}</td></tr>` : `<tr class="sum-row"><td style="padding:6px 10px;border:1px solid #ddd;font-size:12pt">อื่นๆ</td><td style="padding:6px 10px;border:1px solid #ddd;text-align:right;font-size:12pt">0.-</td></tr>`}
-        ${vatAmt > 0 ? `<tr class="sum-row"><td style="padding:6px 10px;border:1px solid #ddd;font-size:12pt">VAT 7%</td><td style="padding:6px 10px;border:1px solid #ddd;text-align:right;font-size:12pt">${fmt2(vatAmt)}</td></tr>` : ''}
-        <tr class="total-row"><td style="padding:8px 10px;border:1px solid #222">จำนวนเงินรวมทั้งสิ้น (บาท)</td><td style="padding:8px 10px;border:1px solid #222;text-align:right">${fmt2(total)}</td></tr>
+        <tr><td class="sum-label">รวมเป็นเงิน</td><td class="sum-val">${fmt2(subtotal)} บาท</td></tr>
+        ${discAmt > 0 ? `<tr><td class="sum-label">ส่วนลด</td><td class="sum-val">${fmt2(discAmt)} บาท</td></tr>` : ''}
+        ${vatAmt > 0 ? `<tr><td class="sum-label">ภาษีมูลค่าเพิ่ม 7%</td><td class="sum-val">${fmt2(vatAmt)} บาท</td></tr>` : ''}
+        <tr><td class="total-label">จำนวนเงินรวมทั้งสิ้น</td><td class="total-val">${fmt2(total)} บาท</td></tr>
       </table>
     </td>
   </tr>
 </table>
 
 ${!isDelivery && !isQuotation ? `
-<!-- Payment Info -->
-<div style="margin-top:12px">
-  <p class="sec-title">ข้อมูลการชำระเงิน:</p>
+<!-- ═══ Payment ═══ -->
+<div style="margin-top:12px;border-top:1px solid #eee;padding-top:10px">
+  <p style="font-size:12pt;font-weight:bold;margin:0 0 6px">ข้อมูลการชำระเงิน:</p>
   ${bankInfo}
-  <div class="pm-row"><span>${checkbox(pmCash)}</span><span>เงินสด:${opts.paid_date ? `&nbsp;&nbsp;ชำระวันที่ <strong>${opts.paid_date}</strong> ยอด <strong>${fmt2(opts.paid_amount || total)}</strong> บาท` : '&nbsp;&nbsp;รายละเอียดเพิ่มเติม ......................................'}</span></div>
-  <div class="pm-row"><span>${checkbox(pmTransfer)}</span><span>เงินโอน:</span></div>
-  <div style="padding-left:20px;color:#666;font-size:11pt;margin-bottom:4px">รายละเอียดเพิ่มเติม ......................................................</div>
-  <div class="pm-row"><span>${checkbox(false)}</span><span>อื่นๆ</span></div>
-  <div style="padding-left:20px;color:#666;font-size:11pt">รายละเอียดเพิ่มเติม ......................................................</div>
+  <div style="margin-top:6px;font-size:12pt">
+    <div style="margin-bottom:4px">${chk(pmCash)} เงินสด${opts.paid_date ? `&nbsp; ชำระวันที่ <strong>${opts.paid_date}</strong> ยอด <strong>${fmt2(opts.paid_amount || total)}</strong> บาท` : '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'}</div>
+    <div style="margin-bottom:4px">${chk(pmTransfer)} เงินโอน &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</div>
+  </div>
 </div>` : ''}
 
-<!-- Signatures -->
-<div class="sig-row">
+<!-- ═══ Signatures ═══ -->
+<div style="display:flex;justify-content:space-around;margin-top:20px;gap:16px">
   <div class="sig-box">
     <div class="sig-line"></div>
     <div style="font-size:12pt">${isQuotation ? 'ผู้เสนอราคา' : isDelivery ? 'ผู้ส่งของ' : 'อนุมัติโดย'}</div>
-    <div class="sig-date">วันที่ ................................</div>
+    <div style="font-size:11pt;color:#777;margin-top:2px">วันที่ ................................</div>
   </div>
-  <div class="sig-box" style="flex:0.3"></div>
+  <div style="flex:0.2"></div>
   <div class="sig-box">
     <div class="sig-line"></div>
     <div style="font-size:12pt">${isQuotation ? 'ผู้รับใบเสนอราคา' : isDelivery ? 'ผู้รับของ' : 'รับชำระเงิน'}</div>
-    <div class="sig-date">วันที่ ................................</div>
+    <div style="font-size:11pt;color:#777;margin-top:2px">วันที่ ................................</div>
   </div>
 </div>
-
-<p style="text-align:center;font-size:11pt;color:#888;margin-top:12px">${numberToThaiText(total)}</p>
 
 <script>window.onload = () => { window.print() }</script>
 </body></html>`

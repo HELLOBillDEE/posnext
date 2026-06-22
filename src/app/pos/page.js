@@ -734,12 +734,14 @@ function CustomerModal({ onSelect, onClose }) {
   const [customers, setCustomers] = useState([])
   const [name, setName]       = useState('')
   const [phone, setPhone]     = useState('')
+  const [address, setAddress] = useState('')
+  const [taxId, setTaxId]     = useState('')
   const [saving, setSaving]   = useState(false)
 
   useEffect(() => { loadCustomers() }, [search])
 
   async function loadCustomers() {
-    const q = supabase.from('customers').select('id,name,phone').order('name').limit(20)
+    const q = supabase.from('customers').select('id,name,phone,address,tax_id').order('name').limit(20)
     const { data } = search ? await q.ilike('name', '%'+search+'%') : await q
     setCustomers(data || [])
   }
@@ -748,9 +750,10 @@ function CustomerModal({ onSelect, onClose }) {
     if (!name.trim()) return
     setSaving(true)
     const { data, error } = await supabase.from('customers')
-      .insert({ name: name.trim(), phone: phone.trim() }).select().single()
+      .insert({ name: name.trim(), phone: phone.trim() || null, address: address.trim() || null, tax_id: taxId.trim() || null })
+      .select().single()
     setSaving(false)
-    if (!error && data) onSelect({ id: data.id, name: data.name, phone: data.phone })
+    if (!error && data) onSelect(data)
   }
 
   return (
@@ -766,27 +769,34 @@ function CustomerModal({ onSelect, onClose }) {
             placeholder="ค้นหาชื่อลูกค้า..."
             className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-blue-400 outline-none" />
 
-          <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-100 divide-y divide-slate-50">
+          <div className="max-h-44 overflow-y-auto rounded-xl border border-slate-100 divide-y divide-slate-50">
             {customers.map(c => (
-              <button key={c.id} onClick={() => onSelect({ id: c.id, name: c.name, phone: c.phone })}
-                className="w-full px-4 py-3 text-left hover:bg-blue-50 transition-colors flex justify-between items-center">
-                <span className="font-medium text-sm text-slate-700">{c.name}</span>
-                <span className="text-xs text-slate-400">{c.phone}</span>
+              <button key={c.id} onClick={() => onSelect(c)}
+                className="w-full px-4 py-3 text-left hover:bg-blue-50 transition-colors">
+                <div className="flex justify-between items-center">
+                  <span className="font-medium text-sm text-slate-700">{c.name}</span>
+                  <span className="text-xs text-slate-400">{c.phone}</span>
+                </div>
+                {(c.address || c.tax_id) && (
+                  <p className="text-[10px] text-slate-400 mt-0.5 truncate">{c.address || c.tax_id}</p>
+                )}
               </button>
             ))}
             {customers.length === 0 && <p className="text-center py-4 text-slate-400 text-sm">ไม่พบลูกค้า</p>}
           </div>
 
-          <div className="border-t border-slate-100 pt-3">
-            <p className="text-xs font-semibold text-slate-500 mb-2">เพิ่มลูกค้าใหม่</p>
-            <div className="flex gap-2 mb-2">
-              <input value={name} onChange={e => setName(e.target.value)}
-                placeholder="ชื่อลูกค้า *"
+          <div className="border-t border-slate-100 pt-3 space-y-2">
+            <p className="text-xs font-semibold text-slate-500">เพิ่มลูกค้าใหม่</p>
+            <div className="flex gap-2">
+              <input value={name} onChange={e => setName(e.target.value)} placeholder="ชื่อลูกค้า *"
                 className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:border-blue-400 outline-none" />
-              <input value={phone} onChange={e => setPhone(e.target.value)}
-                placeholder="เบอร์โทร"
+              <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="เบอร์โทร"
                 className="w-32 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:border-blue-400 outline-none" />
             </div>
+            <input value={address} onChange={e => setAddress(e.target.value)} placeholder="ที่อยู่"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:border-blue-400 outline-none" />
+            <input value={taxId} onChange={e => setTaxId(e.target.value)} placeholder="เลขที่ผู้เสียภาษี (ถ้ามี)"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:border-blue-400 outline-none" />
             <button onClick={addNew} disabled={!name.trim() || saving}
               className="w-full bg-blue-600 text-white font-bold py-2.5 rounded-xl text-sm disabled:opacity-40">
               {saving ? '⏳...' : '+ บันทึกและเลือก'}
@@ -972,10 +982,11 @@ const CART_DOC_TYPES = [
 
 function CartDocModal({ cart, totals, customer, settings, onClose }) {
   const [docType, setDocType] = useState('quotation')
-  const [custName, setCustName] = useState(customer?.name || '')
-  const [custAddr, setCustAddr] = useState(customer?.address || '')
+  const [custName, setCustName]   = useState(customer?.name || '')
+  const [custAddr, setCustAddr]   = useState(customer?.address || '')
   const [custPhone, setCustPhone] = useState(customer?.phone || '')
-  const [docNo, setDocNo] = useState('')
+  const [custTaxId, setCustTaxId] = useState(customer?.tax_id || '')
+  const [docNo, setDocNo]         = useState('')
   const [validUntil, setValidUntil] = useState('')
 
   function generate() {
@@ -986,7 +997,7 @@ function CartDocModal({ cart, totals, customer, settings, onClose }) {
     }))
     const html = buildFormalDocHTML(
       docType, items, totals,
-      { name: custName, address: custAddr, phone: custPhone },
+      { name: custName, address: custAddr, phone: custPhone, tax_id: custTaxId },
       settings,
       { doc_no: docNo || undefined, valid_until: validUntil || undefined }
     )
@@ -1036,14 +1047,18 @@ function CartDocModal({ cart, totals, customer, settings, onClose }) {
             </div>
           )}
 
-          <div>
-            <label className="text-xs font-semibold text-slate-500 block mb-1.5">ลูกค้า / ผู้รับ</label>
-            <input value={custName} onChange={e => setCustName(e.target.value)} placeholder="ชื่อ"
-              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none mb-2" />
-            <input value={custAddr} onChange={e => setCustAddr(e.target.value)} placeholder="ที่อยู่ (ถ้ามี)"
-              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none mb-2" />
-            <input value={custPhone} onChange={e => setCustPhone(e.target.value)} placeholder="เบอร์โทร (ถ้ามี)"
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-slate-500 block">ข้อมูลลูกค้า</label>
+            <input value={custName} onChange={e => setCustName(e.target.value)} placeholder="ชื่อ / บริษัท *"
               className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+            <input value={custAddr} onChange={e => setCustAddr(e.target.value)} placeholder="ที่อยู่"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+            <div className="flex gap-2">
+              <input value={custPhone} onChange={e => setCustPhone(e.target.value)} placeholder="เบอร์โทร"
+                className="flex-1 border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+              <input value={custTaxId} onChange={e => setCustTaxId(e.target.value)} placeholder="เลขที่ผู้เสียภาษี"
+                className="flex-1 border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+            </div>
           </div>
 
           <button onClick={generate}

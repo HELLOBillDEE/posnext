@@ -90,6 +90,7 @@ export default function DocumentsPage() {
       const customer = d.customers ? {
         name: d.customers.name, address: d.customers.address,
         phone: d.customers.phone, tax_id: d.customers.tax_id,
+        contact: d.customers.contact,
       } : {}
       const pmMap = { cash: 'เงินสด', transfer: 'โอน', credit: 'เครดิต' }
       html = buildFormalDocHTML(
