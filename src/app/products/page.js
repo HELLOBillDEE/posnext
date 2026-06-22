@@ -26,7 +26,8 @@ function parseCSV(text) {
 }
 
 export default function ProductsPage() {
-  const { role } = useAuth()
+  const auth = useAuth()
+  const role = auth?.role ?? 'admin'
   const [products, setProducts]       = useState([])
   const [categories, setCategories]   = useState([])
   const [search, setSearch]           = useState('')
