@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { fmt, fmtDT, todayISO, PAY_LABEL } from '@/lib/utils'
-import { buildFormalDocHTML } from '@/lib/docBuilder'
+import { buildFormalDocHTML, getNextDocNo } from '@/lib/docBuilder'
 
 const TABS = ['ใบเสร็จขาย', 'ใบสั่งซื้อ (PO)', 'ลูกหนี้ AR', 'เจ้าหนี้ AP']
 
@@ -77,7 +77,7 @@ export default function DocumentsPage() {
     }
   }
 
-  function printDetail(docType) {
+  async function printDetail(docType) {
     if (!detail) return
     let html
     if (detail.type === 'sale') {
@@ -93,9 +93,13 @@ export default function DocumentsPage() {
         contact: d.customers.contact,
       } : {}
       const pmMap = { cash: 'เงินสด', transfer: 'โอน', credit: 'เครดิต' }
+      const useDocType = docType || printDocType
+      const docNo = useDocType === 'receipt'
+        ? d.receipt_no
+        : await getNextDocNo(useDocType)
       html = buildFormalDocHTML(
-        docType || printDocType, items, totals, customer, settings,
-        { doc_no: d.receipt_no, payment_method: pmMap[d.payment_method] || d.payment_method, note: d.note }
+        useDocType, items, totals, customer, settings,
+        { doc_no: docNo, payment_method: pmMap[d.payment_method] || d.payment_method, note: d.note }
       )
     } else {
       html = buildFullPOHTML(detail.data, settings)

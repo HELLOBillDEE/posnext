@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { fmt, todayISO } from '@/lib/utils'
+import { getNextDocNo } from '@/lib/docBuilder'
 
 function numberToThaiText(amount) {
   const digits = ['', 'หนึ่ง', 'สอง', 'สาม', 'สี่', 'ห้า', 'หก', 'เจ็ด', 'แปด', 'เก้า']
@@ -28,18 +29,18 @@ function numberToThaiText(amount) {
   return satang === 0 ? res + 'ถ้วน' : res + cvt(satang) + 'สตางค์'
 }
 
-function buildPaymentVoucherHTML({ shop, exp, payee, docRef, payMethod, bankName, branch, checkNo, checkDate, whtRate }) {
+function buildPaymentVoucherHTML({ shop, exp, payee, docRef, payMethod, bankName, branch, checkNo, checkDate, whtRate, voucherNo }) {
   const total = Number(exp.amount)
   const wht = Math.round(total * (whtRate / 100) * 100) / 100
   const net = total - wht
   const fmt2 = n => Number(n).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  const voucherNo = 'PV' + new Date().getFullYear().toString().slice(-2) + String(new Date().getMonth() + 1).padStart(2, '0') + '-' + String(Math.floor(Math.random() * 9000) + 1000)
+  const docNo = voucherNo || ('PV' + new Date().getFullYear().toString().slice(-2) + String(new Date().getMonth() + 1).padStart(2, '0') + String(Math.floor(Math.random() * 9000) + 1000))
   const today = new Date().toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: 'numeric' })
 
   const pmBoxStyle = (active) => `display:inline-block;width:10px;height:10px;border:1.5px solid #333;margin-right:4px;background:${active ? '#333' : 'white'};vertical-align:middle`
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>ใบสำคัญจ่าย ${voucherNo}</title>
+<title>ใบสำคัญจ่าย ${docNo}</title>
 <style>
   body { font-family: 'Sarabun', 'TH Sarabun New', Arial, sans-serif; font-size: 14pt; margin: 0; padding: 20mm 20mm 15mm; color: #111; }
   h1 { font-size: 18pt; font-weight: bold; text-align: center; margin: 0 0 2px; }
@@ -76,7 +77,7 @@ function buildPaymentVoucherHTML({ shop, exp, payee, docRef, payMethod, bankName
   <div class="header-grid">
     <div></div>
     <div class="header-right">
-      <div><span class="label">เลขที่&nbsp;</span><span class="val">${voucherNo}</span></div>
+      <div><span class="label">เลขที่&nbsp;</span><span class="val">${docNo}</span></div>
       <div style="margin-top:6px"><span class="label">วันที่&nbsp;</span><span class="val">${today}</span></div>
     </div>
   </div>
@@ -144,6 +145,7 @@ function buildPaymentVoucherHTML({ shop, exp, payee, docRef, payMethod, bankName
 
 function PaymentVoucherModal({ exp, onClose }) {
   const [shop, setShop] = useState({})
+  const [voucherNo, setVoucherNo] = useState('')
   const [payee, setPayee] = useState('')
   const [docRef, setDocRef] = useState('')
   const [payMethod, setPayMethod] = useState('เงินสด')
@@ -160,10 +162,11 @@ function PaymentVoucherModal({ exp, onClose }) {
         ;(data || []).forEach(r => { s[r.key] = r.value })
         setShop(s)
       })
+    getNextDocNo('paymentvoucher').then(no => setVoucherNo(no))
   }, [])
 
   function print() {
-    const html = buildPaymentVoucherHTML({ shop, exp, payee, docRef, payMethod, bankName, branch, checkNo, checkDate, whtRate: Number(whtRate) })
+    const html = buildPaymentVoucherHTML({ shop, exp, payee, docRef, payMethod, bankName, branch, checkNo, checkDate, whtRate: Number(whtRate), voucherNo })
     const w = window.open('', '_blank')
     w.document.write(html)
     w.document.close()

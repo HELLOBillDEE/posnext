@@ -1,4 +1,35 @@
 // Shared formal document HTML builder (ใบเสร็จ/ใบแจ้งหนี้/ใบส่งของ/ใบเสนอราคา)
+import { supabase } from '@/lib/supabase'
+
+export const DOC_PREFIXES = {
+  quotation:      'QT',
+  delivery:       'INV',
+  receipt:        'RE',
+  invoice:        'IV',
+  paymentvoucher: 'PV',
+}
+
+export async function getNextDocNo(docType) {
+  const prefix = DOC_PREFIXES[docType] || 'DOC'
+  const now = new Date()
+  const ym = String(now.getFullYear()).slice(-2) + String(now.getMonth() + 1).padStart(2, '0')
+
+  const { data: existing } = await supabase
+    .from('doc_sequences')
+    .select('last_seq')
+    .eq('prefix', prefix)
+    .eq('year_month', ym)
+    .single()
+
+  const nextSeq = (existing?.last_seq || 0) + 1
+
+  await supabase.from('doc_sequences').upsert(
+    { prefix, year_month: ym, last_seq: nextSeq },
+    { onConflict: 'prefix,year_month' }
+  )
+
+  return `${prefix}${ym}${String(nextSeq).padStart(3, '0')}`
+}
 
 const DOC_TITLES = {
   receipt:   { th: 'ใบเสร็จรับเงิน',  en: 'Receipt' },

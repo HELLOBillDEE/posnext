@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { convertThaiBarcode, fmt, genReceiptNo } from '@/lib/utils'
 import { printViaBridge, buildReceiptESCPOS, kickDrawerViaBridge } from '@/lib/printBridge'
 import { syncSaleToBillDee } from '@/lib/billdeeSyncClient'
-import { buildFormalDocHTML } from '@/lib/docBuilder'
+import { buildFormalDocHTML, getNextDocNo } from '@/lib/docBuilder'
 
 // HID keyboard usage-code → ASCII char
 const HID_KEY = {
@@ -988,6 +988,10 @@ function CartDocModal({ cart, totals, customer, settings, onClose }) {
   const [custTaxId, setCustTaxId] = useState(customer?.tax_id || '')
   const [docNo, setDocNo]         = useState('')
   const [validUntil, setValidUntil] = useState('')
+
+  useEffect(() => {
+    getNextDocNo(docType).then(no => setDocNo(no))
+  }, [docType])
 
   function generate() {
     const items = cart.map(i => ({
