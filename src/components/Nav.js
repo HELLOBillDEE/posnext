@@ -1,0 +1,200 @@
+'use client'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+import { useAuth } from '@/components/AuthProvider'
+
+/* ── SVG Icon set ── */
+const IC = {
+  home: (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-[18px] h-[18px]">
+      <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
+    </svg>
+  ),
+  pos: (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-[18px] h-[18px]">
+      <path d="M20 4H4c-1.11 0-2 .89-2 2v12c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z"/>
+    </svg>
+  ),
+  product: (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-[18px] h-[18px]">
+      <path d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM12 17.5L6.5 12H10v-2h4v2h3.5L12 17.5zM5.12 5l.82-1h12l.93 1H5.12z"/>
+    </svg>
+  ),
+  po: (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-[18px] h-[18px]">
+      <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/>
+    </svg>
+  ),
+  doc: (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-[18px] h-[18px]">
+      <path d="M18 17H6v-2h12v2zm0-4H6v-2h12v2zm0-4H6V7h12v2zM3 22l1.5-1.5L6 22l1.5-1.5L9 22l1.5-1.5L12 22l1.5-1.5L15 22l1.5-1.5L18 22l1.5-1.5L21 22V2l-1.5 1.5L18 2l-1.5 1.5L15 2l-1.5 1.5L12 2l-1.5 1.5L9 2 7.5 3.5 6 2 4.5 3.5 3 2v20z"/>
+    </svg>
+  ),
+  report: (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-[18px] h-[18px]">
+      <path d="M5 9.2h3V19H5V9.2zM10.6 5h2.8v14h-2.8V5zm5.6 8H19v6h-2.8v-6z"/>
+    </svg>
+  ),
+  employees: (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-[18px] h-[18px]">
+      <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
+    </svg>
+  ),
+  settings: (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-[18px] h-[18px]">
+      <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+    </svg>
+  ),
+  logout: (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-[18px] h-[18px]">
+      <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/>
+    </svg>
+  ),
+}
+
+const TABS = [
+  { href:'/',          label:'หน้าหลัก',  icon: IC.home },
+  { href:'/pos',       label:'ขาย',       icon: IC.pos },
+  { href:'/products',  label:'สินค้า',    icon: IC.product },
+  { href:'/po',        label:'สั่งซื้อ',  icon: IC.po },
+  { href:'/documents', label:'เอกสาร',    icon: IC.doc },
+  { href:'/reports',   label:'รายงาน',    icon: IC.report },
+  { href:'/employees', label:'พนักงาน',   icon: IC.employees },
+  { href:'/admin',     label:'ตั้งค่า',   icon: IC.settings },
+]
+
+export default function Nav() {
+  const path = usePathname()
+  const auth = useAuth()
+  if (path === '/login' || !auth?.user) return null
+
+  const isActive = (href) => href === '/' ? path === '/' : path === href || path.startsWith(href + '/')
+
+  return (
+    <>
+      {/* ── Sidebar (md+) ── */}
+      <aside className="hidden md:flex fixed left-0 top-0 bottom-0 w-[230px] flex-col z-50 no-print"
+        style={{ background: 'linear-gradient(180deg, #0b1120 0%, #111827 100%)' }}>
+
+        {/* Subtle border right */}
+        <div className="absolute inset-y-0 right-0 w-px bg-gradient-to-b from-white/0 via-white/10 to-white/0" />
+
+        {/* Logo */}
+        <div className="px-5 py-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl flex items-center justify-center shadow-lg flex-shrink-0"
+              style={{ background: 'linear-gradient(135deg, #3B5BDB, #4C6EF5)', boxShadow: '0 4px 14px rgba(59,91,219,0.5)' }}>
+              <svg viewBox="0 0 24 24" fill="white" className="w-5 h-5">
+                <path d="M20 4H4c-1.11 0-2 .89-2 2v12c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z"/>
+              </svg>
+            </div>
+            <div>
+              <p className="font-bold text-[15px] text-white tracking-tight">ระบบ POS</p>
+              <p className="text-[11px] text-white/35 mt-0.5">จัดการร้านค้า</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Divider */}
+        <div className="mx-5 h-px bg-white/8 mb-2" />
+
+        {/* Links */}
+        <nav className="flex-1 px-3 py-1 space-y-0.5 overflow-y-auto scroll-hidden">
+          {TABS.map(t => {
+            const active = isActive(t.href)
+            return (
+              <Link key={t.href} href={t.href}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all group
+                  ${active ? 'text-white' : 'text-white/45 hover:text-white/80'}`}
+                style={active ? {
+                  background: 'rgba(59,91,219,0.25)',
+                  border: '1px solid rgba(59,91,219,0.3)',
+                } : {}}>
+
+                {/* Icon container */}
+                <div className={`icon-glass ${active ? 'icon-glass-active' : 'icon-glass-inactive'}`}>
+                  <span className={active ? 'text-white' : 'text-[#748FFC]'}>
+                    {t.icon}
+                  </span>
+                </div>
+
+                <span className="flex-1">{t.label}</span>
+
+                {active && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-brand-light/80 flex-shrink-0" />
+                )}
+              </Link>
+            )
+          })}
+        </nav>
+
+        {/* User & Logout */}
+        <div className="px-3 pb-5 pt-3">
+          <div className="mx-0 h-px bg-white/8 mb-3" />
+          {/* User chip */}
+          <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl mb-1"
+            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
+            <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 text-white"
+              style={{ background: 'linear-gradient(135deg, #3B5BDB, #748FFC)' }}>
+              {auth.user.email?.[0]?.toUpperCase() ?? 'U'}
+            </div>
+            <p className="text-[11px] text-white/45 truncate flex-1">{auth.user.email}</p>
+          </div>
+          {/* Logout */}
+          <button onClick={auth.logout}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-white/40 transition-all group"
+            style={{ fontFamily: 'Sarabun, sans-serif' }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.12)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+            <div className="icon-glass icon-glass-inactive group-hover:border-red-500/30 w-8 h-8 rounded-lg">
+              <span className="text-white/40 group-hover:text-red-400 transition-colors">{IC.logout}</span>
+            </div>
+            <span className="group-hover:text-red-400 transition-colors">ออกจากระบบ</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* ── Bottom tab bar (mobile) ── */}
+      <nav className="fixed bottom-0 left-0 right-0 md:hidden z-50 no-print"
+        style={{
+          background: 'rgba(255,255,255,0.92)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          borderTop: '1px solid rgba(59,91,219,0.1)',
+          boxShadow: '0 -8px 32px rgba(59,91,219,0.08)',
+        }}>
+
+        {/* Safe area padding for iPhone home indicator */}
+        <div className="flex overflow-x-auto scroll-hidden px-1 pt-2 pb-safe"
+          style={{ paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}>
+
+          {TABS.map(t => {
+            const active = isActive(t.href)
+            return (
+              <Link key={t.href} href={t.href}
+                className="flex flex-col items-center justify-center py-1 px-1 flex-1 min-w-[52px] transition-all">
+
+                {/* Icon bubble */}
+                <div className={`icon-glass mb-1 w-9 h-9 rounded-[11px] transition-all ${
+                  active
+                    ? 'icon-glass-active scale-105'
+                    : 'icon-glass-inactive'
+                }`}>
+                  <span className={active ? 'text-white' : 'text-[#748FFC]'}>
+                    {t.icon}
+                  </span>
+                </div>
+
+                <span className={`text-[9px] leading-tight font-semibold ${
+                  active ? 'text-brand' : 'text-slate-400'
+                }`}>
+                  {t.label}
+                </span>
+              </Link>
+            )
+          })}
+        </div>
+      </nav>
+    </>
+  )
+}

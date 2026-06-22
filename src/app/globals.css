@@ -1,0 +1,136 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&display=swap');
+
+:root {
+  --brand:       #3B5BDB;
+  --brand-mid:   #4C6EF5;
+  --brand-light: #748FFC;
+  --brand-50:    #EDF2FF;
+  --sidebar-bg:  #0b1120;
+}
+
+html { -webkit-text-size-adjust: 100%; }
+* { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+
+body {
+  font-family: 'Sarabun', sans-serif;
+  overscroll-behavior: none;
+  background: #f0f4ff;
+  color: #1e293b;
+}
+
+/* Prevent iOS zoom on input focus */
+input, select, textarea { font-size: 16px !important; font-family: 'Sarabun', sans-serif !important; }
+
+/* Scrollbar hide */
+.scroll-hidden::-webkit-scrollbar { display: none; }
+.scroll-hidden { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Page padding helper */
+.page { @apply max-w-6xl mx-auto px-4 py-5; }
+
+/* Card */
+.card {
+  background: rgba(255,255,255,0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 1rem;
+  border: 1px solid rgba(255,255,255,0.6);
+  box-shadow: 0 4px 24px rgba(59,91,219,0.06);
+}
+.card-pad {
+  background: rgba(255,255,255,0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 1rem;
+  border: 1px solid rgba(255,255,255,0.6);
+  box-shadow: 0 4px 24px rgba(59,91,219,0.06);
+  padding: 1.25rem;
+}
+
+/* Form field */
+.field {
+  @apply border border-slate-200 rounded-xl px-3 py-2.5 text-sm outline-none transition-all bg-white/60;
+  backdrop-filter: blur(4px);
+}
+.field:focus {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 4px rgba(59,91,219,0.1);
+  background: white;
+}
+
+/* Buttons */
+.btn-primary {
+  background: linear-gradient(135deg, var(--brand) 0%, var(--brand-mid) 100%);
+  color: white;
+  font-weight: 600;
+  padding: 0.625rem 1rem;
+  border-radius: 0.75rem;
+  font-size: 0.875rem;
+  box-shadow: 0 4px 14px rgba(59,91,219,0.35);
+  transition: all 0.15s;
+  font-family: 'Sarabun', sans-serif;
+}
+.btn-primary:active { transform: scale(0.95); box-shadow: 0 2px 8px rgba(59,91,219,0.3); }
+.btn-primary:disabled { opacity: 0.4; }
+
+.btn-secondary {
+  @apply bg-white/80 text-slate-700 font-semibold px-4 py-2.5 rounded-xl text-sm active:scale-95 transition-all;
+  border: 1px solid rgba(59,91,219,0.15);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+
+.btn-danger {
+  @apply bg-red-50 text-red-600 font-semibold px-4 py-2.5 rounded-xl text-sm border border-red-100 active:scale-95 transition-all;
+}
+
+/* Badge */
+.badge-green  { @apply bg-emerald-50 text-emerald-700 text-[10px] px-2 py-0.5 rounded-full font-semibold border border-emerald-100; }
+.badge-amber  { @apply bg-amber-50  text-amber-700  text-[10px] px-2 py-0.5 rounded-full font-semibold border border-amber-100; }
+.badge-red    { @apply bg-red-50    text-red-600    text-[10px] px-2 py-0.5 rounded-full font-semibold border border-red-100; }
+.badge-blue   { @apply bg-blue-50   text-blue-600   text-[10px] px-2 py-0.5 rounded-full font-semibold border border-blue-100; }
+.badge-slate  { @apply bg-slate-100 text-slate-600  text-[10px] px-2 py-0.5 rounded-full font-semibold; }
+
+/* Touch feedback */
+.tap-target { min-height: 44px; min-width: 44px; display: flex; align-items: center; justify-content: center; }
+
+/* Glass icon container */
+.icon-glass {
+  width: 36px; height: 36px;
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+.icon-glass-inactive {
+  background: rgba(59,91,219,0.1);
+  border: 1px solid rgba(59,91,219,0.15);
+}
+.icon-glass-active {
+  background: linear-gradient(135deg, #3B5BDB, #4C6EF5);
+  border: 1px solid rgba(255,255,255,0.2);
+  box-shadow: 0 4px 12px rgba(59,91,219,0.45), inset 0 1px 0 rgba(255,255,255,0.25);
+}
+
+/* Hover-only on non-touch */
+@media (hover: hover) {
+  .hover\:bg-white\/8:hover { background-color: rgba(255,255,255,0.08); }
+}
+
+/* Print */
+@media print {
+  nav, aside, .no-print { display: none !important; }
+  body { padding: 0; margin: 0; background: white; }
+  main { margin-left: 0 !important; padding: 0; }
+}
+@page { size: auto; margin: 2mm; }
+
+/* Animate */
+@keyframes fadeIn { from { opacity:0; transform:translateY(8px) } to { opacity:1; transform:translateY(0) } }
+.fade-in { animation: fadeIn 0.18s ease-out; }
+
+@keyframes slideUp { from { opacity:0; transform:translateY(20px) } to { opacity:1; transform:translateY(0) } }
+.slide-up { animation: slideUp 0.22s ease-out; }
