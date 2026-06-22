@@ -249,14 +249,8 @@ export default function POSPage() {
     if (cart.length === 0) return alert('กรุณาเพิ่มสินค้า')
     if (payMethod === 'cash' && parseFloat(payAmount || 0) < total) return alert('จำนวนเงินที่รับไม่เพียงพอ')
 
-    // เปิด popup ทันทีใน user-gesture context (ก่อน await ใดๆ)
-    // Safari block popup ถ้าเรียกหลัง async — ต้องเปิดก่อน แล้ว write ทีหลัง
     const cfg = JSON.parse(localStorage.getItem('printer_receipt') || '{}')
     const useBridge = !!cfg.ip  // ถ้ามี IP เครื่องพิมพ์ → พิมพ์ผ่าน API โดยตรง
-    let receiptWin = null
-    if (!useBridge) {
-      receiptWin = window.open('', '_blank', 'width=320,height=600')
-    }
 
     setSaving(true)
     try {
@@ -308,11 +302,10 @@ export default function POSPage() {
         )
         kickDrawerViaBridge('', cfg.ip, cfg.port || 9100)
           .catch(e => console.warn('Drawer kick error:', e.message))
-      } else if (receiptWin) {
-        // Popup fallback (ต้องเปิดไว้ก่อนแล้ว)
-        receiptWin.document.write(buildReceiptHTML(receipt))
-        receiptWin.document.close()
-        setTimeout(() => receiptWin.print(), 400)
+      } else {
+        // Blob URL approach — ไม่โดน Safari block แม้เรียกหลัง async
+        const blob = new Blob([buildReceiptHTML(receipt)], { type: 'text/html;charset=utf-8' })
+        window.open(URL.createObjectURL(blob))
       }
 
       // Sync to BillDEE (fire-and-forget, never blocks POS)
@@ -324,7 +317,6 @@ export default function POSPage() {
 
       setCart([]); setBillDiscount(''); setPayAmount(''); setNote(''); setCustomer(null); setShowPay(false)
     } catch (e) {
-      if (receiptWin) receiptWin.close()
       alert('เกิดข้อผิดพลาด: ' + (e?.message || JSON.stringify(e)))
     } finally {
       setSaving(false)
@@ -340,11 +332,8 @@ export default function POSPage() {
         return
       } catch (e) { console.warn('Print failed:', e.message) }
     }
-    const w = window.open('', '_blank', 'width=320,height=600')
-    if (!w) return
-    w.document.write(buildReceiptHTML(r))
-    w.document.close()
-    setTimeout(() => w.print(), 400)
+    const blob = new Blob([buildReceiptHTML(r)], { type: 'text/html;charset=utf-8' })
+    window.open(URL.createObjectURL(blob))
   }
 
   const filtered = products.filter(p => {
