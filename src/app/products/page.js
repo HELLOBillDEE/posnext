@@ -43,6 +43,10 @@ export default function ProductsPage() {
   const [labelPreview, setLabelPreview] = useState(false)
   const [catModal, setCatModal]       = useState(false)
   const [newCat, setNewCat]           = useState('')
+  // Bulk edit mode
+  const [bulkMode, setBulkMode]       = useState(false)
+  const [bulkEdits, setBulkEdits]     = useState({}) // { id: { stock, price, cost } }
+  const [bulkSaving, setBulkSaving]   = useState(false)
   // Import CSV
   const [importModal, setImportModal] = useState(null) // null | 'product' | 'stock'
   const [importRows, setImportRows]   = useState([])
@@ -168,6 +172,57 @@ export default function ProductsPage() {
     load()
   }
 
+  // ── Bulk Mode ──
+  function enterBulkMode() {
+    const edits = {}
+    products.forEach(p => { edits[p.id] = { stock: String(p.stock ?? ''), price: String(p.price ?? ''), cost: String(p.cost ?? '') } })
+    setBulkEdits(edits)
+    setSelected(new Set())
+    setBulkMode(true)
+  }
+
+  function exitBulkMode() { setBulkMode(false); setBulkEdits({}); setSelected(new Set()) }
+
+  function setBulkField(id, field, val) {
+    setBulkEdits(prev => ({ ...prev, [id]: { ...prev[id], [field]: val } }))
+  }
+
+  async function saveBulkEdits() {
+    const changed = products.filter(p => {
+      const e = bulkEdits[p.id]
+      if (!e) return false
+      return String(p.stock) !== e.stock || String(p.price) !== e.price || String(p.cost) !== e.cost
+    })
+    if (changed.length === 0) { exitBulkMode(); return }
+    setBulkSaving(true)
+    try {
+      await Promise.all(changed.map(p => {
+        const e = bulkEdits[p.id]
+        return supabase.from('products').update({
+          stock: parseFloat(e.stock) || 0,
+          price: parseFloat(e.price) || 0,
+          cost:  parseFloat(e.cost)  || 0,
+          updated_at: new Date().toISOString(),
+        }).eq('id', p.id)
+      }))
+      await load()
+      exitBulkMode()
+    } catch (e) { alert('บันทึกไม่สำเร็จ: ' + e.message) }
+    finally { setBulkSaving(false) }
+  }
+
+  async function bulkDelete() {
+    if (selected.size === 0) return
+    if (!confirm(`ลบสินค้า ${selected.size} ชิ้นที่เลือก?`)) return
+    setBulkSaving(true)
+    try {
+      await supabase.from('products').delete().in('id', [...selected])
+      await load()
+      exitBulkMode()
+    } catch (e) { alert('ลบไม่สำเร็จ: ' + e.message) }
+    finally { setBulkSaving(false) }
+  }
+
   // ── CSV Product Import ──
   function onProductCSV(e) {
     const file = e.target.files[0]
@@ -279,19 +334,26 @@ export default function ProductsPage() {
       <div className="flex items-center justify-between mb-5 flex-wrap gap-2">
         <h1 className="font-heading font-bold text-xl text-slate-800">📦 จัดการสินค้า</h1>
         <div className="flex gap-2 flex-wrap">
-          {selected.size > 0 && (
+          {!bulkMode && selected.size > 0 && (
             <button onClick={openPrint} className="bg-amber-500 text-white px-3 py-2 rounded-xl text-sm font-semibold shadow active:scale-95 transition-transform">
               🖨️ ปริ้นบาร์โค้ด ({selected.size})
             </button>
           )}
-          <button onClick={() => importRef.current?.click()}
-            className="btn-secondary text-sm px-3 py-2">📥 นำเข้า CSV</button>
-          <input ref={importRef} type="file" accept=".csv,.txt" className="hidden" onChange={onProductCSV} />
-          <button onClick={() => stockRef.current?.click()}
-            className="btn-secondary text-sm px-3 py-2">📊 ปรับสต็อก CSV</button>
-          <input ref={stockRef} type="file" accept=".csv,.txt" className="hidden" onChange={onStockCSV} />
-          <button onClick={() => setCatModal(true)} className="btn-secondary text-sm px-3 py-2">🗂️ หมวดหมู่</button>
-          <button onClick={openAdd} className="btn-primary text-sm px-4 py-2">+ เพิ่มสินค้า</button>
+          {!bulkMode && <>
+            <button onClick={() => importRef.current?.click()}
+              className="btn-secondary text-sm px-3 py-2">📥 นำเข้า CSV</button>
+            <input ref={importRef} type="file" accept=".csv,.txt" className="hidden" onChange={onProductCSV} />
+            <button onClick={() => stockRef.current?.click()}
+              className="btn-secondary text-sm px-3 py-2">📊 ปรับสต็อก CSV</button>
+            <input ref={stockRef} type="file" accept=".csv,.txt" className="hidden" onChange={onStockCSV} />
+            <button onClick={() => setCatModal(true)} className="btn-secondary text-sm px-3 py-2">🗂️ หมวดหมู่</button>
+            <button onClick={enterBulkMode} className="btn-secondary text-sm px-3 py-2">✏️ จัดการ</button>
+            <button onClick={openAdd} className="btn-primary text-sm px-4 py-2">+ เพิ่มสินค้า</button>
+          </>}
+          {bulkMode && <>
+            <span className="text-sm text-slate-500 self-center">โหมดแก้ไขกลุ่ม</span>
+            <button onClick={exitBulkMode} className="btn-secondary text-sm px-3 py-2">✕ ยกเลิก</button>
+          </>}
         </div>
       </div>
 
@@ -317,10 +379,12 @@ export default function ProductsPage() {
           checked={selected.size === filtered.length && filtered.length > 0}
           onChange={e => setSelected(e.target.checked ? new Set(filtered.map(p=>p.id)) : new Set())}
           className="w-4 h-4 accent-brand" />
-        เลือกทั้งหมด ({filtered.length} รายการ)
+        {bulkMode ? <span className="text-red-500 font-medium">☑ เลือกเพื่อลบ</span> : 'เลือกทั้งหมด'}
+        ({filtered.length} รายการ)
         {selected.size > 0 && (
           <button onClick={() => setSelected(new Set())} className="text-slate-400 underline ml-2">ยกเลิก</button>
         )}
+        {bulkMode && <span className="ml-auto text-amber-600 text-[10px]">✏️ แก้ไขราคา/สต็อกได้ในตาราง</span>}
       </div>
 
       {/* Product table */}
@@ -344,8 +408,11 @@ export default function ProductsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {filtered.map(p => (
-                <tr key={p.id} className="hover:bg-slate-50/70 transition-colors">
+              {filtered.map(p => {
+                const e = bulkEdits[p.id] || {}
+                const changed = bulkMode && (String(p.stock) !== e.stock || String(p.price) !== e.price || String(p.cost) !== e.cost)
+                return (
+                <tr key={p.id} className={`transition-colors ${bulkMode && selected.has(p.id) ? 'bg-red-50' : changed ? 'bg-amber-50' : 'hover:bg-slate-50/70'}`}>
                   <td className="pl-3 py-2.5">
                     <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleSelect(p.id)} className="w-4 h-4 accent-brand" />
                   </td>
@@ -355,18 +422,37 @@ export default function ProductsPage() {
                   </td>
                   <td className="px-3 py-2.5 text-slate-400 text-xs hidden md:table-cell font-mono">{p.barcode || '—'}</td>
                   <td className="px-3 py-2.5 text-xs text-slate-500 hidden sm:table-cell">{p.categories?.name || '—'}</td>
-                  <td className="px-3 py-2.5 text-right font-bold text-brand">฿{fmt(p.price)}</td>
-                  {role === 'admin' && <td className="px-3 py-2.5 text-right text-slate-400 text-xs hidden sm:table-cell">฿{fmt(p.cost)}</td>}
-                  <td className="px-3 py-2.5 text-right text-slate-700 font-medium">{p.stock} <span className="text-xs text-slate-400">{p.unit}</span></td>
+                  <td className="px-2 py-1.5 text-right">
+                    {bulkMode
+                      ? <input type="number" value={e.price ?? ''} onChange={ev => setBulkField(p.id,'price',ev.target.value)}
+                          className="w-20 border border-gray-200 rounded px-1.5 py-1 text-xs text-right focus:border-brand outline-none" />
+                      : <span className="font-bold text-brand">฿{fmt(p.price)}</span>}
+                  </td>
+                  {role === 'admin' && <td className="px-2 py-1.5 text-right hidden sm:table-cell">
+                    {bulkMode
+                      ? <input type="number" value={e.cost ?? ''} onChange={ev => setBulkField(p.id,'cost',ev.target.value)}
+                          className="w-20 border border-gray-200 rounded px-1.5 py-1 text-xs text-right focus:border-brand outline-none" />
+                      : <span className="text-slate-400 text-xs">฿{fmt(p.cost)}</span>}
+                  </td>}
+                  <td className="px-2 py-1.5 text-right">
+                    {bulkMode
+                      ? <input type="number" value={e.stock ?? ''} onChange={ev => setBulkField(p.id,'stock',ev.target.value)}
+                          className="w-20 border border-gray-200 rounded px-1.5 py-1 text-xs text-right focus:border-brand outline-none" />
+                      : <span className="text-slate-700 font-medium">{p.stock} <span className="text-xs text-slate-400">{p.unit}</span></span>}
+                  </td>
                   <td className="px-3 py-2.5 text-center">{stockBadge(p)}</td>
                   <td className="px-3 py-2.5 pr-3">
-                    <div className="flex gap-1 justify-end">
-                      <button onClick={() => openEdit(p)} className="text-blue-600 text-xs px-2.5 py-1.5 rounded-lg bg-blue-50 active:bg-blue-100">แก้ไข</button>
-                      <button onClick={() => deleteProduct(p.id)} className="text-red-400 text-xs px-2.5 py-1.5 rounded-lg bg-red-50 active:bg-red-100">ลบ</button>
-                    </div>
+                    {!bulkMode && (
+                      <div className="flex gap-1 justify-end">
+                        <button onClick={() => openEdit(p)} className="text-blue-600 text-xs px-2.5 py-1.5 rounded-lg bg-blue-50 active:bg-blue-100">แก้ไข</button>
+                        <button onClick={() => deleteProduct(p.id)} className="text-red-400 text-xs px-2.5 py-1.5 rounded-lg bg-red-50 active:bg-red-100">ลบ</button>
+                      </div>
+                    )}
+                    {bulkMode && changed && <span className="text-[9px] text-amber-500 font-medium">แก้ไข</span>}
                   </td>
                 </tr>
-              ))}
+                )
+              })}
               {filtered.length === 0 && (
                 <tr><td colSpan={9} className="text-center py-14 text-slate-400">ไม่พบสินค้า</td></tr>
               )}
@@ -374,6 +460,36 @@ export default function ProductsPage() {
           </table>
         </div>
       </div>
+
+      {/* ── Bulk Mode Action Bar ── */}
+      {bulkMode && (
+        <div className="fixed bottom-0 left-0 right-0 md:left-[220px] z-40 bg-white border-t border-slate-200 shadow-xl px-4 py-3">
+          <div className="max-w-4xl mx-auto flex items-center gap-3">
+            <div className="flex-1 text-sm text-slate-600">
+              {selected.size > 0
+                ? <span className="font-semibold text-slate-800">{selected.size} รายการที่เลือก</span>
+                : <span className="text-slate-400">เลือกสินค้าเพื่อลบ หรือแก้ค่าในตาราง</span>}
+              {(() => {
+                const nChanged = products.filter(p => {
+                  const e = bulkEdits[p.id]; if (!e) return false
+                  return String(p.stock) !== e.stock || String(p.price) !== e.price || String(p.cost) !== e.cost
+                }).length
+                return nChanged > 0 ? <span className="ml-2 text-amber-600 font-medium">· {nChanged} รายการแก้ไข</span> : null
+              })()}
+            </div>
+            {selected.size > 0 && (
+              <button onClick={bulkDelete} disabled={bulkSaving}
+                className="bg-red-500 text-white px-4 py-2.5 rounded-xl text-sm font-bold disabled:opacity-50 active:scale-95 transition-transform shadow">
+                🗑️ ลบ {selected.size} รายการ
+              </button>
+            )}
+            <button onClick={saveBulkEdits} disabled={bulkSaving}
+              className="bg-brand text-white px-5 py-2.5 rounded-xl text-sm font-bold disabled:opacity-50 active:scale-95 transition-transform shadow">
+              {bulkSaving ? 'กำลังบันทึก...' : '💾 บันทึกการเปลี่ยนแปลง'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Add/Edit Modal ── */}
       {modal && (
