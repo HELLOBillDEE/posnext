@@ -1,4 +1,5 @@
 'use client'
+import { familyFetch } from '@/lib/familyFetch'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
@@ -19,7 +20,7 @@ export default function LiffBills() {
       if (!liff.isLoggedIn()) { liff.login(); return }
       const p = await liff.getProfile()
 
-      const res = await fetch('/api/family/setup')
+      const res = await familyFetch('/api/family/setup')
       const { members } = await res.json()
       const m = members.find(x => x.line_user_id === p.userId)
       setMember(m)
@@ -30,12 +31,12 @@ export default function LiffBills() {
   }, [])
 
   async function loadBills(bizId) {
-    const res = await fetch(`/api/family/bills?business_id=${bizId}`)
+    const res = await familyFetch(`/api/family/bills?business_id=${bizId}`)
     setBills(await res.json())
   }
 
   async function markPaid(billId) {
-    await fetch('/api/family/bills', {
+    await familyFetch('/api/family/bills', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: billId, status: 'paid' }),

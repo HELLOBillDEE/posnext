@@ -1,4 +1,5 @@
 'use client'
+import { familyFetch } from '@/lib/familyFetch'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
@@ -18,7 +19,7 @@ export default function LiffSummary() {
       await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID })
       if (!liff.isLoggedIn()) { liff.login(); return }
       const p = await liff.getProfile()
-      const res = await fetch('/api/family/setup')
+      const res = await familyFetch('/api/family/setup')
       const { members } = await res.json()
       const m = members.find(x => x.line_user_id === p.userId)
       setMember(m)

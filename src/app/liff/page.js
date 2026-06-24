@@ -1,4 +1,5 @@
 'use client'
+import { familyFetch } from '@/lib/familyFetch'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
@@ -18,7 +19,7 @@ export default function LiffHome() {
         setUser(profile)
 
         // ดึงข้อมูล business ของ user
-        const res = await fetch('/api/family/setup')
+        const res = await familyFetch('/api/family/setup')
         const { members } = await res.json()
         const member = members.find(m => m.line_user_id === profile.userId)
         if (member) setBiz(member.family_businesses)

@@ -1,12 +1,13 @@
 import { createClient } from '@supabase/supabase-js'
+import { checkFamilyAuth } from '../_auth'
 
 const db = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
 
-// GET — ดึงข้อมูล businesses + members
-export async function GET() {
+export async function GET(req) {
+  if (!checkFamilyAuth(req)) return Response.json({ error: 'unauthorized' }, { status: 401 })
   const [{ data: businesses }, { data: members }] = await Promise.all([
     db.from('family_businesses').select('*').order('created_at'),
     db.from('family_members').select('*, family_businesses(name)').order('created_at'),
@@ -14,8 +15,8 @@ export async function GET() {
   return Response.json({ businesses: businesses || [], members: members || [] })
 }
 
-// POST — สร้าง business ใหม่ หรือ เพิ่ม member
 export async function POST(req) {
+  if (!checkFamilyAuth(req)) return Response.json({ error: 'unauthorized' }, { status: 401 })
   try {
     const body = await req.json()
 

@@ -1,4 +1,5 @@
 'use client'
+import { familyFetch } from '@/lib/familyFetch'
 import { useEffect, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Suspense } from 'react'
@@ -24,7 +25,7 @@ function ConfirmPage() {
       setProfile(p)
 
       if (!scanId) { setError('ไม่พบ scan ID'); return }
-      const res = await fetch(`/api/family/confirm?id=${scanId}`)
+      const res = await familyFetch(`/api/family/confirm?id=${scanId}`)
       if (!res.ok) { setError('ไม่พบรายการ หรือหมดอายุแล้ว'); return }
       const data = await res.json()
       setScan(data)
@@ -42,7 +43,7 @@ function ConfirmPage() {
   async function confirm() {
     setSaving(true); setError('')
     try {
-      const res = await fetch('/api/family/confirm', {
+      const res = await familyFetch('/api/family/confirm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ scanId, lineUserId: profile?.userId, overrides: form }),

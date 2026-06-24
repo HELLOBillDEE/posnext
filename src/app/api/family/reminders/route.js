@@ -1,13 +1,14 @@
 import { createClient } from '@supabase/supabase-js'
 import { getLineSettings } from '@/lib/lineApi'
+import { checkFamilyAuth } from '../_auth'
 
 const db = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
 
-// เรียกได้จาก cron job หรือ manual — ส่งแจ้งเตือนบิลใกล้ครบกำหนด
-export async function POST() {
+export async function POST(req) {
+  if (!checkFamilyAuth(req)) return Response.json({ error: 'unauthorized' }, { status: 401 })
   try {
     const today = new Date()
     const in7 = new Date(today); in7.setDate(in7.getDate() + 7)

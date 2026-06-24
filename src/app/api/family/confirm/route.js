@@ -1,13 +1,14 @@
 import { createClient } from '@supabase/supabase-js'
 import { getLineSettings } from '@/lib/lineApi'
+import { checkFamilyAuth } from '../_auth'
 
 const db = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
 
-// LIFF เรียกเพื่อ confirm บิลหลัง AI สแกน
 export async function POST(req) {
+  if (!checkFamilyAuth(req)) return Response.json({ error: 'unauthorized' }, { status: 401 })
   try {
     const { scanId, lineUserId, overrides } = await req.json()
     if (!scanId || !lineUserId) return Response.json({ error: 'missing params' }, { status: 400 })
@@ -30,7 +31,6 @@ export async function POST(req) {
     })
     await db.from('family_pending_scans').delete().eq('id', scanId)
 
-    // แจ้งกลุ่ม LINE
     const { line_channel_token: token, line_group_id: groupId } = await getLineSettings()
     if (token && groupId) {
       const fmt = n => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
@@ -53,8 +53,8 @@ export async function POST(req) {
   }
 }
 
-// GET pending scan สำหรับ LIFF
 export async function GET(req) {
+  if (!checkFamilyAuth(req)) return Response.json({ error: 'unauthorized' }, { status: 401 })
   const { searchParams } = new URL(req.url)
   const scanId = searchParams.get('id')
   if (!scanId) return Response.json({ error: 'missing id' }, { status: 400 })

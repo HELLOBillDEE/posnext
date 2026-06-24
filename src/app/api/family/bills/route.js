@@ -1,12 +1,13 @@
 import { createClient } from '@supabase/supabase-js'
+import { checkFamilyAuth } from '../_auth'
 
 const db = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
 
-// GET bills ของธุรกิจ
 export async function GET(req) {
+  if (!checkFamilyAuth(req)) return Response.json({ error: 'unauthorized' }, { status: 401 })
   const { searchParams } = new URL(req.url)
   const bizId = searchParams.get('business_id')
   const status = searchParams.get('status')
@@ -20,8 +21,8 @@ export async function GET(req) {
   return Response.json(data)
 }
 
-// PATCH — อัพเดตสถานะ (จ่ายแล้ว/ยกเลิก)
 export async function PATCH(req) {
+  if (!checkFamilyAuth(req)) return Response.json({ error: 'unauthorized' }, { status: 401 })
   try {
     const { id, status, paid_at } = await req.json()
     if (!id || !status) return Response.json({ error: 'missing fields' }, { status: 400 })

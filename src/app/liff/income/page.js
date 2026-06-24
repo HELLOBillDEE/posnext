@@ -1,4 +1,5 @@
 'use client'
+import { familyFetch } from '@/lib/familyFetch'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
@@ -21,7 +22,7 @@ export default function LiffIncome() {
       const p = await liff.getProfile()
       setProfile(p)
 
-      const res = await fetch('/api/family/setup')
+      const res = await familyFetch('/api/family/setup')
       const { members } = await res.json()
       const m = members.find(x => x.line_user_id === p.userId)
       setMember(m || null)
@@ -33,7 +34,7 @@ export default function LiffIncome() {
     if (!amount || !member) return
     setSaving(true); setError('')
     try {
-      const res = await fetch('/api/family/income', {
+      const res = await familyFetch('/api/family/income', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
