@@ -1,6 +1,15 @@
 import './globals.css'
+import { Kanit } from 'next/font/google'
 import Nav from '@/components/Nav'
 import AuthProvider from '@/components/AuthProvider'
+
+const kanit = Kanit({
+  subsets: ['thai', 'latin'],
+  weight: ['300', '400', '500', '600', '700'],
+  variable: '--font-kanit',
+  display: 'swap',
+  preload: true,
+})
 
 export const dynamic = 'force-dynamic'
 
@@ -29,10 +38,10 @@ export async function generateMetadata() {
       title: 'ช่างเชิด',
       statusBarStyle: 'black-translucent',
     },
-    icons: shopLogo ? {
-      apple: [{ url: shopLogo, sizes: '180x180', type: 'image/png' }],
-      icon:  [{ url: shopLogo, sizes: '192x192', type: 'image/png' }],
-    } : {},
+    icons: {
+      apple: [{ url: '/cherd-icon.png', sizes: '1024x1024', type: 'image/png' }],
+      icon:  [{ url: '/cherd-icon.png', sizes: '1024x1024', type: 'image/png' }],
+    },
   }
 }
 
@@ -41,13 +50,13 @@ export const viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-  themeColor: '#3B5BDB',
+  themeColor: '#C72C41',
 }
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="th">
-      <body className="bg-slate-50 min-h-screen">
+    <html lang="th" className={kanit.variable}>
+      <body className="bg-slate-50 min-h-screen" style={{ fontFamily: 'var(--font-kanit), sans-serif' }}>
         <AuthProvider>
           <div className="flex min-h-screen">
             <Nav />

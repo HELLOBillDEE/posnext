@@ -42,7 +42,7 @@ function buildPaymentVoucherHTML({ shop, exp, payee, docRef, payMethod, bankName
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>ใบสำคัญจ่าย ${docNo}</title>
 <style>
-  body { font-family: 'Sarabun', 'TH Sarabun New', Arial, sans-serif; font-size: 14pt; margin: 0; padding: 20mm 20mm 15mm; color: #111; }
+  body { font-family: 'Kanit', Arial, sans-serif; font-size: 14pt; margin: 0; padding: 20mm 20mm 15mm; color: #111; }
   h1 { font-size: 18pt; font-weight: bold; text-align: center; margin: 0 0 2px; }
   .subtitle { font-size: 13pt; color: #1a56c4; text-align: center; margin: 0 0 16px; }
   .header-grid { display: flex; justify-content: space-between; margin-bottom: 12px; }
@@ -262,8 +262,8 @@ function PaymentVoucherModal({ exp, onClose }) {
 const CATS = ['ค่าน้ำไฟ', 'ค่าเช่า', 'ค่าวัสดุสิ้นเปลือง', 'ค่าขนส่ง', 'ค่าซ่อมบำรุง', 'ค่าอาหาร', 'อื่นๆ']
 const CAT_COLOR = {
   'ค่าน้ำไฟ':'bg-yellow-100 text-yellow-700',
-  'ค่าเช่า':'bg-purple-100 text-purple-700',
-  'ค่าวัสดุสิ้นเปลือง':'bg-blue-100 text-blue-700',
+  'ค่าเช่า':'bg-pink-100 text-pink-700',
+  'ค่าวัสดุสิ้นเปลือง':'bg-orange-100 text-orange-700',
   'ค่าขนส่ง':'bg-green-100 text-green-700',
   'ค่าซ่อมบำรุง':'bg-orange-100 text-orange-700',
   'ค่าอาหาร':'bg-pink-100 text-pink-700',
@@ -345,7 +345,7 @@ export default function ExpensesPage() {
         </div>
         <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
           <p className="text-[11px] text-slate-400 font-semibold uppercase mb-1">เงินเดือน</p>
-          <p className="text-xl font-bold text-violet-600">฿{fmt(totalPayroll)}</p>
+          <p className="text-xl font-bold text-brand">฿{fmt(totalPayroll)}</p>
           <p className="text-xs text-slate-400 mt-1">ทุกพนักงาน</p>
         </div>
         <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
@@ -362,7 +362,7 @@ export default function ExpensesPage() {
           💸 ค่าใช้จ่าย ({expenses.length})
         </button>
         <button onClick={() => setActiveTab('payroll')}
-          className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-colors ${activeTab==='payroll' ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-gray-500 border-gray-200'}`}>
+          className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-colors ${activeTab==='payroll' ? 'bg-brand text-white border-brand' : 'bg-white text-gray-500 border-gray-200'}`}>
           👷 เงินเดือน ({payslips.length})
         </button>
         {activeTab === 'expenses' && Object.keys(byCategory).length > 0 && (
@@ -421,7 +421,7 @@ export default function ExpensesPage() {
                     {p.bonus > 0 && <span className="text-[10px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded-full font-semibold">โบนัส ฿{fmt(p.bonus)}</span>}
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-violet-600 text-sm">฿{fmt(p.net_pay)}</p>
+                    <p className="font-bold text-brand text-sm">฿{fmt(p.net_pay)}</p>
                     <p className="text-[10px] text-slate-400">สุทธิ</p>
                   </div>
                 </div>

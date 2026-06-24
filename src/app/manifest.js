@@ -21,17 +21,13 @@ export default async function manifest() {
     description: 'ระบบ POS ร้านช่างเชิด',
     start_url: '/pos',
     display: 'standalone',
-    background_color: '#0b1120',
-    theme_color: '#3B5BDB',
+    background_color: '#2D142C',
+    theme_color: '#C72C41',
     orientation: 'portrait',
-    icons: shopLogo
-      ? [
-          { src: shopLogo, sizes: 'any',    type: 'image/png', purpose: 'any maskable' },
-          { src: shopLogo, sizes: '192x192', type: 'image/png' },
-          { src: shopLogo, sizes: '512x512', type: 'image/png' },
-        ]
-      : [
-          { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
-        ],
+    icons: [
+      { src: '/icon.png', sizes: '1024x1024', type: 'image/png', purpose: 'any maskable' },
+      { src: '/icon.png', sizes: '512x512',   type: 'image/png' },
+      { src: '/icon.png', sizes: '192x192',   type: 'image/png' },
+    ],
   }
 }

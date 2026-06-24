@@ -19,6 +19,7 @@ export default function DocumentsPage() {
   const [showEdit, setShowEdit] = useState(false)
   const [printDocType, setPrintDocType] = useState('receipt')
   const [printDate, setPrintDate] = useState(new Date().toISOString().slice(0, 10))
+  const [blankDate, setBlankDate] = useState(false)
 
   useEffect(() => { loadData() }, [tab, dateFrom, dateTo])
 
@@ -109,7 +110,7 @@ export default function DocumentsPage() {
         : await commitNextDocNo(useDocType)
       html = buildFormalDocHTML(
         useDocType, items, totals, customer, settings,
-        { doc_no: docNo, date: printDate, payment_method: pmMap[d.payment_method] || d.payment_method, note: d.note }
+        { doc_no: docNo, date: blankDate ? '' : printDate, blank_date: blankDate, payment_method: pmMap[d.payment_method] || d.payment_method, note: d.note }
       )
     } else {
       html = buildFullPOHTML(detail.data, settings)
@@ -206,8 +207,10 @@ export default function DocumentsPage() {
               d={detail.data}
               docType={printDocType}
               docDate={printDate}
+              blankDate={blankDate}
               onDocTypeChange={setPrintDocType}
               onDocDateChange={setPrintDate}
+              onBlankDateChange={setBlankDate}
               onVoid={() => voidSale(detail.data.id)}
               onPrint={() => printDetail(printDocType)}
               onEdit={() => setShowEdit(true)}
@@ -234,13 +237,12 @@ export default function DocumentsPage() {
 }
 
 const DOC_OPTS = [
-  { value: 'receipt',   label: '🧾 ใบเสร็จ' },
-  { value: 'invoice',   label: '📋 ใบแจ้งหนี้' },
-  { value: 'delivery',  label: '📦 ใบส่งของ' },
-  { value: 'quotation', label: '📝 ใบเสนอราคา' },
+  { value: 'receipt',          label: '🧾 ใบเสร็จ' },
+  { value: 'delivery_invoice', label: '📦 ใบส่งของ/ใบแจ้งหนี้' },
+  { value: 'quotation',        label: '📝 ใบเสนอราคา' },
 ]
 
-function SaleDetail({ d, docType, docDate, onDocTypeChange, onDocDateChange, onVoid, onPrint, onEdit }) {
+function SaleDetail({ d, docType, docDate, blankDate, onDocTypeChange, onDocDateChange, onBlankDateChange, onVoid, onPrint, onEdit }) {
   return (
     <div>
       <div className="bg-brand text-white px-4 py-3 flex justify-between items-center flex-wrap gap-2">
@@ -265,21 +267,27 @@ function SaleDetail({ d, docType, docDate, onDocTypeChange, onDocDateChange, onV
             </button>
           ))}
         </div>
-        <div className="flex gap-2 items-center mb-2">
+        <div className="flex gap-2 items-center mb-1">
           <label className="text-xs text-slate-400 whitespace-nowrap">วันที่</label>
           <input type="date" value={docDate} onChange={e => onDocDateChange(e.target.value)}
-            className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:border-brand outline-none" />
+            disabled={blankDate}
+            className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:border-brand outline-none disabled:opacity-40" />
         </div>
+        <label className="flex items-center gap-1.5 mb-2 cursor-pointer">
+          <input type="checkbox" checked={blankDate} onChange={e => onBlankDateChange(e.target.checked)}
+            className="w-3.5 h-3.5 accent-brand" />
+          <span className="text-xs text-slate-400">ไม่ลงวันที่</span>
+        </label>
         <button onClick={onPrint} className="w-full bg-slate-800 text-white py-2 rounded-xl text-xs font-semibold">
           🖨️ พิมพ์ A4
         </button>
       </div>
       <div className="p-4 space-y-2">
         {d.customers?.name && (
-          <div className="flex items-center gap-2 bg-blue-50 rounded-xl px-3 py-2 mb-1">
+          <div className="flex items-center gap-2 bg-brand-50 rounded-xl px-3 py-2 mb-1">
             <span>👤</span>
-            <span className="text-sm font-medium text-blue-700">{d.customers.name}</span>
-            {d.customers.phone && <span className="text-xs text-blue-500">{d.customers.phone}</span>}
+            <span className="text-sm font-medium text-brand-mid">{d.customers.name}</span>
+            {d.customers.phone && <span className="text-xs text-brand">{d.customers.phone}</span>}
           </div>
         )}
         {(d.sale_items || []).map(i => (
@@ -305,7 +313,7 @@ function SaleDetail({ d, docType, docDate, onDocTypeChange, onDocDateChange, onV
 function PODetail({ d, onPrint }) {
   return (
     <div>
-      <div className="bg-blue-700 text-white px-4 py-3 flex justify-between items-center">
+      <div className="bg-brand-mid text-white px-4 py-3 flex justify-between items-center">
         <div>
           <h2 className="font-bold text-sm">{d.po_no}</h2>
           <p className="text-[10px] opacity-70">{d.suppliers?.name || '—'}</p>
@@ -513,7 +521,7 @@ function buildFullPOHTML(d, s) {
   return `<!DOCTYPE html><html><head><meta charset="UTF-8">
   <style>
   @page { size: A4; margin: 15mm; }
-  body{font-family:'Sarabun',sans-serif;font-size:13px;max-width:21cm;margin:auto}
+  body{font-family:'Kanit',sans-serif;font-size:13px;max-width:21cm;margin:auto}
   h2{font-size:20px}table{width:100%;border-collapse:collapse;margin:10px 0}
   th{background:#1e4a8a;color:white;padding:7px}td{padding:5px 8px;border-bottom:1px solid #eee}
   .total{font-weight:bold;font-size:15px}.right{text-align:right}

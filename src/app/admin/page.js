@@ -29,14 +29,19 @@ function loadBillDeeConfig() {
   return JSON.parse(localStorage.getItem('billdee_config') || 'null') || DEF_BILLDEE
 }
 
-const DEF_BARCODE  = { name:'Barcode Printer', ip:'', port:'9100', paper_width:'100', bridge_url:'', lang:'tspl' }
-const DEF_RECEIPT  = { name:'Receipt Printer', ip:'', port:'9100', paper_width:'80',  bridge_url:'' }
+const DEF_BARCODE  = { name:'Barcode Printer', ip:'192.168.2.69', port:'9100', paper_width:'100', bridge_url:'', lang:'tspl' }
+const DEF_RECEIPT  = { name:'Receipt Printer', ip:'192.168.2.88', port:'9100', paper_width:'80',  bridge_url:'' }
 
 function loadPrinters() {
   if (typeof window === 'undefined') return { barcode: DEF_BARCODE, receipt: DEF_RECEIPT }
+  const origin = window.location.origin
+  const saved = {
+    barcode: JSON.parse(localStorage.getItem('printer_barcode') || 'null'),
+    receipt: JSON.parse(localStorage.getItem('printer_receipt') || 'null'),
+  }
   return {
-    barcode: JSON.parse(localStorage.getItem('printer_barcode') || 'null') || DEF_BARCODE,
-    receipt: JSON.parse(localStorage.getItem('printer_receipt') || 'null') || DEF_RECEIPT,
+    barcode: { ...DEF_BARCODE, bridge_url: origin, ...(saved.barcode || {}) },
+    receipt: { ...DEF_RECEIPT, bridge_url: origin, ...(saved.receipt || {}) },
   }
 }
 
@@ -57,8 +62,9 @@ export default function AdminPage() {
   const [printerSaved, setPrinterSaved] = useState(false)
   const [billdee, setBilldee] = useState(loadBillDeeConfig)
   const [billdeeStatus, setBilldeeStatus] = useState(null) // null | 'testing' | 'ok' | 'error'
-  const [logoUploading, setLogoUploading] = useState(false)
-  const [qrUploading, setQrUploading]   = useState(false)
+  const [logoUploading, setLogoUploading]     = useState(false)
+  const [qrUploading, setQrUploading]         = useState(false)
+  const [lineQrUploading, setLineQrUploading] = useState(false)
 
   useEffect(() => { loadAll() }, [tab])
 
@@ -116,6 +122,25 @@ export default function AdminPage() {
       alert('อัปโหลดไม่สำเร็จ: ' + e.message)
     } finally {
       setQrUploading(false)
+    }
+  }
+
+  async function uploadLineQR(file) {
+    setLineQrUploading(true)
+    try {
+      const ext  = file.name.split('.').pop()
+      const path = `line-qr.${ext}`
+      const { error: upErr } = await supabase.storage.from('shop-assets').upload(path, file, { upsert: true })
+      if (upErr) throw upErr
+      const { data } = supabase.storage.from('shop-assets').getPublicUrl(path)
+      const url = data.publicUrl + '?t=' + Date.now()
+      await supabase.from('settings').upsert({ key: 'line_qr', value: url }, { onConflict: 'key' })
+      setSettings(p => ({ ...p, line_qr: url }))
+      alert('อัปโหลด LINE QR สำเร็จ')
+    } catch (e) {
+      alert('อัปโหลดไม่สำเร็จ: ' + e.message)
+    } finally {
+      setLineQrUploading(false)
     }
   }
 
@@ -340,6 +365,22 @@ export default function AdminPage() {
             </div>
           </div>
 
+          {/* LINE QR upload */}
+          <div>
+            <label className="text-xs font-semibold text-slate-500 block mb-1.5">QR LINE OA (แสดงบนใบเสร็จ)</label>
+            <div className="flex items-center gap-3">
+              {settings.line_qr && (
+                <img src={settings.line_qr} alt="LINE QR" className="h-20 w-20 object-contain border border-slate-200 rounded-xl bg-white p-1" />
+              )}
+              <label className={`cursor-pointer px-4 py-2 rounded-xl border-2 border-dashed text-sm font-semibold transition-all
+                ${lineQrUploading ? 'border-slate-300 text-slate-400' : 'border-brand/40 text-brand hover:bg-brand/5'}`}>
+                {lineQrUploading ? 'กำลังอัปโหลด...' : settings.line_qr ? '🔄 เปลี่ยน LINE QR' : '📷 อัปโหลด LINE QR'}
+                <input type="file" accept="image/*" className="hidden" disabled={lineQrUploading}
+                  onChange={e => e.target.files[0] && uploadLineQR(e.target.files[0])} />
+              </label>
+            </div>
+          </div>
+
           {/* QR payment upload */}
           <div>
             <label className="text-xs font-semibold text-slate-500 block mb-1.5">QR รับเงิน (แสดงตอนเลือกจ่ายด้วย QR)</label>
@@ -419,7 +460,7 @@ export default function AdminPage() {
           {/* Receipt printer */}
           <div className="card-pad space-y-4">
             <div className="flex items-center gap-3 pb-2 border-b border-slate-100">
-              <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-xl">🧾</div>
+              <div className="w-10 h-10 bg-brand-50 rounded-xl flex items-center justify-center text-xl">🧾</div>
               <div className="flex-1">
                 <h2 className="font-heading font-semibold text-slate-800">เครื่องปริ้นใบเสร็จ</h2>
                 <p className="text-xs text-slate-400">เชื่อมต่อผ่าน WiFi / IP</p>
@@ -434,7 +475,7 @@ export default function AdminPage() {
               className={`w-full py-2.5 rounded-xl text-sm font-semibold border transition-all active:scale-95 disabled:opacity-50
                 ${testReceiptStatus === 'ok' ? 'bg-emerald-50 border-emerald-300 text-emerald-700' :
                   testReceiptStatus === 'error' ? 'bg-red-50 border-red-300 text-red-700' :
-                  'bg-blue-50 border-blue-200 text-blue-800 hover:bg-blue-100'}`}>
+                  'bg-brand-50 border-brand/20 text-brand-mid hover:bg-brand-50'}`}>
               {testReceiptStatus === 'printing' ? '⏳ กำลังพิมพ์...' :
                testReceiptStatus === 'ok' ? '✅ พิมพ์สำเร็จ' :
                testReceiptStatus === 'error' ? '❌ พิมพ์ไม่ได้' : '🖨️ ทดสอบพิมพ์ใบเสร็จ'}
@@ -468,8 +509,16 @@ export default function AdminPage() {
                     <p className="font-semibold text-sm text-slate-800">{c.name}</p>
                     <p className="text-xs text-slate-400">{c.phone || '—'} · เครดิต ฿{fmt(c.credit_limit)}</p>
                   </div>
-                  <button onClick={() => { setCustForm({ ...c, credit_limit: String(c.credit_limit||0) }); setCustModal({ id: c.id }) }}
-                    className="text-xs text-brand border border-brand/30 px-3 py-1.5 rounded-lg active:bg-brand/5">แก้ไข</button>
+                  <div className="flex gap-2">
+                    <button onClick={() => { setCustForm({ ...c, credit_limit: String(c.credit_limit||0) }); setCustModal({ id: c.id }) }}
+                      className="text-xs text-brand border border-brand/30 px-3 py-1.5 rounded-lg active:bg-brand/5">แก้ไข</button>
+                    <button onClick={async () => {
+                      if (!confirm(`ลบลูกค้า "${c.name}" ?`)) return
+                      await supabase.from('customers').delete().eq('id', c.id)
+                      const { data } = await supabase.from('customers').select('*').order('name')
+                      setCustomers(data || [])
+                    }} className="text-xs text-red-400 border border-red-200 px-3 py-1.5 rounded-lg active:bg-red-50">ลบ</button>
+                  </div>
                 </div>
               ))}
               {filteredCust.length === 0 && <div className="text-center py-10 text-slate-400 text-sm">ไม่พบลูกค้า</div>}

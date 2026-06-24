@@ -37,9 +37,13 @@ export default function POSPage() {
   const [products, setProducts]     = useState([])
   const [categories, setCategories] = useState([])
   const [settings, setSettings]     = useState({})
+  const [employees, setEmployees]     = useState([])
+  const [currentEmp, setCurrentEmp]   = useState(null)   // { id, name, nickname }
+  const [showEmpPick, setShowEmpPick] = useState(false)
   const [cart, setCart]             = useState([])
   const [search, setSearch]         = useState('')
   const [activeCat, setActiveCat]   = useState(null)
+  const [visibleCount, setVisibleCount] = useState(40)
   const [showPay, setShowPay]       = useState(false)
   const [payMethod, setPayMethod]   = useState('cash')
   const [payAmount, setPayAmount]   = useState('')
@@ -60,6 +64,8 @@ export default function POSPage() {
   const [hidDevice, setHidDevice]   = useState(null)
   const [hidError, setHidError]     = useState('')
   const inputRef   = useRef(null)
+  const scannerRef = useRef(null)
+  const scannerBuf = useRef({ val: '', t0: 0 })
   const hidBuffer  = useRef('')
   const hidTimer   = useRef(null)
   const physBuf    = useRef({ chars: '', t0: 0 })
@@ -71,21 +77,27 @@ export default function POSPage() {
 
   useEffect(() => { loadData() }, [])
   useEffect(() => { if (!showPay) setTimeout(() => inputRef.current?.focus(), 100) }, [showPay])
+  useEffect(() => { setVisibleCount(40) }, [search, activeCat])
 
   // Cleanup HID on unmount
   useEffect(() => () => { if (hidDevice?.opened) hidDevice.close() }, [hidDevice])
 
 
   async function loadData() {
-    const [{ data: prods, error: prodErr }, { data: cats }, { data: cfg }] = await Promise.all([
+    const [{ data: prods, error: prodErr }, { data: cats }, { data: cfg }, { data: emps }] = await Promise.all([
       supabase.from('products').select('*, categories(name)').eq('active', true).order('name'),
       supabase.from('categories').select('*').order('name'),
       supabase.from('settings').select('*'),
+      supabase.from('employees').select('id,name,nickname').eq('active', true).order('name'),
     ])
+    setEmployees(emps || [])
     if (prodErr) console.error('products load error:', prodErr)
     setProducts(prods || [])
     setCategories(cats || [])
-    if (cfg) setSettings(Object.fromEntries(cfg.map(r => [r.key, r.value])))
+    if (cfg) {
+      const s = Object.fromEntries(cfg.map(r => [r.key, r.value]))
+      setSettings(s)
+    }
     // Load current open shift
     const { data: openShift } = await supabase.from('shifts').select('*').eq('status','open').order('opened_at',{ascending:false}).limit(1).maybeSingle()
     setShift(openShift || null)
@@ -162,7 +174,7 @@ export default function POSPage() {
       if (showPayRef.current) return
       const tag = e.target?.tagName
       if (tag === 'TEXTAREA' || tag === 'SELECT') return
-      if (tag === 'INPUT' && e.target !== inputRef.current) return
+      if (tag === 'INPUT' && e.target !== inputRef.current && e.target !== scannerRef.current) return
 
       const isEnter = e.key === 'Enter' || e.code === 'NumpadEnter'
 
@@ -267,6 +279,8 @@ export default function POSPage() {
     const { idx, field, value } = numpad
     if (field === 'qty') setQty(idx, value)
     else if (field === 'price') setItemPrice(idx, value)
+    else if (field === 'pay') { setPayAmount(value); setNumpad(null); return }
+    else if (field === 'billdisc') { setBillDiscount(value === '0' ? '' : value); setNumpad(null); return }
     else setItemDisc(idx, value)
     setNumpad(null)
   }
@@ -313,21 +327,27 @@ export default function POSPage() {
         img.src = settings.payment_qr
       })
     }
-    const qrH = qrImg ? Math.min(pw - pad*2, 300) : 0
-    const totalH = 60 + qrH + 80
+    const maxQR = 460  // จำกัด QR ไม่เกิน 460 dots (~57mm)
+    const qrScale = qrImg ? Math.min(maxQR / qrImg.width, maxQR / qrImg.height) : 0
+    const qrW = qrImg ? Math.round(qrImg.width  * qrScale) : 0
+    const qrH = qrImg ? Math.round(qrImg.height * qrScale) : 0
+    const feedH = 160  // 160 dots (~20mm) สำหรับ feed ก่อนตัด
+    const totalH = 60 + qrH + 100 + feedH
     canvas.height = totalH
     const ctx = canvas.getContext('2d')
     ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, pw, totalH)
     ctx.fillStyle = '#000'
+    function drawCenter(ctx, text, fontSize, bold, y) {
+      ctx.font = `${bold ? 'bold ' : ''}${fontSize}px Kanit, Arial, sans-serif`
+      ctx.textAlign = 'left'
+      const tw = ctx.measureText(text).width
+      ctx.fillText(text, Math.max(pad, Math.floor((pw - tw) / 2)), y)
+    }
     let y = 10
-    ctx.font = `bold 24px Sarabun, Arial, sans-serif`
-    ctx.textAlign = 'center'
-    ctx.fillText(settings.shop_name || 'ร้านค้า', pw/2, y+24); y += 40
-    ctx.font = `18px Sarabun, Arial, sans-serif`
-    ctx.fillText('สแกน QR เพื่อชำระ', pw/2, y+18); y += 28
-    if (qrImg) { ctx.drawImage(qrImg, (pw-qrH)/2, y, qrH, qrH); y += qrH + 8 }
-    ctx.font = `bold 34px Sarabun, Arial, sans-serif`
-    ctx.fillText('฿' + fmt(amount), pw/2, y+34)
+    drawCenter(ctx, settings.shop_name || 'ร้านค้า', 28, true, y+28); y += 44
+    drawCenter(ctx, 'สแกน QR เพื่อชำระ', 20, false, y+20); y += 30
+    if (qrImg) { ctx.drawImage(qrImg, (pw-qrW)/2, y, qrW, qrH); y += qrH + 10 }
+    drawCenter(ctx, '฿' + fmt(amount), 40, true, y+40)
     const imgData = ctx.getImageData(0, 0, pw, canvas.height)
     const wBytes = Math.ceil(pw/8)
     const bitmap = new Uint8Array(wBytes * canvas.height)
@@ -413,6 +433,9 @@ export default function POSPage() {
         ...sale, items: cart,
         shopName: settings.shop_name, shopAddress: settings.shop_address,
         shopPhone: settings.shop_phone, shopLogo: settings.shop_logo, footer: settings.receipt_footer,
+        lineQr: settings.line_qr || '',
+        hasLineQr: !!settings.line_qr,
+        cashier: currentEmp ? (currentEmp.nickname || currentEmp.name) : '',
         change: Math.max(0, change), vatRate,
         customerName: customer?.name || '', customerPhone: customer?.phone || '',
       }
@@ -479,6 +502,15 @@ export default function POSPage() {
            (p.barcode || '').toUpperCase().includes(q)
   })
 
+  const displayed = filtered.slice(0, visibleCount)
+
+  function handleGridScroll(e) {
+    const el = e.currentTarget
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 200) {
+      setVisibleCount(n => Math.min(n + 40, filtered.length))
+    }
+  }
+
   return (
     <div className="flex flex-col h-[100dvh] bg-gray-100 overflow-hidden">
 
@@ -488,13 +520,36 @@ export default function POSPage() {
         <input
           ref={inputRef}
           value={search}
-          onChange={e => {
-            const v = e.target.value
-            setSearch(/[฀-๿]/.test(v) ? convertThaiBarcode(v) : v)
-          }}
+          onChange={e => setSearch(e.target.value)}
+          onBlur={() => setTimeout(() => {
+            if (document.activeElement === document.body) scannerRef.current?.focus()
+          }, 150)}
           autoFocus
-          placeholder="ยิงบาร์โค้ด หรือค้นหาสินค้า…"
+          placeholder="ค้นหาสินค้า (ไทย/ENG)…"
           className="flex-1 bg-white/15 placeholder:text-white/40 text-white border border-white/20 rounded-xl px-4 py-2.5 text-sm outline-none focus:bg-white/20 focus:border-white/40"
+        />
+        <input
+          ref={scannerRef}
+          type="text"
+          inputMode="none"
+          autoComplete="off"
+          aria-hidden="true"
+          style={{ position: 'fixed', left: '-9999px', width: 1, height: 1, opacity: 0 }}
+          onKeyDown={e => {
+            if (e.key === 'Enter') {
+              const { val, t0 } = scannerBuf.current
+              scannerBuf.current = { val: '', t0: 0 }
+              if (val.length >= 3 && (Date.now() - t0) < 500) scannerHit(val)
+              e.preventDefault(); return
+            }
+            if (e.key.length === 1 && e.key.charCodeAt(0) < 128) {
+              const now = Date.now()
+              scannerBuf.current = { val: scannerBuf.current.val + e.key, t0: scannerBuf.current.t0 || now }
+            } else {
+              scannerBuf.current = { val: '', t0: 0 }
+            }
+          }}
+          onChange={() => {}}
         />
         {hidDevice ? (
           <button onClick={disconnectHID}
@@ -517,10 +572,16 @@ export default function POSPage() {
 
       {/* Shift banner */}
       {shift ? (
-        <div className="bg-emerald-700 text-white px-4 py-2 flex items-center justify-between text-xs shrink-0">
+        <div className="bg-emerald-700 text-white px-4 py-2 flex items-center justify-between text-xs shrink-0 gap-2">
           <span className="font-semibold">🟢 กะเปิดอยู่ · เงินเริ่มต้น ฿{fmt(shift.opening_cash)} · เปิดเมื่อ {new Date(shift.opened_at).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})}</span>
-          <button onClick={() => { setShiftModalMode('close'); setShowShiftModal(true) }}
-            className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg font-semibold transition-colors">ปิดกะ</button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button onClick={() => setShowEmpPick(true)}
+              className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg font-semibold transition-colors">
+              👤 {currentEmp ? (currentEmp.nickname || currentEmp.name) : 'เลือกพนักงาน'}
+            </button>
+            <button onClick={() => { setShiftModalMode('close'); setShowShiftModal(true) }}
+              className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg font-semibold transition-colors">ปิดกะ</button>
+          </div>
         </div>
       ) : (
         <div className="bg-slate-700 text-white px-4 py-2 flex items-center justify-between text-xs shrink-0">
@@ -547,33 +608,25 @@ export default function POSPage() {
           </div>
 
           {/* Product grid */}
-          <div className="flex-1 overflow-y-auto p-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 content-start">
-            {filtered.map(p => (
+          <div onScroll={handleGridScroll} className="flex-1 overflow-y-auto p-3 grid grid-cols-2 lg:grid-cols-3 gap-3 content-start">
+            {displayed.map(p => (
               <button key={p.id} onClick={() => addToCart(p)}
                 disabled={p.stock <= 0}
-                className="bg-white rounded-2xl border border-gray-100 text-left shadow-sm active:scale-95 transition-all relative overflow-hidden hover:border-brand/40 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed group">
+                className="bg-white rounded-xl border border-gray-100 text-left shadow-sm active:scale-95 transition-all relative flex flex-col hover:border-brand/40 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed">
                 {/* Stock badge */}
                 {p.stock <= 0 && (
-                  <div className="absolute top-2 right-2 bg-red-500 text-white text-[9px] px-2 py-0.5 rounded-full font-bold z-10">หมด</div>
+                  <div className="absolute top-2 right-2 bg-red-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold z-10">หมด</div>
                 )}
                 {p.stock > 0 && p.stock <= p.min_stock && (
-                  <div className="absolute top-2 right-2 bg-amber-400 text-white text-[9px] px-2 py-0.5 rounded-full font-bold z-10">ใกล้หมด</div>
+                  <div className="absolute top-2 right-2 bg-amber-400 text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold z-10">ใกล้หมด</div>
                 )}
-                {/* Image area */}
-                <div className="w-full aspect-square bg-gray-50 flex items-center justify-center overflow-hidden rounded-t-2xl border-b border-gray-100 group-hover:bg-brand/5 transition-colors">
-                  {p.image_url ? (
-                    <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <span className="text-4xl opacity-20">📦</span>
-                  )}
-                </div>
-                {/* Info */}
-                <div className="p-3">
-                  <div className="text-sm font-semibold leading-snug mb-1 line-clamp-2 text-slate-800">{p.name}</div>
-                  <div className="flex items-end justify-between gap-1 mt-2">
-                    <div className="font-bold text-base text-brand">฿{fmt(p.price)}</div>
-                    <div className="text-[10px] text-slate-400 shrink-0">{p.stock} {p.unit}</div>
-                  </div>
+                {/* Name */}
+                <div className="flex-1 px-3 pt-3 pb-1 text-sm font-semibold leading-snug line-clamp-3 text-slate-800">{p.name}</div>
+                {p.barcode && <div className="px-3 pb-1 text-[10px] text-slate-400 font-mono truncate">{p.barcode}</div>}
+                {/* Price */}
+                <div className="px-3 pb-3 flex items-center justify-between gap-1">
+                  <div className="font-bold text-lg text-brand">฿{fmt(p.price)}</div>
+                  <div className="text-xs text-slate-400">{p.stock} {p.unit}</div>
                 </div>
               </button>
             ))}
@@ -581,6 +634,11 @@ export default function POSPage() {
               <div className="col-span-full text-center py-20 text-slate-400 text-sm">
                 <div className="text-5xl mb-3 opacity-20">🔍</div>
                 ไม่พบสินค้า
+              </div>
+            )}
+            {visibleCount < filtered.length && (
+              <div className="col-span-full text-center py-2 text-xs text-slate-300">
+                {displayed.length}/{filtered.length}
               </div>
             )}
           </div>
@@ -601,14 +659,14 @@ export default function POSPage() {
           </div>
           {/* Customer row */}
           <button onClick={() => setShowCustModal(true)}
-            className="w-full px-4 py-2.5 flex items-center gap-2 bg-blue-50/60 border-b border-blue-100 hover:bg-blue-50 transition-colors text-left">
+            className="w-full px-4 py-2.5 flex items-center gap-2 bg-brand-50/60 border-b border-brand/10 hover:bg-brand-50 transition-colors text-left">
             <span className="text-base shrink-0">{customer ? '👤' : '➕'}</span>
-            <span className="text-sm font-medium text-blue-700 flex-1 truncate">
+            <span className="text-sm font-medium text-brand-mid flex-1 truncate">
               {customer ? customer.name : 'เลือก / เพิ่มลูกค้า'}
             </span>
             {customer && (
               <button onClick={e => { e.stopPropagation(); setCustomer(null) }}
-                className="text-blue-300 hover:text-red-400 text-lg leading-none shrink-0">×</button>
+                className="text-brand/30 hover:text-red-400 text-lg leading-none shrink-0">×</button>
             )}
           </button>
 
@@ -749,9 +807,10 @@ export default function POSPage() {
                   <>
                     <div>
                       <label className="text-xs font-semibold text-slate-500 block mb-1.5">รับเงิน (บาท)</label>
-                      <input type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)}
-                        autoFocus placeholder="0.00"
-                        className="w-full border-2 border-slate-200 rounded-2xl px-4 py-3 text-2xl text-right font-bold focus:border-brand outline-none" />
+                      <button onClick={() => setNumpad({ idx: -1, field: 'pay', value: payAmount || '0' })}
+                        className="w-full border-2 border-slate-200 rounded-2xl px-4 py-3 text-2xl text-right font-bold text-slate-800 bg-white hover:border-brand transition-colors">
+                        {payAmount || <span className="text-slate-300">0.00</span>}
+                      </button>
                     </div>
                     <div className="grid grid-cols-5 gap-1.5">
                       {QUICK_CASH.map(n => (
@@ -837,8 +896,10 @@ export default function POSPage() {
               {/* Bill discount */}
               <div className="flex items-center gap-2">
                 <label className="text-xs font-semibold text-slate-500 whitespace-nowrap">ส่วนลดบิล</label>
-                <input type="number" value={billDiscount} onChange={e => setBillDiscount(e.target.value)}
-                  placeholder="0" className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-right text-sm focus:border-brand outline-none" />
+                <button onClick={() => setNumpad({ idx: -1, field: 'billdisc', value: billDiscount || '0' })}
+                  className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-right text-sm font-semibold text-slate-800 bg-white hover:border-brand transition-colors">
+                  {billDiscount || <span className="text-slate-300">0</span>}
+                </button>
                 <span className="text-xs text-slate-400">บาท</span>
               </div>
 
@@ -867,6 +928,25 @@ export default function POSPage() {
         />
       )}
 
+      {showEmpPick && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+          onClick={e => e.target === e.currentTarget && setShowEmpPick(false)}>
+          <div className="bg-white rounded-3xl w-full max-w-xs shadow-2xl p-4 fade-in">
+            <h2 className="font-bold text-base mb-3 text-slate-700">เลือกพนักงาน</h2>
+            <div className="space-y-2">
+              {employees.map(e => (
+                <button key={e.id} onClick={() => { setCurrentEmp(e); setShowEmpPick(false) }}
+                  className={`w-full text-left px-4 py-3 rounded-2xl border-2 font-semibold transition-all
+                    ${currentEmp?.id === e.id ? 'border-brand bg-brand/5 text-brand' : 'border-slate-200 hover:border-brand/40 text-slate-700'}`}>
+                  {e.nickname || e.name}
+                  {e.nickname && <span className="text-xs font-normal text-slate-400 ml-2">({e.name})</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Customer Modal ── */}
       {showCustModal && (
         <CustomerModal
@@ -891,7 +971,7 @@ export default function POSPage() {
         <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/30" onClick={() => setNumpad(null)}>
           <div className="bg-white rounded-t-3xl w-full max-w-sm pb-safe shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="px-5 pt-4 pb-2">
-              <p className="text-xs text-slate-400 mb-1">{numpad.field === 'qty' ? 'จำนวน' : numpad.field === 'price' ? 'ราคา' : 'ส่วนลด'}</p>
+              <p className="text-xs text-slate-400 mb-1">{numpad.field === 'qty' ? 'จำนวน' : numpad.field === 'price' ? 'ราคา' : numpad.field === 'pay' ? 'รับเงิน (บาท)' : numpad.field === 'billdisc' ? 'ส่วนลดบิล (บาท)' : 'ส่วนลด'}</p>
               <p className="text-3xl font-bold text-slate-800 text-right tracking-wide">{numpad.value || '0'}</p>
             </div>
             <div className="grid grid-cols-3 gap-2 px-4 pb-4">
@@ -907,6 +987,8 @@ export default function POSPage() {
           </div>
         </div>
       )}
+
+
     </div>
   )
 }
@@ -942,19 +1024,19 @@ function CustomerModal({ onSelect, onClose }) {
     <div className="fixed inset-0 bg-black/60 z-50 flex items-end md:items-center justify-center p-3"
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden fade-in">
-        <div className="bg-blue-700 text-white px-4 py-3.5 flex justify-between items-center">
+        <div className="bg-brand-mid text-white px-4 py-3.5 flex justify-between items-center">
           <h2 className="font-bold text-base">👤 เลือกลูกค้า</h2>
           <button onClick={onClose} className="text-2xl leading-none opacity-70">×</button>
         </div>
         <div className="p-4 space-y-3">
           <input value={search} onChange={e => setSearch(e.target.value)} autoFocus
             placeholder="ค้นหาชื่อลูกค้า..."
-            className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-blue-400 outline-none" />
+            className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
 
           <div className="max-h-44 overflow-y-auto rounded-xl border border-slate-100 divide-y divide-slate-50">
             {customers.map(c => (
               <button key={c.id} onClick={() => onSelect(c)}
-                className="w-full px-4 py-3 text-left hover:bg-blue-50 transition-colors">
+                className="w-full px-4 py-3 text-left hover:bg-brand-50 transition-colors">
                 <div className="flex justify-between items-center">
                   <span className="font-medium text-sm text-slate-700">{c.name}</span>
                   <span className="text-xs text-slate-400">{c.phone}</span>
@@ -971,16 +1053,16 @@ function CustomerModal({ onSelect, onClose }) {
             <p className="text-xs font-semibold text-slate-500">เพิ่มลูกค้าใหม่</p>
             <div className="flex gap-2">
               <input value={name} onChange={e => setName(e.target.value)} placeholder="ชื่อลูกค้า *"
-                className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:border-blue-400 outline-none" />
+                className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:border-brand outline-none" />
               <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="เบอร์โทร"
-                className="w-32 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:border-blue-400 outline-none" />
+                className="w-32 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:border-brand outline-none" />
             </div>
             <input value={address} onChange={e => setAddress(e.target.value)} placeholder="ที่อยู่"
-              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:border-blue-400 outline-none" />
+              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:border-brand outline-none" />
             <input value={taxId} onChange={e => setTaxId(e.target.value)} placeholder="เลขที่ผู้เสียภาษี (ถ้ามี)"
-              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:border-blue-400 outline-none" />
+              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:border-brand outline-none" />
             <button onClick={addNew} disabled={!name.trim() || saving}
-              className="w-full bg-blue-600 text-white font-bold py-2.5 rounded-xl text-sm disabled:opacity-40">
+              className="w-full bg-brand text-white font-bold py-2.5 rounded-xl text-sm disabled:opacity-40">
               {saving ? '⏳...' : '+ บันทึกและเลือก'}
             </button>
           </div>
@@ -991,10 +1073,10 @@ function CustomerModal({ onSelect, onClose }) {
 }
 
 function ShiftModal({ mode, currentShift, onClose, onOpened, onClosed }) {
-  const [openCash, setOpenCash]   = useState('')
-  const [closeCash, setCloseCash] = useState('')
-  const [note, setNote]           = useState('')
-  const [saving, setSaving]       = useState(false)
+  const [openCash, setOpenCash]         = useState('')
+  const [closeCash, setCloseCash]       = useState('')
+  const [note, setNote]                 = useState('')
+  const [saving, setSaving]             = useState(false)
   const [shiftSummary, setShiftSummary] = useState(null)
 
   useEffect(() => {
@@ -1120,54 +1202,69 @@ function ShiftModal({ mode, currentShift, onClose, onOpened, onClosed }) {
 }
 
 function buildReceiptHTML(r) {
+  const PAY = { cash: 'เงินสด', transfer: 'โอน/QR', credit: 'เชื่อ', mixed: 'ผสม' }
   const rows = (r.items || []).map(i => `
     <tr>
-      <td style="padding:4px 0;font-size:16px">${i.name}${i.note ? `<br><span style="font-size:13px;color:#666">${i.note}</span>` : ''}</td>
-      <td style="text-align:right;white-space:nowrap;font-size:16px;padding-left:4px">${i.qty}×${Number(i.price).toFixed(2)}</td>
-      <td style="text-align:right;font-size:16px;padding-left:4px">${(i.price*i.qty-i.disc).toFixed(2)}</td>
+      <td style="padding:4px 0;font-size:17px;word-break:break-word">${i.name}${i.note?`<br><span style="font-size:14px;color:#555">${i.note}</span>`:''}</td>
+      <td style="text-align:center;font-size:17px;padding:4px 2px;white-space:nowrap">${i.qty}</td>
+      <td style="text-align:right;font-size:17px;padding:4px 2px;white-space:nowrap">${Number(i.price).toFixed(2)}</td>
+      <td style="text-align:right;font-size:17px;padding:4px 0;white-space:nowrap">${(i.price*i.qty-i.disc).toFixed(2)}</td>
     </tr>`).join('')
+  const dt = new Date(r.created_at)
+  const dtStr = dt.toLocaleDateString('th-TH',{day:'2-digit',month:'2-digit',year:'numeric'})+' '+dt.toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit',second:'2-digit'})
   return `<!DOCTYPE html><html><head><meta charset="UTF-8">
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:'Courier New',monospace;font-size:16px;width:72mm;padding:4px 2px}
-    .shop-logo{display:block;margin:0 auto 8px;max-width:60mm;max-height:32mm;object-fit:contain}
-    h2{font-size:20px;font-weight:bold;text-align:center;margin-bottom:4px}
-    .center{text-align:center;font-size:15px}
-    hr{border:none;border-top:1px dashed #888;margin:6px 0}
+    body{font-family:'Courier New',monospace;font-size:17px;width:72mm;padding:4px 4px}
+    .shop-logo{display:block;margin:0 auto 6px;max-width:60mm;max-height:28mm;object-fit:contain}
+    h2{font-size:22px;font-weight:bold;text-align:center;margin-bottom:2px}
+    h3{font-size:18px;font-weight:bold;text-align:center;margin-bottom:2px}
+    .center{text-align:center;font-size:16px}
+    .dash{border:none;border-top:1px dashed #000;margin:5px 0}
     table{width:100%;border-collapse:collapse}
-    .total-row td{font-size:17px;font-weight:bold;padding-top:6px}
-    .footer{text-align:center;margin-top:10px;font-size:15px}
+    .th td{font-size:16px;font-weight:bold;border-bottom:1px dashed #000;padding-bottom:3px}
+    .total-row td{font-size:20px;font-weight:bold;padding-top:4px}
+    .meta{font-size:16px;display:flex;justify-content:space-between;padding:2px 0}
+    .footer{text-align:center;margin-top:8px;font-size:16px}
     @media print{body{margin:0;padding:2px}}
   </style></head><body>
-  ${r.shopLogo ? `<img class="shop-logo" src="${r.shopLogo}" />` : ''}
-  <h2>${r.shopName || 'ร้านค้า'}</h2>
-  ${r.shopAddress ? `<p class="center">${r.shopAddress}</p>` : ''}
-  ${r.shopPhone ? `<p class="center">โทร: ${r.shopPhone}</p>` : ''}
-  <hr>
-  <p class="center">เลขที่: ${r.receipt_no}</p>
-  <p class="center">${new Date(r.created_at).toLocaleString('th-TH')}</p>
-  ${r.customerName ? `<p class="center">ลูกค้า: ${r.customerName}${r.customerPhone ? ` (${r.customerPhone})` : ''}</p>` : ''}
-  <hr>
-  <table>${rows}</table>
-  <hr>
+  ${r.shopLogo?`<img class="shop-logo" src="${r.shopLogo}"/>`:''}
+  <h2>${r.shopName||'ร้านค้า'}</h2>
+  <h3>ใบเสร็จรับเงิน</h3>
+  ${r.shopAddress?`<p class="center">${r.shopAddress}</p>`:''}
+  ${r.shopPhone?`<p class="center">โทร : ${r.shopPhone}</p>`:''}
+  <hr class="dash">
+  <div class="meta"><span>รายการ</span><span>จำนวน</span><span>ราคา</span><span>ราคารวม</span></div>
+  <hr class="dash">
   <table>
-    <tr><td>รวม</td><td style="text-align:right">${Number(r.subtotal).toFixed(2)}</td></tr>
-    ${r.discount>0?`<tr><td>ส่วนลด</td><td style="text-align:right">-${Number(r.discount).toFixed(2)}</td></tr>`:''}
-    ${r.vat>0?`<tr><td>VAT ${(r.vatRate*100).toFixed(0)}%</td><td style="text-align:right">${Number(r.vat).toFixed(2)}</td></tr>`:''}
-    <tr class="total-row"><td>สุทธิ</td><td style="text-align:right">฿${Number(r.total).toFixed(2)}</td></tr>
-    ${r.change>0?`<tr><td>เงินทอน</td><td style="text-align:right">฿${Number(r.change).toFixed(2)}</td></tr>`:''}
+    ${rows}
   </table>
-  <hr>
-  <div class="footer">${r.footer || 'ขอบคุณที่ใช้บริการ'}</div>
+  <hr class="dash">
+  <table>
+    <tr><td style="font-size:17px">รวม</td><td style="text-align:right;font-size:17px">${Number(r.subtotal).toFixed(2)}</td></tr>
+    ${r.discount>0?`<tr><td style="font-size:17px">ส่วนลด</td><td style="text-align:right;font-size:17px">-${Number(r.discount).toFixed(2)}</td></tr>`:''}
+    ${r.vat>0?`<tr><td style="font-size:17px">VAT ${(r.vatRate*100).toFixed(0)}%</td><td style="text-align:right;font-size:17px">${Number(r.vat).toFixed(2)}</td></tr>`:''}
+    <tr class="total-row"><td>สุทธิ</td><td style="text-align:right">${Number(r.total).toFixed(2)}</td></tr>
+    <tr><td style="font-size:17px">${PAY[r.payment_method]||r.payment_method||''}</td><td style="text-align:right;font-size:17px">${r.payment_amount?Number(r.payment_amount).toFixed(2):''}</td></tr>
+    ${r.change>0?`<tr><td style="font-size:17px">เงินทอน</td><td style="text-align:right;font-size:17px">${Number(r.change).toFixed(2)}</td></tr>`:''}
+  </table>
+  <hr class="dash">
+  ${r.customerName?`<div class="meta"><span>ลูกค้า</span><span>${r.customerName}${r.customerPhone?` ${r.customerPhone}`:''}</span></div>`:''}
+  ${r.cashier?`<div class="meta"><span>พนักงาน</span><span>${r.cashier}</span></div>`:''}
+  <div class="meta"><span>เลขที่</span><span>${r.receipt_no}</span></div>
+  <div class="meta"><span></span><span style="font-size:15px">** ${dtStr} **</span></div>
+  <hr class="dash">
+  <div class="footer">${r.footer||'ขอบคุณที่ใช้บริการ'}</div>
+  ${r.lineQr?`<hr class="dash"><p class="center" style="font-size:15px;margin-bottom:4px">ติดตามร้านค้าผ่าน LINE</p><img src="${r.lineQr}" style="display:block;margin:0 auto;max-width:40mm;max-height:40mm"/>`:''}
+
   <script>window.onload=()=>{window.focus();window.print()}</script>
   </body></html>`
 }
 
 const CART_DOC_TYPES = [
-  { value: 'quotation', label: '📝 ใบเสนอราคา' },
-  { value: 'invoice',   label: '📋 ใบแจ้งหนี้' },
-  { value: 'delivery',  label: '📦 ใบส่งของ' },
-  { value: 'receipt',   label: '🧾 ใบเสร็จรับเงิน' },
+  { value: 'quotation',        label: '📝 ใบเสนอราคา' },
+  { value: 'delivery_invoice', label: '📦 ใบส่งของ/ใบแจ้งหนี้' },
+  { value: 'receipt',          label: '🧾 ใบเสร็จรับเงิน' },
 ]
 
 function CartDocModal({ cart, totals, customer, settings, onClose }) {
@@ -1185,6 +1282,7 @@ function CartDocModal({ cart, totals, customer, settings, onClose }) {
   }, [docType])
 
   async function generate() {
+    const win = window.open('', '_blank')
     const finalDocNo = await commitNextDocNo(docType)
     const items = cart.map(i => ({
       name: i.name, qty: i.qty, unit: i.unit || '',
@@ -1199,7 +1297,11 @@ function CartDocModal({ cart, totals, customer, settings, onClose }) {
     )
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
     const url = URL.createObjectURL(blob)
-    window.open(url, '_blank')
+    if (win) {
+      win.location.href = url
+    } else {
+      window.open(url, '_blank')
+    }
     setTimeout(() => URL.revokeObjectURL(url), 60000)
     onClose()
   }

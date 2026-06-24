@@ -57,6 +57,11 @@ const IC = {
       <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
     </svg>
   ),
+  repair: (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-[18px] h-[18px]">
+      <path d="M22.61 18.99l-9.08-9.08c.93-2.34.45-5.1-1.44-7C9.79.61 7.21.45 5.45 1.67L8.28 4.5 4.51 8.28 1.68 5.45C.45 7.21.62 9.8 2.92 12.09c1.86 1.86 4.58 2.35 6.89 1.48l9.11 9.11c.39.39 1.02.39 1.41 0l2.27-2.27c.4-.38.4-1.02.01-1.42z"/>
+    </svg>
+  ),
   logout: (
     <svg viewBox="0 0 24 24" fill="currentColor" className="w-[18px] h-[18px]">
       <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/>
@@ -69,6 +74,7 @@ const ALL_TABS = [
   { href:'/pos',       label:'ขาย',       icon: IC.pos },
   { href:'/products',  label:'สินค้า',    icon: IC.product },
   { href:'/po',        label:'สั่งซื้อ',  icon: IC.po,        adminOnly: true },
+  { href:'/repair',    label:'คิวซ่อม',   icon: IC.repair },
   { href:'/documents', label:'เอกสาร',    icon: IC.doc },
   { href:'/reports',   label:'รายงาน',    icon: IC.report,    adminOnly: true },
   { href:'/employees', label:'พนักงาน',   icon: IC.employees, adminOnly: true },
@@ -148,7 +154,7 @@ export default function Nav() {
     <>
       {/* ── Sidebar (md+) ── */}
       <aside className="hidden md:flex fixed left-0 top-0 bottom-0 w-[230px] flex-col z-50 no-print"
-        style={{ background: 'linear-gradient(180deg, #0b1120 0%, #111827 100%)' }}>
+        style={{ background: 'linear-gradient(180deg, #14060a 0%, #2D142C 100%)' }}>
 
         {/* Subtle border right */}
         <div className="absolute inset-y-0 right-0 w-px bg-gradient-to-b from-white/0 via-white/10 to-white/0" />
@@ -156,16 +162,8 @@ export default function Nav() {
         {/* Logo */}
         <div className="px-5 py-5">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl flex items-center justify-center shadow-lg flex-shrink-0"
-              style={{ background: 'linear-gradient(135deg, #3B5BDB, #4C6EF5)', boxShadow: '0 4px 14px rgba(59,91,219,0.5)' }}>
-              <svg viewBox="0 0 24 24" fill="white" className="w-5 h-5">
-                <path d="M20 4H4c-1.11 0-2 .89-2 2v12c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm0 14H4v-6h16v6zm0-10H4V6h16v2z"/>
-              </svg>
-            </div>
-            <div>
-              <p className="font-bold text-[15px] text-white tracking-tight">ระบบ POS</p>
-              <p className="text-[11px] text-white/35 mt-0.5">จัดการร้านค้า</p>
-            </div>
+            <img src="/logo.png" alt="CHERD" className="w-10 h-10 rounded-2xl shadow-lg flex-shrink-0 object-cover" />
+            <p className="text-[11px] text-white/40 mt-0.5">จัดการร้านค้า</p>
           </div>
         </div>
 
@@ -181,13 +179,13 @@ export default function Nav() {
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all group
                   ${active ? 'text-white' : 'text-white/45 hover:text-white/80'}`}
                 style={active ? {
-                  background: 'rgba(59,91,219,0.25)',
-                  border: '1px solid rgba(59,91,219,0.3)',
+                  background: 'rgba(199,44,65,0.25)',
+                  border: '1px solid rgba(199,44,65,0.3)',
                 } : {}}>
 
                 {/* Icon container */}
                 <div className={`icon-glass ${active ? 'icon-glass-active' : 'icon-glass-inactive'}`}>
-                  <span className={active ? 'text-white' : 'text-[#748FFC]'}>
+                  <span className={active ? 'text-white' : 'text-brand-light'}>
                     {t.icon}
                   </span>
                 </div>
@@ -209,7 +207,7 @@ export default function Nav() {
           <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl mb-1"
             style={{ background: auth.empMode ? 'rgba(16,185,129,0.12)' : 'rgba(255,255,255,0.05)', border: auth.empMode ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(255,255,255,0.08)' }}>
             <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 text-white"
-              style={{ background: auth.empMode ? 'linear-gradient(135deg,#059669,#34d399)' : 'linear-gradient(135deg, #3B5BDB, #748FFC)' }}>
+              style={{ background: auth.empMode ? 'linear-gradient(135deg,#059669,#34d399)' : 'linear-gradient(135deg, #C72C41, #EE4540)' }}>
               {auth.empMode ? auth.empMode.name[0] : (auth.user.email?.[0]?.toUpperCase() ?? 'U')}
             </div>
             <div className="flex-1 min-w-0">
@@ -224,17 +222,17 @@ export default function Nav() {
             <>
               <button onClick={openEmpPicker}
                 className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm text-white/40 transition-all group mb-1"
-                style={{ fontFamily: 'Sarabun, sans-serif' }}
-                onMouseEnter={e => e.currentTarget.style.background = 'rgba(16,185,129,0.1)'}
+                style={{ fontFamily: 'Kanit, sans-serif' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(199,44,65,0.1)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                 <div className="icon-glass icon-glass-inactive w-8 h-8 rounded-lg">
-                  <span className="text-emerald-400 text-sm">🔄</span>
+                  <span className="text-brand-light text-sm">🔄</span>
                 </div>
-                <span className="group-hover:text-emerald-400 transition-colors text-xs">สลับพนักงาน</span>
+                <span className="group-hover:text-brand-light transition-colors text-xs">สลับพนักงาน</span>
               </button>
               <button onClick={openAdminPin}
                 className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm text-white/40 transition-all group"
-                style={{ fontFamily: 'Sarabun, sans-serif' }}
+                style={{ fontFamily: 'Kanit, sans-serif' }}
                 onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.1)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                 <div className="icon-glass icon-glass-inactive w-8 h-8 rounded-lg">
@@ -247,17 +245,17 @@ export default function Nav() {
             <>
               <button onClick={openEmpPicker}
                 className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm text-white/40 transition-all group mb-1"
-                style={{ fontFamily: 'Sarabun, sans-serif' }}
-                onMouseEnter={e => e.currentTarget.style.background = 'rgba(16,185,129,0.1)'}
+                style={{ fontFamily: 'Kanit, sans-serif' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(199,44,65,0.1)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                 <div className="icon-glass icon-glass-inactive w-8 h-8 rounded-lg">
-                  <span className="text-emerald-400 text-sm">👷</span>
+                  <span className="text-brand-light text-sm">👷</span>
                 </div>
-                <span className="group-hover:text-emerald-400 transition-colors text-xs">โหมดพนักงาน</span>
+                <span className="group-hover:text-brand-light transition-colors text-xs">โหมดพนักงาน</span>
               </button>
               <button onClick={auth.logout}
                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-white/40 transition-all group"
-                style={{ fontFamily: 'Sarabun, sans-serif' }}
+                style={{ fontFamily: 'Kanit, sans-serif' }}
                 onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.12)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                 <div className="icon-glass icon-glass-inactive group-hover:border-red-500/30 w-8 h-8 rounded-lg">
@@ -276,31 +274,31 @@ export default function Nav() {
           background: 'rgba(255,255,255,0.92)',
           backdropFilter: 'blur(20px)',
           WebkitBackdropFilter: 'blur(20px)',
-          borderTop: '1px solid rgba(59,91,219,0.1)',
-          boxShadow: '0 -8px 32px rgba(59,91,219,0.08)',
+          borderTop: '1px solid rgba(140,0,0,0.1)',
+          boxShadow: '0 -8px 32px rgba(140,0,0,0.08)',
         }}>
 
-        {/* Safe area padding for iPhone home indicator */}
         <div className="flex overflow-x-auto scroll-hidden px-1 pt-2 pb-safe"
           style={{ paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}>
+
+          {/* CHERD icon */}
+          <div className="flex flex-col items-center justify-center py-1 px-2 flex-shrink-0">
+            <img src="/logo.png" alt="CHERD" className="w-9 h-9 rounded-[11px] object-cover shadow-sm" />
+            <span className="text-[9px] leading-tight font-semibold text-slate-300 mt-1">CHERD</span>
+          </div>
 
           {TABS.map(t => {
             const active = isActive(t.href)
             return (
               <Link key={t.href} href={t.href}
                 className="flex flex-col items-center justify-center py-1 px-1 flex-1 min-w-[52px] transition-all">
-
-                {/* Icon bubble */}
                 <div className={`icon-glass mb-1 w-9 h-9 rounded-[11px] transition-all ${
-                  active
-                    ? 'icon-glass-active scale-105'
-                    : 'icon-glass-inactive'
+                  active ? 'icon-glass-active scale-105' : 'icon-glass-inactive'
                 }`}>
-                  <span className={active ? 'text-white' : 'text-[#748FFC]'}>
+                  <span className={active ? 'text-white' : 'text-brand-light'}>
                     {t.icon}
                   </span>
                 </div>
-
                 <span className={`text-[9px] leading-tight font-semibold ${
                   active ? 'text-brand' : 'text-slate-400'
                 }`}>
@@ -318,7 +316,7 @@ export default function Nav() {
           style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)' }}
           onClick={e => { if (e.target === e.currentTarget) setShowAdminPin(false) }}>
           <div className="w-full max-w-xs rounded-3xl overflow-hidden"
-            style={{ background: 'linear-gradient(135deg,#0b1120,#1e1b4b)', border: '1px solid rgba(255,255,255,0.15)' }}>
+            style={{ background: 'linear-gradient(135deg,#14060a,#2D142C)', border: '1px solid rgba(255,255,255,0.15)' }}>
             <div className="px-5 pt-5 pb-3 flex items-center justify-between">
               <p className="font-bold text-white text-base">🔐 เข้าโหมดแอดมิน</p>
               <button onClick={() => setShowAdminPin(false)} className="text-white/40 hover:text-white text-xl leading-none">✕</button>
@@ -368,7 +366,7 @@ export default function Nav() {
           style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)' }}
           onClick={e => { if (e.target === e.currentTarget) setShowEmpPicker(false) }}>
           <div className="w-full max-w-xs rounded-3xl overflow-hidden"
-            style={{ background: 'linear-gradient(135deg,#0b1120,#1e1b4b)', border: '1px solid rgba(255,255,255,0.15)' }}>
+            style={{ background: 'linear-gradient(135deg,#14060a,#2D142C)', border: '1px solid rgba(255,255,255,0.15)' }}>
 
             <div className="px-5 pt-5 pb-3 flex items-center justify-between">
               <p className="font-bold text-white text-base">

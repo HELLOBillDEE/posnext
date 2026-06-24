@@ -56,10 +56,14 @@ export default function ProductsPage() {
   const [importModal, setImportModal] = useState(null) // null | 'product' | 'stock'
   const [importRows, setImportRows]   = useState([])
   const [importDone, setImportDone]   = useState(null)
+  const [visibleCount, setVisibleCount] = useState(20)
+  const loadMoreRef = useRef(null)
   const importRef = useRef(null)
   const stockRef  = useRef(null)
 
   useEffect(() => { load() }, [])
+
+  useEffect(() => { setVisibleCount(20) }, [search, filterCat, filterStock])
 
   async function load() {
     const [{ data: p }, { data: c }] = await Promise.all([
@@ -76,6 +80,19 @@ export default function ProductsPage() {
     const matchStock  = filterStock === 'all' || (filterStock === 'low' && p.stock <= p.min_stock) || (filterStock === 'out' && p.stock <= 0)
     return matchSearch && matchCat && matchStock
   })
+
+  const paginated    = bulkMode ? filtered : filtered.slice(0, visibleCount)
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    const el = loadMoreRef.current
+    if (!el) return
+    const obs = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) setVisibleCount(n => n + 50)
+    }, { rootMargin: '0px' })
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [visibleCount, filtered.length])
 
   function openAdd() { setForm(EMPTY_PROD); setModal('add') }
   function openEdit(p) {
@@ -445,7 +462,7 @@ export default function ProductsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {filtered.map(p => {
+              {paginated.map(p => {
                 const e = bulkEdits[p.id] || {}
                 const changed = bulkMode && (String(p.stock) !== e.stock || String(p.price) !== e.price || String(p.cost) !== e.cost)
                 return (
@@ -481,7 +498,7 @@ export default function ProductsPage() {
                   <td className="px-3 py-2.5 pr-3">
                     {!bulkMode && (
                       <div className="flex gap-1 justify-end">
-                        <button onClick={() => openEdit(p)} className="text-blue-600 text-xs px-2.5 py-1.5 rounded-lg bg-blue-50 active:bg-blue-100">แก้ไข</button>
+                        <button onClick={() => openEdit(p)} className="text-brand text-xs px-2.5 py-1.5 rounded-lg bg-brand-50 active:bg-brand-50/70">แก้ไข</button>
                         <button onClick={() => deleteProduct(p.id)} className="text-red-400 text-xs px-2.5 py-1.5 rounded-lg bg-red-50 active:bg-red-100">ลบ</button>
                       </div>
                     )}
@@ -497,6 +514,13 @@ export default function ProductsPage() {
           </table>
         </div>
       </div>
+
+      {/* ── Load more sentinel ── */}
+      {!bulkMode && visibleCount < filtered.length && (
+        <div ref={loadMoreRef} className="text-center py-4 text-xs text-slate-400">
+          กำลังโหลด... ({paginated.length}/{filtered.length})
+        </div>
+      )}
 
       {/* ── Bulk Mode Action Bar ── */}
       {bulkMode && (
@@ -632,7 +656,7 @@ export default function ProductsPage() {
       {importModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-end md:items-center justify-center p-3">
           <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col fade-in">
-            <div className={`text-white px-4 py-3.5 flex justify-between items-center ${importModal === 'stock' ? 'bg-emerald-600' : 'bg-blue-600'}`}>
+            <div className={`text-white px-4 py-3.5 flex justify-between items-center ${importModal === 'stock' ? 'bg-emerald-600' : 'bg-brand'}`}>
               <h2 className="font-heading font-bold">
                 {importModal === 'product' ? '📥 นำเข้าสินค้าจาก CSV' : '📊 ปรับสต็อกจาก CSV (นับสต็อก)'}
               </h2>
@@ -640,7 +664,7 @@ export default function ProductsPage() {
             </div>
             <div className="p-4 overflow-y-auto flex-1">
               {importModal === 'product' && (
-                <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 mb-3 text-xs text-blue-700 space-y-1">
+                <div className="bg-brand-50 border border-brand/10 rounded-xl p-3 mb-3 text-xs text-brand-mid space-y-1">
                   <p className="font-semibold">รูปแบบ CSV (หัวคอลัมน์ภาษาอังกฤษหรือไทย):</p>
                   <p className="font-mono text-[10px] bg-white/70 rounded p-2">barcode,name,category,unit,cost,price,stock,min_stock</p>
                   <p>หรือ: บาร์โค้ด, ชื่อสินค้า, หมวดหมู่, หน่วย, ทุน, ราคา, สต็อก, สต็อกขั้นต่ำ</p>
@@ -689,7 +713,7 @@ export default function ProductsPage() {
                     <button onClick={() => setImportModal(null)} className="flex-1 btn-secondary">ยกเลิก</button>
                     <button onClick={importModal === 'product' ? doProductImport : doStockImport}
                       disabled={saving || importRows.length === 0}
-                      className={`flex-1 text-white font-bold py-3 rounded-xl text-sm disabled:opacity-50 active:scale-95 transition-all shadow ${importModal === 'stock' ? 'bg-emerald-600' : 'bg-blue-600'}`}>
+                      className={`flex-1 text-white font-bold py-3 rounded-xl text-sm disabled:opacity-50 active:scale-95 transition-all shadow ${importModal === 'stock' ? 'bg-emerald-600' : 'bg-brand'}`}>
                       {saving ? 'กำลังนำเข้า...' : `✓ ยืนยันนำเข้า ${importRows.length} รายการ`}
                     </button>
                   </div>
@@ -730,9 +754,12 @@ export default function ProductsPage() {
                     </div>
                     <div className="flex items-center gap-1.5">
                       <label className="text-xs text-slate-400">จำนวน</label>
-                      <input type="number" min="1" max="100"
-                        value={printQtys[p.id] || 1}
-                        onChange={e => setPrintQtys(prev => ({...prev,[p.id]:e.target.value}))}
+                      <input type="text" inputMode="numeric" pattern="[0-9]*"
+                        value={printQtys[p.id] ?? 1}
+                        onChange={e => {
+                          const v = e.target.value.replace(/[^0-9]/g, '')
+                          setPrintQtys(prev => ({...prev,[p.id]: v}))
+                        }}
                         className="w-14 border border-slate-200 rounded-lg px-2 py-1 text-center text-sm" />
                     </div>
                   </div>
@@ -847,7 +874,7 @@ function buildLabelHTML(items, size, previewOnly = false) {
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:'Sarabun',sans-serif;background:white}
+    body{font-family:'Kanit',sans-serif;background:white}
     @page{size:${pw}mm auto;margin:0}
     .labels{display:flex;flex-wrap:wrap;width:${pw}mm;padding:${my}mm ${mx}mm;gap:0 ${hGap}mm}
     .label{width:${lw.toFixed(4)}mm;height:${ph.toFixed(4)}mm;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:0.5mm 0.3mm;overflow:hidden}

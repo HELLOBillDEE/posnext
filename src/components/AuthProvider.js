@@ -13,7 +13,7 @@ function setEmpCookie() { document.cookie = `pos_emp=1; ${COOKIE_OPTS}` }
 function clearEmpCookie() { document.cookie = `pos_emp=; ${COOKIE_OPTS}; max-age=0` }
 
 // Routes employees can access
-const EMP_ROUTES = ['/pos', '/products', '/documents']
+const EMP_ROUTES = ['/pos', '/products', '/documents', '/repair']
 
 export default function AuthProvider({ children }) {
   const [user, setUser]         = useState(undefined)

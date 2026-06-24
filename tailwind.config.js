@@ -4,19 +4,20 @@ module.exports = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Sarabun', 'sans-serif'],
-        heading: ['Sarabun', 'sans-serif'],
+        sans: ['Kanit', 'sans-serif'],
+        heading: ['Kanit', 'sans-serif'],
       },
       colors: {
         brand: {
-          DEFAULT: '#3B5BDB',
-          mid: '#4C6EF5',
-          light: '#748FFC',
-          50: '#EDF2FF',
-          900: '#1e3a8a',
+          DEFAULT: '#C72C41',
+          mid: '#801336',
+          light: '#EE4540',
+          50: '#FFF0F2',
+          dark: '#510A32',
+          900: '#2D142C',
         },
         glass: {
-          blue: 'rgba(59,91,219,0.12)',
+          blue: 'rgba(199,44,65,0.12)',
           white: 'rgba(255,255,255,0.75)',
         },
       },

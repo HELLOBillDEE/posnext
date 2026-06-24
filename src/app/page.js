@@ -22,9 +22,9 @@ const IC = {
 
 /* Quick link definitions */
 const QUICK = [
-  { label:'ขาย', href:'/pos',        icon: IC.pos,       grad:'linear-gradient(135deg,#3B5BDB,#4C6EF5)' },
+  { label:'ขาย', href:'/pos',        icon: IC.pos,       grad:'linear-gradient(135deg,#C72C41,#EE4540)' },
   { label:'สินค้า', href:'/products', icon: IC.product,   grad:'linear-gradient(135deg,#0ea5e9,#38bdf8)' },
-  { label:'สั่งซื้อ', href:'/po',     icon: IC.po,        grad:'linear-gradient(135deg,#7c3aed,#a78bfa)' },
+  { label:'สั่งซื้อ', href:'/po',     icon: IC.po,        grad:'linear-gradient(135deg,#510A32,#801336)' },
   { label:'รายงาน', href:'/reports',  icon: IC.report,    grad:'linear-gradient(135deg,#059669,#34d399)' },
   { label:'เอกสาร', href:'/documents',icon: IC.doc,       grad:'linear-gradient(135deg,#d97706,#fbbf24)' },
   { label:'พนักงาน', href:'/employees',icon: IC.employees, grad:'linear-gradient(135deg,#e11d48,#fb7185)' },
@@ -156,12 +156,12 @@ export default function Dashboard() {
         <div className="card p-4">
           <div className="flex items-center justify-between mb-3">
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">วันที่</p>
-            <div className="w-7 h-7 rounded-lg flex items-center justify-center text-violet-600"
-              style={{ background:'rgba(124,58,237,0.1)' }}>
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center text-brand"
+              style={{ background:'rgba(199,44,65,0.1)' }}>
               {IC.cal}
             </div>
           </div>
-          <p className="font-bold text-lg text-violet-600 leading-none">{fmtDate(todayISO())}</p>
+          <p className="font-bold text-lg text-brand leading-none">{fmtDate(todayISO())}</p>
           <p className="text-xs text-slate-400 mt-2">ปัจจุบัน</p>
         </div>
 
@@ -188,7 +188,7 @@ export default function Dashboard() {
               className="card p-3 flex flex-col items-center gap-2.5 active:scale-95 transition-all group hover:shadow-md">
               {/* Icon container */}
               <div className="w-11 h-11 rounded-2xl flex items-center justify-center text-white shadow-lg group-hover:scale-105 transition-transform"
-                style={{ background: q.grad, boxShadow: `0 6px 18px ${q.grad.includes('3B5BDB') ? 'rgba(59,91,219,0.35)' : 'rgba(0,0,0,0.15)'}` }}>
+                style={{ background: q.grad, boxShadow: `0 6px 18px rgba(0,0,0,0.15)` }}>
                 {q.icon}
               </div>
               <span className="text-xs font-semibold text-slate-600">{q.label}</span>

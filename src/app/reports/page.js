@@ -243,7 +243,7 @@ export default function ReportsPage() {
             <KPI label="ยอดขายรวม" val={`฿${fmt(data.revenue)}`} sub={`${data.orders} บิล`} color="text-brand" bg="bg-brand-50 border-brand/20" />
             <KPI label="กำไรขั้นต้น" val={`฿${fmt(data.grossProfit)}`} sub={`Margin ${data.margin.toFixed(1)}%`} color="text-emerald-700" bg="bg-emerald-50 border-emerald-200" />
             <KPI label="ค่าใช้จ่าย" val={`฿${fmt(data.expTotal)}`} sub="รายจ่ายรวม" color="text-red-600" bg="bg-red-50 border-red-200" />
-            <KPI label="กำไรสุทธิ" val={`฿${fmt(data.profit)}`} sub="หลังหักรายจ่าย" color={data.profit>=0?'text-blue-700':'text-red-600'} bg="bg-blue-50 border-blue-200" />
+            <KPI label="กำไรสุทธิ" val={`฿${fmt(data.profit)}`} sub="หลังหักรายจ่าย" color={data.profit>=0?'text-emerald-700':'text-red-600'} bg={data.profit>=0?'bg-emerald-50 border-emerald-200':'bg-red-50 border-red-200'} />
           </div>
 
           <div className="grid md:grid-cols-2 gap-4 mb-4">

@@ -52,11 +52,25 @@ export async function kickDrawerViaBridge(bridgeUrl, ip, port) {
 export async function buildReceiptESCPOS(r, paperMM = 80) {
   // printable width: 80mm paper → 576 dots (72mm), 58mm → 384 dots (48mm)
   const pw   = paperMM >= 80 ? 576 : 384
-  const pad  = 10   // dots left/right padding
-  const fSm  = 18   // normal font px
-  const fLg  = 30   // header font px
-  const lhSm = fSm + 8
-  const lhLg = fLg + 8
+  const pad  = 12   // dots left/right padding
+  const fSm  = 26   // normal font px
+  const fLg  = 42   // header font px
+  const inner = pw - pad * 2
+
+  // helper: wrap long text into multiple lines
+  function wrapLines(ctx, text, maxW, size, bold) {
+    ctx.font = `${bold ? 'bold ' : ''}${size}px Kanit, Arial, sans-serif`
+    if (ctx.measureText(text).width <= maxW) return [text]
+    const chars = [...text]
+    const lines = []
+    let cur = ''
+    for (const ch of chars) {
+      if (ctx.measureText(cur + ch).width > maxW) { lines.push(cur); cur = ch }
+      else cur += ch
+    }
+    if (cur) lines.push(cur)
+    return lines
+  }
 
   // build draw list
   const dl = []
@@ -67,11 +81,12 @@ export async function buildReceiptESCPOS(r, paperMM = 80) {
   const div  = () => dl.push({ divider: true })
   const nl   = () => dl.push({ text: '', align: 'left', size: fSm })
 
-  if (r.shopLogo) dl.push({ logo: r.shopLogo })
-  line(r.shopName || 'ร้านค้า', 'center', fLg, true)
-  if (r.shopAddress) line(r.shopAddress, 'center')
-  if (r.shopPhone)   line('โทร: ' + r.shopPhone, 'center')
-  nl(); div()
+  if (r.shopLogo)  dl.push({ logo: r.shopLogo })
+  else line(r.shopName || 'ร้านค้า', 'center', fLg, true)
+  line('ใบเสร็จรับเงิน', 'center', fSm, false)
+  if (r.shopAddress) line(r.shopAddress, 'center', Math.round(fSm * 0.8))
+  if (r.shopPhone)   line('โทร : ' + r.shopPhone, 'center', Math.round(fSm * 1.2), true)
+  div()
   line('เลขที่: ' + (r.receipt_no || ''))
   line('วันที่: ' + new Date(r.created_at || Date.now()).toLocaleString('th-TH'))
   div()
@@ -83,80 +98,122 @@ export async function buildReceiptESCPOS(r, paperMM = 80) {
   }
   div()
 
-  two('รวม', Number(r.subtotal).toFixed(2))
-  if (Number(r.discount) > 0) two('ส่วนลด', '-' + Number(r.discount).toFixed(2))
-  if (Number(r.vat) > 0)      two(`VAT ${Number((r.vatRate||0) * 100).toFixed(0)}%`, Number(r.vat).toFixed(2))
-  two('สุทธิ', '฿' + Number(r.total).toFixed(2), true)
-  two('ชำระ', Number(r.payment_amount || r.total).toFixed(2))
-  if (Number(r.change) > 0) two('ทอน', Number(r.change).toFixed(2))
+  const n = v => (isNaN(Number(v)) ? 0 : Number(v))
+  two('รวม', n(r.subtotal).toFixed(2))
+  if (n(r.discount) > 0) two('ส่วนลด', '-' + n(r.discount).toFixed(2))
+  if (n(r.vat) > 0)      two(`VAT ${(n(r.vatRate) * 100).toFixed(0)}%`, n(r.vat).toFixed(2))
+  two('สุทธิ', '฿' + n(r.total).toFixed(2), true)
+  two('ชำระ', n(r.payment_amount || r.total).toFixed(2))
+  if (n(r.change) > 0) two('ทอน', n(r.change).toFixed(2))
+  if (r.cashier) two('ผู้รับเงิน', r.cashier)
 
   nl()
   line(r.footer || 'ขอบคุณที่ใช้บริการ', 'center')
-  nl(); nl(); nl()
-
-  // โหลดโลโก้ก่อน (ถ้ามี)
-  const logoItem = dl.find(d => d.logo)
-  let logoImg = null
-  const logoH = 160   // สูง 160 dots (~20mm) = 2x
-  if (logoItem) {
-    logoImg = await new Promise(resolve => {
-      const img = new Image()
-      img.crossOrigin = 'anonymous'
-      img.onload  = () => resolve(img)
-      img.onerror = () => resolve(null)
-      img.src = logoItem.logo
-    })
+  if (r.hasLineQr) {
+    div()
+    line('แอด LINE เพื่อสั่งสินค้าได้เลย', 'center', fSm, false)
+    if (r.lineQr) dl.push({ lineQr: r.lineQr })
   }
+  nl(); nl(); nl(); nl(); nl(); nl()
 
-  // measure total height
+  // โหลด logo และ LINE QR พร้อมกัน
+  const logoItem   = dl.find(d => d.logo)
+  const lineQrItem = dl.find(d => d.lineQr)
+  let logoImg  = null
+  let lineQrImg = null
+  const logoH  = 260
+  const qrSize = 260
+
+  const loadImg = (src) => new Promise(resolve => {
+    const img = new Image(); img.crossOrigin = 'anonymous'
+    img.onload = () => resolve(img); img.onerror = () => resolve(null)
+    img.src = src
+  })
+
+  if (logoItem)   logoImg   = await loadImg(logoItem.logo)
+  if (lineQrItem) lineQrImg = await loadImg(lineQrItem.lineQr)
+
+  // pre-measure canvas height (need a temp canvas for wrapLines)
+  const tmpCanvas = document.createElement('canvas')
+  tmpCanvas.width = pw; tmpCanvas.height = 10
+  const tmpCtx = tmpCanvas.getContext('2d')
+
+  // measure total height (accounting for text wrap)
   let totalH = 0
   for (const d of dl) {
-    if (d.logo)    totalH += logoImg ? logoH + 8 : 0
-    else if (d.divider) totalH += 4
-    else totalH += (d.size || fSm) + 8
+    if (d.lineQr) { totalH += lineQrImg ? qrSize + 12 : 0 }
+    else if (d.logo)    { totalH += logoImg ? logoH + 12 : 0 }
+    else if (d.divider) { totalH += 6 }
+    else {
+      const sz = d.size || fSm
+      const lh = sz + 14
+      if (d.two) { totalH += lh }
+      else {
+        const wrapped = wrapLines(tmpCtx, d.text || '', inner, sz, d.bold)
+        totalH += lh * wrapped.length
+      }
+    }
   }
 
   // render to canvas
   const canvas = document.createElement('canvas')
   canvas.width  = pw
-  canvas.height = totalH + 10
+  canvas.height = totalH + 16
   const ctx = canvas.getContext('2d')
   ctx.fillStyle = '#fff'
   ctx.fillRect(0, 0, pw, canvas.height)
   ctx.fillStyle = '#000'
 
-  let y = 6
+  let y = 8
   for (const d of dl) {
+    if (d.lineQr) {
+      if (lineQrImg) {
+        const s = Math.min(qrSize, inner)
+        ctx.drawImage(lineQrImg, (pw - s) / 2, y, s, s)
+        y += s + 12
+      }
+      continue
+    }
     if (d.logo) {
       if (logoImg) {
-        const scale = Math.min(1, (pw - pad*2) / logoImg.width, logoH / logoImg.height)
+        const scale = Math.min(1, inner / logoImg.width, logoH / logoImg.height)
         const dw = logoImg.width  * scale
         const dh = logoImg.height * scale
         ctx.drawImage(logoImg, (pw - dw) / 2, y, dw, dh)
-        y += dh + 8
+        y += dh + 12
       }
       continue
     }
     if (d.divider) {
-      ctx.fillRect(pad, y + 1, pw - pad * 2, 1)
-      y += 4
+      ctx.fillRect(pad, y + 2, inner, 1)
+      y += 6
       continue
     }
-    const sz  = d.size || fSm
-    const lh  = sz + 8
-    ctx.font = `${d.bold ? 'bold ' : ''}${sz}px Sarabun, Arial, sans-serif`
+    const sz = d.size || fSm
+    const lh = sz + 14
+    ctx.font = `${d.bold ? 'bold ' : ''}${sz}px Kanit, Arial, sans-serif`
     if (d.two) {
       ctx.textAlign = 'left'
-      if (d.bold) ctx.font = `bold ${sz}px Sarabun, Arial, sans-serif`
-      ctx.fillText(d.left, pad, y + sz)
+      ctx.fillText(d.left,  pad,      y + sz)
       ctx.textAlign = 'right'
       ctx.fillText(d.right, pw - pad, y + sz)
+      y += lh
     } else {
-      ctx.textAlign = d.align === 'center' ? 'center' : d.align === 'right' ? 'right' : 'left'
-      const x = d.align === 'center' ? pw / 2 : d.align === 'right' ? pw - pad : pad
-      ctx.fillText(d.text, x, y + sz)
+      const wrapped = wrapLines(ctx, d.text || '', inner, sz, d.bold)
+      ctx.textAlign = 'left'
+      for (const wl of wrapped) {
+        let xPos = pad
+        if (d.align === 'center') {
+          const tw = ctx.measureText(wl).width
+          xPos = Math.max(pad, Math.floor((pw - tw) / 2))
+        } else if (d.align === 'right') {
+          const tw = ctx.measureText(wl).width
+          xPos = pw - pad - tw
+        }
+        ctx.fillText(wl, xPos, y + sz)
+        y += lh
+      }
     }
-    y += lh
   }
 
   // canvas → 1-bit bitmap
@@ -176,7 +233,7 @@ export async function buildReceiptESCPOS(r, paperMM = 80) {
   b.push(GS, 0x76, 0x30, 0x00)
   b.push(wBytes & 0xFF, (wBytes >> 8) & 0xFF)
   b.push(canvas.height & 0xFF, (canvas.height >> 8) & 0xFF)
-  b.push(...bitmap)
+  for (const byte of bitmap) b.push(byte)
   b.push(GS, 0x56, 0x00)    // cut
 
   return new Uint8Array(b)
@@ -226,7 +283,7 @@ export async function buildLabelESCPOS(items, size, printerWidthMM = 100) {
 
       // Product name
       const nameFontPx = Math.max(10, Math.round(lh * 0.18))
-      ctx.font = `bold ${nameFontPx}px Sarabun, sans-serif`
+      ctx.font = `bold ${nameFontPx}px Kanit, sans-serif`
       ctx.textAlign = 'center'
       ctx.fillText(
         item.name.length > 14 ? item.name.slice(0, 13) + '…' : item.name,
@@ -253,7 +310,7 @@ export async function buildLabelESCPOS(items, size, printerWidthMM = 100) {
 
       // Price
       const priceFontPx = Math.max(10, Math.round(lh * 0.16))
-      ctx.font = `bold ${priceFontPx}px Sarabun, sans-serif`
+      ctx.font = `bold ${priceFontPx}px Kanit, sans-serif`
       ctx.textAlign = 'center'
       ctx.fillText('฿' + Number(item.price).toFixed(2), ox + lw / 2, oy + lh - 3)
     }
@@ -275,7 +332,7 @@ export async function buildLabelESCPOS(items, size, printerWidthMM = 100) {
     allBytes.push(GS, 0x76, 0x30, 0x00)
     allBytes.push(wBytes & 0xFF, (wBytes >> 8) & 0xFF)
     allBytes.push(pgH   & 0xFF, (pgH   >> 8) & 0xFF)
-    allBytes.push(...bitmap)
+    for (const b of bitmap) allBytes.push(b)
     allBytes.push(0x0A)  // LF
   }
 
@@ -334,7 +391,7 @@ export async function buildLabelTSPL(items, size) {
       const nameY  = oy + namePx + 2
       const bcY    = nameY + 4
 
-      ctx.font = `bold ${namePx}px Sarabun, Arial, sans-serif`
+      ctx.font = `bold ${namePx}px Kanit, Arial, sans-serif`
       ctx.textAlign = 'center'
       const maxChars = Math.floor(lwD / (namePx * 0.65))
       ctx.fillText((item.name || '').substring(0, maxChars), cx, nameY)
@@ -360,7 +417,7 @@ export async function buildLabelTSPL(items, size) {
 
       // ราคา — วางทันทีใต้ barcode
       const pricePx = Math.round(lhD * 0.1)
-      ctx.font = `bold ${pricePx}px Sarabun, Arial, sans-serif`
+      ctx.font = `bold ${pricePx}px Kanit, Arial, sans-serif`
       ctx.textAlign = 'center'
       ctx.fillText('฿' + Number(item.price).toFixed(2), cx, bcBottom + pricePx + 2)
     }

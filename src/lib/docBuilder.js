@@ -2,11 +2,12 @@
 import { supabase } from '@/lib/supabase'
 
 export const DOC_PREFIXES = {
-  quotation:      'QT',
-  delivery:       'INV',
-  receipt:        'RE',
-  invoice:        'IV',
-  paymentvoucher: 'PV',
+  quotation:        'QT',
+  delivery:         'INV',
+  receipt:          'RE',
+  invoice:          'IV',
+  delivery_invoice: 'DI',
+  paymentvoucher:   'PV',
 }
 
 // Preview เลขถัดไปโดยไม่บันทึก (ใช้แสดงใน modal)
@@ -41,10 +42,11 @@ export async function commitNextDocNo(docType) {
 export const getNextDocNo = commitNextDocNo
 
 const DOC_TITLES = {
-  receipt:   { th: 'ใบเสร็จรับเงิน',  en: 'Receipt' },
-  invoice:   { th: 'ใบแจ้งหนี้',       en: 'Invoice' },
-  delivery:  { th: 'ใบส่งของ',          en: 'Delivery Note' },
-  quotation: { th: 'ใบเสนอราคา',       en: 'Quotation' },
+  receipt:          { th: 'ใบเสร็จรับเงิน',           en: 'Receipt' },
+  invoice:          { th: 'ใบแจ้งหนี้',                en: 'Invoice' },
+  delivery:         { th: 'ใบส่งของ',                  en: 'Delivery Note' },
+  delivery_invoice: { th: 'ใบส่งของ / ใบแจ้งหนี้',    en: 'Delivery Note / Invoice' },
+  quotation:        { th: 'ใบเสนอราคา',                en: 'Quotation' },
 }
 
 function fmt2(n) {
@@ -94,12 +96,12 @@ function formatThaiDate(d) {
 
 export function buildFormalDocHTML(docType, items, totals, customer, shop, opts = {}) {
   const title  = DOC_TITLES[docType] || DOC_TITLES.receipt
-  const accent = '#e07a00'
-  const isDelivery  = docType === 'delivery'
+  const accent = '#C72C41'
+  const isDelivery  = docType === 'delivery'   // delivery-only hides prices; delivery_invoice shows them
   const isQuotation = docType === 'quotation'
 
   const docNo = opts.doc_no || ''
-  const today = formatThaiDate(opts.date)
+  const today = opts.blank_date ? '' : formatThaiDate(opts.date)
 
   const subtotal = Number(totals.subtotal) || 0
   const discAmt  = Number(totals.discount) || 0
@@ -143,9 +145,11 @@ export function buildFormalDocHTML(docType, items, totals, customer, shop, opts 
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>${title.th} ${docNo}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   @page { size: A4; margin: 14mm 18mm 14mm; }
-  body { font-family: 'Sarabun','TH Sarabun New',Arial,sans-serif; font-size: 13pt; margin: 0; padding: 0; color: #111; line-height: 1.5; }
+  body { font-family: 'Kanit',Arial,sans-serif; font-size: 13pt; margin: 0; padding: 0; color: #111; line-height: 1.5; }
   .accent { color: ${accent}; }
   .sec-label { font-size: 12pt; font-weight: bold; color: ${accent}; margin-bottom: 3px; }
   table.items { width: 100%; border-collapse: collapse; margin: 14px 0 0; }
@@ -174,7 +178,7 @@ export function buildFormalDocHTML(docType, items, totals, customer, shop, opts 
       <p style="font-size:28pt;font-weight:bold;color:${accent};margin:0 0 12px;line-height:1.1">${title.th}</p>
       <table style="margin-left:auto;border-collapse:collapse">
         <tr><td style="font-size:12pt;color:#555;padding:2px 10px 2px 0;text-align:right">เลขที่</td><td style="font-size:12pt;font-weight:bold;padding:2px 0;min-width:130px">${docNo || '—'}</td></tr>
-        <tr><td style="font-size:12pt;color:#555;padding:2px 10px 2px 0;text-align:right">วันที่</td><td style="font-size:12pt;padding:2px 0">${today}</td></tr>
+        <tr><td style="font-size:12pt;color:#555;padding:2px 10px 2px 0;text-align:right">วันที่</td><td style="font-size:12pt;padding:2px 0;min-width:160px">${today || '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'}</td></tr>
         ${isQuotation && opts.valid_until ? `<tr><td style="font-size:12pt;color:#555;padding:2px 10px 2px 0;text-align:right">ใช้ได้ถึง</td><td style="font-size:12pt;padding:2px 0">${formatThaiDate(opts.valid_until)}</td></tr>` : ''}
         ${opts.prepared_by ? `<tr><td style="font-size:12pt;color:#555;padding:2px 10px 2px 0;text-align:right">ผู้ขาย</td><td style="font-size:12pt;padding:2px 0">${opts.prepared_by}</td></tr>` : ''}
       </table>
@@ -256,6 +260,11 @@ ${!isDelivery && !isQuotation ? `
   </div>
 </div>
 
+<div class="no-print" style="position:fixed;bottom:24px;right:24px;display:flex;gap:10px;z-index:999">
+  <button onclick="window.print()" style="background:#1e293b;color:#fff;border:none;padding:12px 24px;border-radius:12px;font-size:14px;cursor:pointer">🖨️ พิมพ์</button>
+  <button onclick="window.close()" style="background:#e2e8f0;color:#1e293b;border:none;padding:12px 24px;border-radius:12px;font-size:14px;cursor:pointer">✕ ปิด</button>
+</div>
+<style>.no-print{} @media print{.no-print{display:none!important}}</style>
 <script>window.onload = () => { window.print() }</script>
 </body></html>`
 }

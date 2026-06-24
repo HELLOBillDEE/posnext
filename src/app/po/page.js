@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { fmt, fmtDate, genPONo } from '@/lib/utils'
 
 const STATUS = { draft:'ร่าง', ordered:'สั่งซื้อแล้ว', received:'รับสินค้าแล้ว', cancelled:'ยกเลิก' }
-const STATUS_COLOR = { draft:'bg-gray-100 text-gray-600', ordered:'bg-blue-100 text-blue-700', received:'bg-green-100 text-green-700', cancelled:'bg-red-100 text-red-500' }
+const STATUS_COLOR = { draft:'bg-gray-100 text-gray-600', ordered:'bg-brand-50 text-brand-mid', received:'bg-green-100 text-green-700', cancelled:'bg-red-100 text-red-500' }
 
 export default function POPage() {
   const [pos, setPOs]             = useState([])
@@ -452,14 +452,14 @@ export default function POPage() {
   if (aiModal) return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-end justify-center">
       <div className="bg-white rounded-t-2xl w-full max-w-lg shadow-2xl max-h-[92vh] flex flex-col">
-        <div className="bg-purple-600 text-white px-4 py-3 flex justify-between items-center rounded-t-2xl">
+        <div className="bg-brand-mid text-white px-4 py-3 flex justify-between items-center rounded-t-2xl">
           <h2 className="font-bold">📸 AI วิเคราะห์ใบส่งของ</h2>
           <button onClick={() => { setAiModal(false); setAiResult(null); setAiReview([]); setAiError('') }} className="text-2xl opacity-70">×</button>
         </div>
 
         {aiLoading && (
           <div className="flex-1 flex flex-col items-center justify-center gap-4 py-12">
-            <div className="w-14 h-14 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin" />
+            <div className="w-14 h-14 border-4 border-brand/20 border-t-brand rounded-full animate-spin" />
             <p className="text-gray-600 text-base font-medium">{aiLoadMsg || 'กำลังประมวลผล...'}</p>
             <p className="text-gray-400 text-xs">อาจใช้เวลา 10-20 วินาที</p>
           </div>
@@ -470,7 +470,7 @@ export default function POPage() {
             <div className="text-5xl">⚠️</div>
             <p className="text-red-600 font-semibold text-center">อ่านไม่สำเร็จ</p>
             <p className="text-gray-500 text-xs text-center">{aiError}</p>
-            <label className="bg-purple-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold cursor-pointer">
+            <label className="bg-brand-mid text-white px-5 py-2.5 rounded-xl text-sm font-bold cursor-pointer">
               📷 ลองถ่ายใหม่
               <input type="file" accept="image/*" capture="environment" className="hidden"
                 onChange={e => { if(e.target.files[0]) analyzeDelivery(e.target.files[0]) }} />
@@ -481,8 +481,8 @@ export default function POPage() {
         {!aiLoading && !aiError && aiReview.length > 0 && (
           <>
             {aiResult?.supplier && (
-              <div className="px-4 py-2 bg-purple-50 border-b border-purple-100">
-                <p className="text-xs text-purple-600 font-medium">ซัพพลายเออร์: {aiResult.supplier}</p>
+              <div className="px-4 py-2 bg-brand-50 border-b border-brand/10">
+                <p className="text-xs text-brand font-medium">ซัพพลายเออร์: {aiResult.supplier}</p>
                 {aiResult.invoice_no && <p className="text-xs text-gray-400">เลขที่: {aiResult.invoice_no} · {aiResult.invoice_date||''}</p>}
               </div>
             )}
@@ -494,7 +494,7 @@ export default function POPage() {
                     <div className="flex items-start gap-2">
                       <input type="checkbox" checked={item.enabled}
                         onChange={e => setAiReview(p => { const n=[...p]; n[idx]={...n[idx],enabled:e.target.checked}; return n })}
-                        className="mt-1 w-4 h-4 accent-purple-600 shrink-0" />
+                        className="mt-1 w-4 h-4 accent-brand shrink-0" />
                       <div className="flex-1 min-w-0">
 
                         {/* ชื่อจาก AI + badge */}
@@ -529,7 +529,7 @@ export default function POPage() {
                                 return n
                               })
                             }}
-                            className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white focus:border-purple-400 outline-none">
+                            className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white focus:border-brand outline-none">
                             <option value="new">— สร้างสินค้าใหม่ —</option>
                             {products.map(p => (
                               <option key={p.id} value={String(p.id)}>
@@ -603,25 +603,25 @@ export default function POPage() {
                   }))} className="text-brand font-bold">แก้ทั้งหมด</button>
                 </div>
               ) : (
-                <div className="px-4 py-2 bg-purple-50 border-t border-purple-100 flex justify-between text-xs">
-                  <span className="text-purple-700 font-medium">
+                <div className="px-4 py-2 bg-brand-50 border-t border-brand/10 flex justify-between text-xs">
+                  <span className="text-brand-mid font-medium">
                     {aiReview.filter(i=>i.enabled && (!i.product_id||i.product_id==='new')).length} ใหม่ ·{' '}
                     {aiReview.filter(i=>i.enabled && i.product_id && i.product_id!=='new').length} อัปเดต
                   </span>
-                  <span className="text-purple-500">✓ ราคาผ่านขั้นต้ำ {minMargin}%</span>
+                  <span className="text-brand-light">✓ ราคาผ่านขั้นต้ำ {minMargin}%</span>
                 </div>
               )
             })()}
 
             <div className="p-3 border-t border-gray-100 flex gap-2">
-              <label className="flex-1 border border-purple-300 text-purple-600 py-2.5 rounded-xl text-sm font-medium text-center cursor-pointer">
+              <label className="flex-1 border border-brand/30 text-brand py-2.5 rounded-xl text-sm font-medium text-center cursor-pointer">
                 📷 ถ่ายใหม่
                 <input type="file" accept="image/*" capture="environment" className="hidden"
                   onChange={e => { if(e.target.files[0]) analyzeDelivery(e.target.files[0]) }} />
               </label>
               <button onClick={confirmAiReceive}
                 disabled={aiLoading || aiReview.filter(i=>i.enabled).length===0 || aiReview.some(i=>i.enabled&&i.cost&&i.price&&i.price<i.cost*(1+minMargin/100))}
-                className="flex-1 bg-purple-600 text-white py-2.5 rounded-xl text-sm font-bold disabled:opacity-40">
+                className="flex-1 bg-brand-mid text-white py-2.5 rounded-xl text-sm font-bold disabled:opacity-40">
                 ✅ Approve {aiReview.filter(i=>i.enabled).length} รายการ
               </button>
             </div>
@@ -637,7 +637,7 @@ export default function POPage() {
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <h1 className="font-heading font-bold text-xl text-brand">📋 ใบสั่งซื้อ (PO)</h1>
         <div className="flex gap-2">
-          <label className="bg-purple-600 text-white px-3 py-2 rounded-xl text-sm font-medium shadow active:scale-95 cursor-pointer">
+          <label className="bg-brand-mid text-white px-3 py-2 rounded-xl text-sm font-medium shadow active:scale-95 cursor-pointer">
             📸 AI อ่านใบส่งของ
             <input type="file" accept="image/*" capture="environment" className="hidden"
               onChange={e => { if(e.target.files[0]) { setAiModal(true); setAiError(''); analyzeDelivery(e.target.files[0]) } }} />
@@ -885,7 +885,7 @@ export default function POPage() {
         <div className="flex gap-2">
           {po.status === 'draft' && (
             <button onClick={() => updateStatus(po.id,'ordered')}
-              className="bg-blue-600 text-white px-3 py-2 rounded-xl text-xs font-medium active:scale-95 transition-transform shadow">
+              className="bg-brand text-white px-3 py-2 rounded-xl text-xs font-medium active:scale-95 transition-transform shadow">
               ยืนยันสั่งซื้อ
             </button>
           )}
@@ -1045,7 +1045,7 @@ function buildPOLabelHTML(items, size) {
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:'Sarabun',sans-serif}
+    body{font-family:'Kanit',sans-serif}
     .labels{display:flex;flex-wrap:wrap;gap:2mm;padding:2mm}
     .label{width:${size.w}mm;height:${size.h}mm;border:0.5px dashed #ccc;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:1mm;overflow:hidden}
     .pname{font-size:7px;text-align:center;line-height:1.2;max-height:14px;overflow:hidden;margin-bottom:1mm}

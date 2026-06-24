@@ -4,12 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:https": "next dev --experimental-https",
     "build": "next build",
     "start": "next start"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",
     "@google/generative-ai": "^0.24.1",
+    "@line/liff": "^2.29.0",
     "@supabase/supabase-js": "^2.45.0",
     "clsx": "^2.1.1",
     "jsbarcode": "^3.11.6",

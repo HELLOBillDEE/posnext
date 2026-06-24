@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { fmt, fmtDate, MONTHS_TH } from '@/lib/utils'
 
 const now = new Date()
-const EMPTY_EMP = { code:'', name:'', position:'', salary:'', ot_rate:'', social_security:'750', bank_account:'', bank_name:'', start_date:'', pin:'', can_login:true, active:true }
+const EMPTY_EMP = { code:'', name:'', nickname:'', position:'', salary:'', ot_rate:'', social_security:'750', bank_account:'', bank_name:'', start_date:'', pin:'', can_login:true, active:true }
 const EMPTY_SLIP = { ot_hours:'0', ot_rate:'', bonus:'0', allowance:'0', absent_days:'0', other_deduct:'0', note:'' }
 
 export default function EmployeesPage() {
@@ -41,7 +41,7 @@ export default function EmployeesPage() {
     if (!form.name) return alert('กรุณากรอกชื่อพนักงาน')
     setSaving(true)
     const payload = {
-      code: form.code || null, name: form.name, position: form.position,
+      code: form.code || null, name: form.name, nickname: form.nickname || null, position: form.position,
       salary: parseFloat(form.salary) || 0,
       ot_rate: parseFloat(form.ot_rate) || parseFloat(settings.ot_rate) || 75,
       social_security: parseFloat(form.social_security) || 750,
@@ -164,6 +164,7 @@ export default function EmployeesPage() {
             <div className="p-4 space-y-3">
               <EmpField label="รหัสพนักงาน" k="code" form={form} setForm={setForm} placeholder="EMP001" />
               <EmpField label="ชื่อ-นามสกุล *" k="name" form={form} setForm={setForm} />
+              <EmpField label="ชื่อเล่น (แสดงบนใบเสร็จ)" k="nickname" form={form} setForm={setForm} placeholder="เช่น แนน, อ้อม" />
               <EmpField label="ตำแหน่ง" k="position" form={form} setForm={setForm} placeholder="พนักงานขาย" />
               <div className="grid grid-cols-2 gap-3">
                 <EmpField label="เงินเดือน (บาท)" k="salary" form={form} setForm={setForm} type="number" placeholder="15000" />
@@ -380,7 +381,7 @@ function printSlip(emp, period, c, settings) {
   win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:'Sarabun',sans-serif;font-size:13px;max-width:10cm;margin:auto;padding:10mm;border:1px solid #ccc}
+    body{font-family:'Kanit',sans-serif;font-size:13px;max-width:10cm;margin:auto;padding:10mm;border:1px solid #ccc}
     h2{font-size:16px;text-align:center;margin-bottom:4px}
     h3{font-size:13px;color:#1a4731;border-bottom:1px solid #1a4731;padding-bottom:3px;margin:10px 0 6px}
     .center{text-align:center;font-size:11px;color:#555;margin-bottom:8px}
