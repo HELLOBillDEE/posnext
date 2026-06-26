@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { convertThaiBarcode, fmt, genReceiptNo } from '@/lib/utils'
-import { printViaBridge, buildReceiptESCPOS, kickDrawerViaBridge } from '@/lib/printBridge'
+import { printViaBridge, buildReceiptESCPOS, kickDrawerViaBridge, buildDrawerKickESCPOS } from '@/lib/printBridge'
 import { syncSaleToBillDee } from '@/lib/billdeeSyncClient'
 import { buildFormalDocHTML, previewNextDocNo, commitNextDocNo } from '@/lib/docBuilder'
 
@@ -23,6 +23,17 @@ const HID_SHIFT = {
   0x0C:'I',0x0D:'J',0x0E:'K',0x0F:'L',0x10:'M',0x11:'N',0x12:'O',0x13:'P',
   0x14:'Q',0x15:'R',0x16:'S',0x17:'T',0x18:'U',0x19:'V',0x1A:'W',0x1B:'X',
   0x1C:'Y',0x1D:'Z',
+}
+
+function getReceiptCfg() {
+  const saved = JSON.parse(localStorage.getItem('printer_receipt') || '{}')
+  return {
+    ip: '192.168.2.88',
+    port: 9100,
+    paper_width: 80,
+    bridge_url: typeof window !== 'undefined' ? window.location.origin : '',
+    ...saved,
+  }
 }
 
 const PAY_METHODS = [
@@ -60,6 +71,8 @@ export default function POSPage() {
   const [shift, setShift]           = useState(null)   // current open shift
   const [showShiftModal, setShowShiftModal] = useState(false)
   const [shiftModalMode, setShiftModalMode] = useState('open') // 'open' | 'close'
+  const [showDrawerModal, setShowDrawerModal] = useState(false)
+  const [changeDisplay, setChangeDisplay]     = useState(null) // { change, total, payAmount }
   // Web HID scanner
   const [hidDevice, setHidDevice]   = useState(null)
   const [hidError, setHidError]     = useState('')
@@ -300,7 +313,7 @@ export default function POSPage() {
   const mixRemain   = total - mixTotal
 
   async function printQRSlip(amount) {
-    const cfg = JSON.parse(localStorage.getItem('printer_receipt') || '{}')
+    const cfg = getReceiptCfg()
     if (!cfg.ip) {
       // fallback — เปิดหน้าต่างพิมพ์
       const html = `<html><body style="text-align:center;font-family:sans-serif;padding:20px">
@@ -375,7 +388,7 @@ export default function POSPage() {
       if (mixCredit > 0 && !customer) return alert('กรุณาเลือกลูกค้าสำหรับยอดเชื่อ')
     }
 
-    const cfg = JSON.parse(localStorage.getItem('printer_receipt') || '{}')
+    const cfg = getReceiptCfg()
     const useBridge = !!cfg.ip  // ถ้ามี IP เครื่องพิมพ์ → พิมพ์ผ่าน API โดยตรง
 
     setSaving(true)
@@ -441,14 +454,21 @@ export default function POSPage() {
       }
       setLastDone(receipt)
 
-      // พิมพ์อัตโนมัติ + เปิดลิ้นชัก
+      // พิมพ์ + เปิดลิ้นชักเฉพาะจ่ายเงินสด
+      const needDrawer = payMode === 'single' ? saveMethod === 'cash'
+        : mixCash > 0  // mixed — เปิดถ้ามีส่วนเงินสด
       if (useBridge) {
-        buildReceiptESCPOS(receipt, parseInt(cfg.paper_width) || 80).then(bytes =>
-          printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
-            .catch(e => console.warn('Print error:', e.message))
-        )
-        kickDrawerViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100)
-          .catch(e => console.warn('Drawer kick error:', e.message))
+        buildReceiptESCPOS(receipt, parseInt(cfg.paper_width) || 80).then(async bytes => {
+          if (needDrawer) {
+            const kick = buildDrawerKickESCPOS()
+            const combined = new Uint8Array(kick.length + bytes.length)
+            combined.set(kick, 0)
+            combined.set(bytes, kick.length)
+            await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, combined)
+          } else {
+            await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
+          }
+        }).catch(e => console.warn('Print/Drawer error:', e.message))
       } else {
         // Blob URL approach — ไม่โดน Safari block แม้เรียกหลัง async
         const blob = new Blob([buildReceiptHTML(receipt)], { type: 'text/html;charset=utf-8' })
@@ -474,6 +494,10 @@ export default function POSPage() {
       setCart([]); setBillDiscount(''); setPayAmount(''); setNote(''); setCustomer(null)
       setPayMode('single'); setPayMethod('cash'); setMixAmounts({ cash:'', transfer:'', credit:'' })
       setShowPay(false)
+      // แสดงหน้าเงินทอน (เฉพาะจ่ายเงินสด)
+      if (saveMethod === 'cash' && saveChange > 0) {
+        setChangeDisplay({ change: saveChange, total, payAmount: saveAmount })
+      }
     } catch (e) {
       alert('เกิดข้อผิดพลาด: ' + (e?.message || JSON.stringify(e)))
     } finally {
@@ -482,7 +506,7 @@ export default function POSPage() {
   }
 
   async function openReceipt(r) {
-    const cfg = JSON.parse(localStorage.getItem('printer_receipt') || '{}')
+    const cfg = getReceiptCfg()
     if (cfg.ip) {
       try {
         const bytes = await buildReceiptESCPOS(r, parseInt(cfg.paper_width) || 80)
@@ -579,6 +603,8 @@ export default function POSPage() {
               className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg font-semibold transition-colors">
               👤 {currentEmp ? (currentEmp.nickname || currentEmp.name) : 'เลือกพนักงาน'}
             </button>
+            <button onClick={() => setShowDrawerModal(true)}
+              className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg font-semibold transition-colors">🔓 ลิ้นชัก</button>
             <button onClick={() => { setShiftModalMode('close'); setShowShiftModal(true) }}
               className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg font-semibold transition-colors">ปิดกะ</button>
           </div>
@@ -586,8 +612,12 @@ export default function POSPage() {
       ) : (
         <div className="bg-slate-700 text-white px-4 py-2 flex items-center justify-between text-xs shrink-0">
           <span className="opacity-60">ยังไม่ได้เปิดกะ</span>
-          <button onClick={() => { setShiftModalMode('open'); setShowShiftModal(true) }}
-            className="bg-brand hover:bg-brand/80 px-3 py-1 rounded-lg font-semibold transition-colors">เปิดกะ</button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setShowDrawerModal(true)}
+              className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg font-semibold transition-colors">🔓 ลิ้นชัก</button>
+            <button onClick={() => { setShiftModalMode('open'); setShowShiftModal(true) }}
+              className="bg-brand hover:bg-brand/80 px-3 py-1 rounded-lg font-semibold transition-colors">เปิดกะ</button>
+          </div>
         </div>
       )}
 
@@ -916,6 +946,39 @@ export default function POSPage() {
         </div>
       )}
 
+      {/* ── Change Display ── */}
+      {changeDisplay && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
+          onClick={() => setChangeDisplay(null)}>
+          <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden fade-in text-center"
+            onClick={e => e.stopPropagation()}>
+            <div className="bg-emerald-600 text-white px-4 py-4">
+              <p className="text-sm font-semibold opacity-80">รับเงิน ฿{fmt(changeDisplay.payAmount)} · ยอดชำระ ฿{fmt(changeDisplay.total)}</p>
+            </div>
+            <div className="px-6 py-8">
+              <p className="text-slate-500 text-sm font-semibold mb-2">เงินทอน</p>
+              <p className="font-heading font-bold text-emerald-500 leading-none mb-6"
+                style={{ fontSize: 'clamp(3rem, 20vw, 6rem)' }}>
+                ฿{fmt(changeDisplay.change)}
+              </p>
+              <button onClick={() => setChangeDisplay(null)}
+                className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-4 rounded-2xl text-lg active:scale-[0.98] transition-all shadow-lg shadow-emerald-200">
+                ✓ รับทราบ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Drawer Modal ── */}
+      {showDrawerModal && (
+        <DrawerOpenModal
+          settings={settings}
+          currentEmp={currentEmp}
+          onClose={() => setShowDrawerModal(false)}
+        />
+      )}
+
       {/* ── Shift Modal ── */}
       {showShiftModal && (
         <ShiftModal
@@ -989,6 +1052,172 @@ export default function POSPage() {
       )}
 
 
+    </div>
+  )
+}
+
+function DrawerOpenModal({ settings, currentEmp, onClose }) {
+  const [pin, setPin]         = useState('')
+  const [direction, setDir]   = useState('in')  // 'in' | 'out'
+  const [amount, setAmount]   = useState('')
+  const [noteText, setNote]   = useState('')
+  const [focus, setFocus]     = useState('amount') // 'amount' | 'pin'
+  const [step, setStep]       = useState('pin') // 'pin' | 'done'
+  const [errMsg, setErrMsg]   = useState('')
+  const [saving, setSaving]   = useState(false)
+
+  async function confirm() {
+    const correctPin = settings.admin_pin || ''
+    if (correctPin && pin !== correctPin) {
+      setErrMsg('PIN ไม่ถูกต้อง')
+      setPin('')
+      return
+    }
+    setErrMsg('')
+    setSaving(true)
+
+    // เปิดลิ้นชัก
+    try {
+      const cfg = getReceiptCfg()
+      if (cfg.ip) await kickDrawerViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100)
+    } catch (e) {
+      console.warn('Drawer kick error:', e.message)
+    }
+
+    const empName   = currentEmp ? (currentEmp.nickname || currentEmp.name) : 'ไม่ระบุ'
+    const dirLabel  = direction === 'in' ? 'รับเงินเข้า' : 'เบิกเงินออก'
+    const amtNum    = parseFloat(amount) || 0
+    const fullNote  = [dirLabel, amtNum ? `฿${amtNum.toLocaleString('th-TH')}` : null, noteText.trim()].filter(Boolean).join(' — ')
+
+    // บันทึก log
+    try {
+      await supabase.from('drawer_logs').insert({
+        employee_id:   currentEmp?.id || null,
+        employee_name: empName,
+        amount:        amtNum || null,
+        note:          fullNote,
+      })
+    } catch { /* table ยังไม่มี — ข้ามได้ */ }
+
+    // แจ้ง LINE (fire-and-forget)
+    fetch('/api/notify-drawer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ employeeName: empName, note: fullNote }),
+    }).catch(() => {})
+
+    setSaving(false)
+    setStep('done')
+    setTimeout(onClose, 1200)
+  }
+
+  function numKey(k) {
+    if (focus === 'amount') {
+      setAmount(p => {
+        if (k === '⌫') return p.slice(0, -1)
+        if (k === '.' && p.includes('.')) return p
+        if (p === '' && k === '.') return '0.'
+        return p + k
+      })
+    } else {
+      if (k === '⌫') { setPin(p => p.slice(0, -1)); return }
+      if (pin.length >= 6) return
+      setPin(p => p + k)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/70 z-50 flex items-end md:items-center justify-center p-3"
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-3xl w-full max-w-xs shadow-2xl overflow-hidden fade-in">
+        <div className="bg-[#0f1b14] text-white px-4 py-3.5 flex justify-between items-center">
+          <h2 className="font-heading font-bold text-base">🔓 เปิดลิ้นชักเงิน</h2>
+          <button onClick={onClose} className="text-2xl leading-none opacity-70">×</button>
+        </div>
+
+        {step === 'done' ? (
+          <div className="p-8 text-center">
+            <div className="text-5xl mb-2">✅</div>
+            <p className="font-bold text-emerald-600 text-lg">เปิดลิ้นชักแล้ว</p>
+          </div>
+        ) : (
+          <div className="p-4 space-y-3">
+            {/* พนักงาน */}
+            <div className="bg-slate-50 rounded-2xl px-4 py-2.5 text-center border border-slate-100">
+              <p className="text-xs text-slate-400 mb-0.5">พนักงาน</p>
+              <p className="font-bold text-slate-700">{currentEmp ? (currentEmp.nickname || currentEmp.name) : 'ไม่ระบุ'}</p>
+            </div>
+
+            {/* เข้า / ออก */}
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setDir('in')}
+                className={`py-3 rounded-2xl text-sm font-bold border-2 transition-all
+                  ${direction === 'in' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-200 text-slate-400'}`}>
+                💵 รับเงินเข้า
+              </button>
+              <button onClick={() => setDir('out')}
+                className={`py-3 rounded-2xl text-sm font-bold border-2 transition-all
+                  ${direction === 'out' ? 'border-red-400 bg-red-50 text-red-600' : 'border-slate-200 text-slate-400'}`}>
+                💸 เบิกเงินออก
+              </button>
+            </div>
+
+            {/* จำนวนเงิน — แตะเพื่อโฟกัส */}
+            <button onClick={() => setFocus('amount')}
+              className={`w-full rounded-2xl px-4 py-3 text-right border-2 transition-all
+                ${focus === 'amount' ? 'border-brand bg-brand/5' : 'border-slate-200 bg-slate-50'}`}>
+              <p className="text-xs text-slate-400 text-left mb-0.5">จำนวนเงิน (บาท)</p>
+              <p className={`text-2xl font-bold ${amount ? 'text-slate-800' : 'text-slate-300'}`}>
+                {amount || '0'}
+              </p>
+            </button>
+
+            {/* หมายเหตุ */}
+            <input value={noteText} onChange={e => setNote(e.target.value)}
+              placeholder="หมายเหตุ (ถ้ามี)"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+
+            {/* PIN — แตะเพื่อโฟกัส */}
+            {settings.admin_pin ? (
+              <button onClick={() => setFocus('pin')}
+                className={`w-full rounded-2xl px-4 py-2.5 border-2 transition-all
+                  ${focus === 'pin' ? 'border-brand bg-brand/5' : 'border-slate-200 bg-slate-50'}`}>
+                <p className="text-xs text-slate-400 mb-1.5">PIN</p>
+                <div className="flex justify-center gap-2">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i}
+                      className={`w-7 h-7 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-colors
+                        ${i < pin.length ? 'border-brand bg-brand text-white' : 'border-slate-300 bg-white'}`}>
+                      {i < pin.length ? '●' : ''}
+                    </div>
+                  ))}
+                </div>
+              </button>
+            ) : (
+              <p className="text-xs text-slate-400 text-center">ยังไม่ได้ตั้ง PIN</p>
+            )}
+            {errMsg && <p className="text-center text-red-500 text-xs font-semibold">{errMsg}</p>}
+
+            {/* Numpad */}
+            <div className="grid grid-cols-3 gap-2">
+              {['1','2','3','4','5','6','7','8','9',focus==='amount'?'.':'','0','⌫'].map((k, i) => (
+                k === '' ? <div key={i} /> :
+                <button key={i} onClick={() => numKey(k)}
+                  className={`h-12 rounded-2xl text-xl font-semibold transition-colors active:scale-95
+                    ${k === '⌫' ? 'bg-red-50 text-red-400 hover:bg-red-100' : 'bg-slate-100 text-slate-800 hover:bg-slate-200'}`}>
+                  {k}
+                </button>
+              ))}
+            </div>
+
+            <button onClick={confirm} disabled={saving || (!!settings.admin_pin && pin.length === 0)}
+              className={`w-full text-white font-bold py-3.5 rounded-2xl text-base disabled:opacity-40 active:scale-[0.98] transition-transform shadow-lg
+                ${direction === 'out' ? 'bg-red-500 shadow-red-200' : 'bg-brand shadow-brand/30'}`}>
+              {saving ? '⏳ กำลังเปิด...' : `✓ ยืนยัน${direction === 'in' ? 'รับเงินเข้า' : 'เบิกเงินออก'}`}
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -1085,12 +1314,12 @@ function ShiftModal({ mode, currentShift, onClose, onOpened, onClosed }) {
 
   async function loadShiftSummary() {
     const from = currentShift.opened_at
-    const { data } = await supabase.from('sales')
-      .select('total,payment_method,note,status')
-      .gte('created_at', from).eq('status','completed')
-    const salesTotal = (data || []).reduce((s,r) => s + Number(r.total), 0)
-    // Count cash from pure-cash sales AND extract cash portion from mixed payments
-    const cashSales = (data || []).reduce((s, r) => {
+    const [{ data: sales }, { data: drawers }] = await Promise.all([
+      supabase.from('sales').select('total,payment_method,note,status').gte('created_at', from).eq('status','completed'),
+      supabase.from('drawer_logs').select('amount,note').gte('opened_at', from),
+    ])
+    const salesTotal = (sales || []).reduce((s,r) => s + Number(r.total), 0)
+    const cashSales = (sales || []).reduce((s, r) => {
       if (r.payment_method === 'cash') return s + Number(r.total)
       if (r.payment_method === 'mixed' && r.note) {
         const m = r.note.match(/สด ฿([\d,]+(?:\.\d+)?)/)
@@ -1098,8 +1327,11 @@ function ShiftModal({ mode, currentShift, onClose, onOpened, onClosed }) {
       }
       return s
     }, 0)
-    const expected = Number(currentShift.opening_cash) + cashSales
-    setShiftSummary({ salesTotal, cashSales, expected, count: data?.length || 0 })
+    // เงินเข้า/ออกจากลิ้นชัก
+    const drawerIn  = (drawers || []).filter(d => (d.note||'').includes('รับเงินเข้า')).reduce((s,d) => s + Number(d.amount||0), 0)
+    const drawerOut = (drawers || []).filter(d => (d.note||'').includes('เบิกเงินออก')).reduce((s,d) => s + Number(d.amount||0), 0)
+    const expected = Number(currentShift.opening_cash) + cashSales + drawerIn - drawerOut
+    setShiftSummary({ salesTotal, cashSales, drawerIn, drawerOut, expected, count: sales?.length || 0 })
   }
 
   async function openShift() {
@@ -1168,6 +1400,12 @@ function ShiftModal({ mode, currentShift, onClose, onOpened, onClosed }) {
                   <div className="flex justify-between text-sm"><span className="text-slate-500">ยอดขายกะนี้</span><span className="font-bold text-brand">฿{fmt(shiftSummary.salesTotal)}</span></div>
                   <div className="flex justify-between text-sm"><span className="text-slate-500">เงินสดรับ</span><span className="font-semibold text-slate-700">฿{fmt(shiftSummary.cashSales)}</span></div>
                   <div className="flex justify-between text-sm"><span className="text-slate-500">เงินเริ่มต้น</span><span className="font-semibold text-slate-700">฿{fmt(currentShift.opening_cash)}</span></div>
+                  {shiftSummary.drawerIn > 0 && (
+                    <div className="flex justify-between text-sm"><span className="text-slate-500">รับเงินเข้าเก๊ะ</span><span className="font-semibold text-emerald-600">+฿{fmt(shiftSummary.drawerIn)}</span></div>
+                  )}
+                  {shiftSummary.drawerOut > 0 && (
+                    <div className="flex justify-between text-sm"><span className="text-slate-500">เบิกเงินออกเก๊ะ</span><span className="font-semibold text-red-500">−฿{fmt(shiftSummary.drawerOut)}</span></div>
+                  )}
                   <div className="flex justify-between text-sm font-bold border-t border-slate-200 pt-1.5 mt-1">
                     <span className="text-slate-700">ควรมีในเก๊ะ</span>
                     <span className="text-emerald-600">฿{fmt(shiftSummary.expected)}</span>

@@ -222,7 +222,7 @@ export default function Nav() {
             <>
               <button onClick={openEmpPicker}
                 className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm text-white/40 transition-all group mb-1"
-                style={{ fontFamily: 'Kanit, sans-serif' }}
+                style={{ fontFamily: 'var(--font-kanit), sans-serif' }}
                 onMouseEnter={e => e.currentTarget.style.background = 'rgba(199,44,65,0.1)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                 <div className="icon-glass icon-glass-inactive w-8 h-8 rounded-lg">
@@ -232,7 +232,7 @@ export default function Nav() {
               </button>
               <button onClick={openAdminPin}
                 className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm text-white/40 transition-all group"
-                style={{ fontFamily: 'Kanit, sans-serif' }}
+                style={{ fontFamily: 'var(--font-kanit), sans-serif' }}
                 onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.1)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                 <div className="icon-glass icon-glass-inactive w-8 h-8 rounded-lg">
@@ -245,7 +245,7 @@ export default function Nav() {
             <>
               <button onClick={openEmpPicker}
                 className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm text-white/40 transition-all group mb-1"
-                style={{ fontFamily: 'Kanit, sans-serif' }}
+                style={{ fontFamily: 'var(--font-kanit), sans-serif' }}
                 onMouseEnter={e => e.currentTarget.style.background = 'rgba(199,44,65,0.1)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                 <div className="icon-glass icon-glass-inactive w-8 h-8 rounded-lg">
@@ -255,7 +255,7 @@ export default function Nav() {
               </button>
               <button onClick={auth.logout}
                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-white/40 transition-all group"
-                style={{ fontFamily: 'Kanit, sans-serif' }}
+                style={{ fontFamily: 'var(--font-kanit), sans-serif' }}
                 onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.12)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                 <div className="icon-glass icon-glass-inactive group-hover:border-red-500/30 w-8 h-8 rounded-lg">

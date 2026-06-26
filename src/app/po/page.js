@@ -194,26 +194,17 @@ export default function POPage() {
 
       setAiResult(data)
 
-      // เทียบกับ products ในระบบ
       const reviewed = (data.items || []).map(ai => {
-        // หาจาก barcode ก่อน แล้ว fallback ชื่อ
-        const match = products.find(p => p.barcode && p.barcode === ai.barcode)
-          || products.find(p => p.name?.toLowerCase() === ai.name?.toLowerCase())
-          || products.find(p => ai.name && p.name?.toLowerCase().includes(ai.name.toLowerCase().substring(0, 5)))
         const aiCost = ai.unit_cost || (ai.total && ai.qty ? (ai.total / ai.qty) : null)
-        const mult = 1 + minMargin / 100
-        const minPrice = aiCost ? Math.ceil(aiCost * mult) : null
+        const minPrice = aiCost ? Math.ceil(aiCost * (1 + minMargin / 100)) : null
         return {
           ...ai,
-          matched: match || null,
-          product_id: match?.id || null,
-          isNew: !match,
+          mode: 'new',          // 'new' | 'search'
+          product_id: null,     // set when user picks existing product
+          matched: null,
           cost: aiCost,
-          price: match?.price ?? minPrice,
-          currentStock: match?.stock ?? null,
-          newStock: (match?.stock ?? 0) + (ai.qty || 0),
-          currentCost: match?.cost ?? null,
-          currentPrice: match?.price ?? null,
+          price: minPrice,
+          searchText: '',
           enabled: true,
         }
       })
@@ -234,8 +225,8 @@ export default function POPage() {
       // 1. สร้าง/อัปเดตสินค้า และเก็บ product_id จริงสำหรับ PO items
       const poItemsData = []
       for (const item of toProcess) {
-        let productId = item.product_id && item.product_id !== 'new' ? item.product_id : null
-        if (item.isNew || item.product_id === 'new') {
+        let productId = item.mode === 'search' && item.product_id ? item.product_id : null
+        if (item.mode === 'new') {
           const { data: newProd } = await supabase.from('products').insert({
             name: item.name, barcode: item.barcode || null,
             unit: item.unit || 'ชิ้น', cost: item.cost || 0,
@@ -250,16 +241,17 @@ export default function POPage() {
             })
           }
         } else if (productId) {
-          const qtyBefore = item.currentStock ?? 0
+          const qtyBefore = item.matched?.stock ?? 0
+          const newStock = qtyBefore + (item.qty || 0)
           await supabase.from('products').update({
-            stock: item.newStock,
+            stock: newStock,
             ...(item.cost  ? { cost:  item.cost  } : {}),
             ...(item.price ? { price: item.price } : {}),
           }).eq('id', productId)
           if ((item.qty || 0) > 0) {
             await supabase.from('stock_history').insert({
               product_id: productId, type: 'receive',
-              qty_before: qtyBefore, qty_change: item.qty || 0, qty_after: item.newStock,
+              qty_before: qtyBefore, qty_change: item.qty || 0, qty_after: newStock,
               note: 'รับสินค้า AI สแกน',
             })
           }
@@ -488,101 +480,115 @@ export default function POPage() {
             )}
             <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
               {aiReview.map((item, idx) => {
-                const isActuallyNew = !item.product_id || item.product_id === 'new'
+                const upd = (patch) => setAiReview(p => { const n=[...p]; n[idx]={...n[idx],...patch}; return n })
+                const priceLow = item.cost && item.price && item.price < item.cost*(1+minMargin/100)
+                const searchResults = item.searchText
+                  ? products.filter(p =>
+                      p.name.toLowerCase().includes(item.searchText.toLowerCase()) ||
+                      (p.barcode||'').includes(item.searchText)
+                    ).slice(0, 6)
+                  : []
                 return (
                   <div key={idx} className={`px-4 py-3 ${!item.enabled ? 'opacity-40' : ''}`}>
                     <div className="flex items-start gap-2">
                       <input type="checkbox" checked={item.enabled}
-                        onChange={e => setAiReview(p => { const n=[...p]; n[idx]={...n[idx],enabled:e.target.checked}; return n })}
+                        onChange={e => upd({ enabled: e.target.checked })}
                         className="mt-1 w-4 h-4 accent-brand shrink-0" />
                       <div className="flex-1 min-w-0">
 
-                        {/* ชื่อจาก AI + badge */}
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold shrink-0 ${isActuallyNew ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
-                            {isActuallyNew ? '✦ สินค้าใหม่' : '✓ ลิงก์แล้ว'}
-                          </span>
-                          <p className="text-sm font-semibold text-gray-800 truncate">{item.name}</p>
+                        {/* ชื่อจาก AI */}
+                        <p className="text-sm font-semibold text-gray-800 mb-2">{item.name}
+                          {item.unit ? <span className="text-gray-400 font-normal text-xs ml-1">({item.unit})</span> : ''}
+                        </p>
+
+                        {/* Mode toggle */}
+                        <div className="flex gap-1 mb-2">
+                          {['new','search'].map(m => (
+                            <button key={m}
+                              onClick={() => upd({ mode: m, product_id: m==='new' ? null : item.product_id, matched: m==='new' ? null : item.matched, searchText: '' })}
+                              className={`flex-1 py-1 rounded-lg text-xs font-semibold border transition-colors
+                                ${item.mode===m ? 'bg-brand text-white border-brand' : 'bg-white text-gray-500 border-gray-200'}`}>
+                              {m==='new' ? '✦ เพิ่มสินค้าใหม่' : '🔍 หาสินค้าในระบบ'}
+                            </button>
+                          ))}
                         </div>
 
-                        {/* Dropdown เลือกสินค้าในระบบ */}
-                        <div className="mb-2">
-                          <label className="text-[10px] text-gray-400 block mb-0.5">เทียบกับสินค้าในระบบ</label>
-                          <select
-                            value={item.product_id || 'new'}
-                            onChange={e => {
-                              const pid = e.target.value
-                              const match = products.find(p => String(p.id) === pid)
-                              setAiReview(p => {
-                                const n = [...p]
-                                n[idx] = {
-                                  ...n[idx],
-                                  product_id: pid === 'new' ? 'new' : parseInt(pid),
-                                  matched: match || null,
-                                  isNew: pid === 'new',
-                                  currentStock: match?.stock ?? null,
-                                  newStock: (match?.stock ?? 0) + (n[idx].qty || 0),
-                                  currentCost: match?.cost ?? null,
-                                  currentPrice: match?.price ?? null,
-                                  price: n[idx].price || match?.price || null,
-                                }
-                                return n
-                              })
-                            }}
-                            className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white focus:border-brand outline-none">
-                            <option value="new">— สร้างสินค้าใหม่ —</option>
-                            {products.map(p => (
-                              <option key={p.id} value={String(p.id)}>
-                                {p.name}{p.barcode ? ` (${p.barcode})` : ''}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
+                        {/* Mode: search — ค้นหาสินค้าด้วยตนเอง */}
+                        {item.mode === 'search' && (
+                          <div className="mb-2">
+                            {item.matched ? (
+                              <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-2 py-1.5">
+                                <span className="text-green-700 text-xs font-semibold flex-1 truncate">✓ {item.matched.name}</span>
+                                <button onClick={() => upd({ matched: null, product_id: null, price: item.price, searchText: '' })}
+                                  className="text-gray-400 text-sm shrink-0">×</button>
+                              </div>
+                            ) : (
+                              <div className="relative">
+                                <input
+                                  type="text"
+                                  value={item.searchText}
+                                  onChange={e => upd({ searchText: e.target.value })}
+                                  placeholder="พิมพ์ชื่อหรือบาร์โค้ดสินค้า..."
+                                  className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:border-brand outline-none" />
+                                {searchResults.length > 0 && (
+                                  <div className="absolute z-10 left-0 right-0 bg-white border border-gray-200 rounded-lg shadow-lg mt-0.5 max-h-36 overflow-y-auto">
+                                    {searchResults.map(p => (
+                                      <button key={p.id}
+                                        onClick={() => upd({
+                                          matched: p,
+                                          product_id: p.id,
+                                          price: p.price || item.price,
+                                          searchText: '',
+                                        })}
+                                        className="w-full text-left px-3 py-2 text-xs hover:bg-brand-50 border-b border-gray-50 last:border-0">
+                                        <span className="font-medium text-gray-800">{p.name}</span>
+                                        {p.barcode && <span className="text-gray-400 ml-1">({p.barcode})</span>}
+                                        <span className="text-brand ml-1">ขาย ฿{fmt(p.price)}</span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {item.matched && (
+                              <p className="text-[10px] text-gray-400 mt-1">
+                                สต็อกปัจจุบัน {item.matched.stock ?? 0} → <span className="text-green-600 font-bold">{(item.matched.stock ?? 0) + (item.qty || 0)}</span>
+                                {item.matched.cost && item.matched.cost !== item.cost ? ` · ทุนเดิม ฿${fmt(item.matched.cost)}` : ''}
+                              </p>
+                            )}
+                          </div>
+                        )}
 
-                        {/* ฟิลด์ข้อมูล */}
+                        {/* ฟิลด์ตัวเลข */}
                         <div className="grid grid-cols-3 gap-2 text-xs">
                           <div>
                             <label className="text-gray-400 block mb-0.5">จำนวน</label>
-                            <div className="flex items-center gap-1">
-                              <input type="number" value={item.qty||''} min="0"
-                                onChange={e => setAiReview(p => { const n=[...p]; const q=parseFloat(e.target.value)||0; n[idx]={...n[idx],qty:q,newStock:(n[idx].currentStock??0)+q}; return n })}
-                                className="w-full border border-gray-200 rounded px-1 py-1 text-center" />
-                              <span className="text-gray-400 text-[10px] shrink-0">{item.unit||'ชิ้น'}</span>
-                            </div>
+                            <input type="number" value={item.qty||''} min="0"
+                              onChange={e => upd({ qty: parseFloat(e.target.value)||0 })}
+                              className="w-full border border-gray-200 rounded px-1 py-1 text-center" />
                           </div>
                           <div>
-                            <label className="text-gray-400 block mb-0.5">ราคาทุน ฿</label>
+                            <label className="text-gray-400 block mb-0.5">ทุน ฿</label>
                             <input type="number" value={item.cost||''} min="0" step="0.01"
-                              onChange={e => setAiReview(p => { const n=[...p]; n[idx]={...n[idx],cost:parseFloat(e.target.value)||0}; return n })}
+                              onChange={e => upd({ cost: parseFloat(e.target.value)||0 })}
                               className="w-full border border-gray-200 rounded px-1 py-1 text-center" />
                           </div>
                           <div>
                             <label className="text-gray-400 block mb-0.5">
-                              ราคาขาย ฿
-                              {item.cost && item.price && item.price < item.cost * (1 + minMargin/100) && (
-                                <span className="text-red-500 ml-1">⚠️</span>
-                              )}
+                              ขาย ฿{priceLow && <span className="text-red-500 ml-1">⚠️</span>}
                             </label>
                             <input type="number" value={item.price||''} min="0" step="0.01"
-                              onChange={e => setAiReview(p => { const n=[...p]; n[idx]={...n[idx],price:parseFloat(e.target.value)||0}; return n })}
-                              className={`w-full border rounded px-1 py-1 text-center ${item.cost && item.price && item.price < item.cost*(1+minMargin/100) ? 'border-red-300 bg-red-50' : 'border-gray-200'}`} />
-                            {item.cost && item.price && item.price < item.cost*(1+minMargin/100) && (
-                              <button onClick={() => setAiReview(p => { const n=[...p]; n[idx]={...n[idx],price:Math.ceil(n[idx].cost*(1+minMargin/100))}; return n })}
+                              onChange={e => upd({ price: parseFloat(e.target.value)||0 })}
+                              className={`w-full border rounded px-1 py-1 text-center ${priceLow ? 'border-red-300 bg-red-50' : 'border-gray-200'}`} />
+                            {priceLow && (
+                              <button onClick={() => upd({ price: Math.ceil(item.cost*(1+minMargin/100)) })}
                                 className="text-[9px] text-brand mt-0.5 block">
-                                แนะนำ ฿{Math.ceil(item.cost*(1+minMargin/100))}
+                                → ฿{Math.ceil(item.cost*(1+minMargin/100))}
                               </button>
                             )}
                           </div>
                         </div>
 
-                        {/* สต็อก summary */}
-                        {!isActuallyNew && (
-                          <p className="text-[10px] text-gray-400 mt-1.5">
-                            สต็อก {item.currentStock ?? '?'} → <span className="text-green-600 font-bold">{item.newStock}</span>
-                            {item.currentCost && item.cost && item.currentCost !== item.cost ? ` · ทุน ฿${item.currentCost}→฿${item.cost}` : ''}
-                            {item.currentPrice && item.price && item.currentPrice !== item.price ? ` · ขาย ฿${item.currentPrice}→฿${item.price}` : ''}
-                          </p>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -605,8 +611,8 @@ export default function POPage() {
               ) : (
                 <div className="px-4 py-2 bg-brand-50 border-t border-brand/10 flex justify-between text-xs">
                   <span className="text-brand-mid font-medium">
-                    {aiReview.filter(i=>i.enabled && (!i.product_id||i.product_id==='new')).length} ใหม่ ·{' '}
-                    {aiReview.filter(i=>i.enabled && i.product_id && i.product_id!=='new').length} อัปเดต
+                    {aiReview.filter(i=>i.enabled && i.mode==='new').length} ใหม่ ·{' '}
+                    {aiReview.filter(i=>i.enabled && i.mode==='search' && i.product_id).length} อัปเดต
                   </span>
                   <span className="text-brand-light">✓ ราคาผ่านขั้นต้ำ {minMargin}%</span>
                 </div>

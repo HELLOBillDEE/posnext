@@ -203,6 +203,18 @@ CREATE INDEX IF NOT EXISTS idx_stock_history_prod  ON stock_history(product_id);
 CREATE INDEX IF NOT EXISTS idx_payslips_emp        ON payslips(employee_id, period_year, period_month);
 
 -- ============================================================
+-- บันทึกการเปิดลิ้นชักด้วยตนเอง
+-- ============================================================
+CREATE TABLE IF NOT EXISTS drawer_logs (
+  id            SERIAL PRIMARY KEY,
+  opened_at     TIMESTAMPTZ DEFAULT NOW(),
+  employee_id   INT REFERENCES employees(id) ON DELETE SET NULL,
+  employee_name TEXT,
+  amount        NUMERIC(12,2),
+  note          TEXT
+);
+
+-- ============================================================
 -- RPC: adjust stock atomically
 -- ============================================================
 CREATE OR REPLACE FUNCTION adjust_stock(p_product_id INT, p_qty_change NUMERIC, p_type TEXT, p_ref_id INT DEFAULT NULL, p_note TEXT DEFAULT '')

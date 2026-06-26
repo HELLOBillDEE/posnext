@@ -21,7 +21,7 @@ const SETTING_FIELDS = [
   { key:'line_group_id',        label:'LINE Group ID (บันทึกอัตโนมัติ)',   placeholder:'C... (ระบบกรอกให้เองเมื่อเพิ่ม Bot เข้ากลุ่ม)' },
 ]
 
-const TABS = ['ตั้งค่าร้าน', 'เครื่องพิมพ์', 'ลูกค้า', 'ซัพพลายเออร์', 'ประวัติสต็อก', '🔗 BillDEE Sync']
+const TABS = ['ตั้งค่าร้าน', 'เครื่องพิมพ์', 'ลูกค้า', 'ซัพพลายเออร์', 'ประวัติสต็อก', '🔗 BillDEE Sync', '🔓 ลิ้นชัก']
 
 const DEF_BILLDEE = { url: '', business_id: '', token: '', enabled: false }
 function loadBillDeeConfig() {
@@ -62,6 +62,7 @@ export default function AdminPage() {
   const [printerSaved, setPrinterSaved] = useState(false)
   const [billdee, setBilldee] = useState(loadBillDeeConfig)
   const [billdeeStatus, setBilldeeStatus] = useState(null) // null | 'testing' | 'ok' | 'error'
+  const [drawerLogs, setDrawerLogs]       = useState([])
   const [logoUploading, setLogoUploading]     = useState(false)
   const [qrUploading, setQrUploading]         = useState(false)
   const [lineQrUploading, setLineQrUploading] = useState(false)
@@ -82,6 +83,10 @@ export default function AdminPage() {
     if (tab === 4) {
       const { data } = await supabase.from('stock_history').select('*, products(name)').order('created_at', { ascending: false }).limit(100)
       setStockHist(data || [])
+    }
+    if (tab === 6) {
+      const { data } = await supabase.from('drawer_logs').select('*').order('opened_at', { ascending: false }).limit(200)
+      setDrawerLogs(data || [])
     }
   }
 
@@ -662,6 +667,57 @@ export default function AdminPage() {
             <p>4. Business ID หาได้จาก BillDEE: เปิดแอป → กด ⚙️ ตั้งค่า → คัดลอก Business ID</p>
             <p>5. กด "ทดสอบการเชื่อมต่อ" → ถ้าขึ้น ✅ ก็พร้อมใช้งาน</p>
           </div>
+        </div>
+      )}
+
+      {/* ── ลิ้นชัก ── */}
+      {tab === 6 && (
+        <div className="space-y-3 max-w-2xl">
+          <div className="flex items-center justify-between">
+            <h2 className="font-heading font-semibold text-slate-800">ประวัติการเปิดลิ้นชักด้วยตนเอง</h2>
+            <span className="text-xs text-slate-400">{drawerLogs.length} รายการล่าสุด</span>
+          </div>
+          {drawerLogs.length === 0 ? (
+            <div className="card-pad text-center py-12 text-slate-400 text-sm">
+              <div className="text-4xl mb-2 opacity-20">🔓</div>
+              ยังไม่มีประวัติ
+            </div>
+          ) : (
+            <div className="card-pad p-0 overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 border-b border-slate-100">
+                  <tr>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500">วันเวลา</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500">พนักงาน</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500">จำนวน</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500">หมายเหตุ</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {drawerLogs.map(log => {
+                    const dt = new Date(log.opened_at)
+                    const dtStr = dt.toLocaleDateString('th-TH', { day:'2-digit', month:'2-digit', year:'numeric' })
+                      + ' ' + dt.toLocaleTimeString('th-TH', { hour:'2-digit', minute:'2-digit', second:'2-digit' })
+                    const isOut = (log.note || '').includes('เบิกเงินออก')
+                    return (
+                      <tr key={log.id} className="hover:bg-slate-50/60">
+                        <td className="px-4 py-3 text-slate-600 font-mono text-xs whitespace-nowrap">{dtStr}</td>
+                        <td className="px-4 py-3 font-semibold text-slate-700">{log.employee_name || <span className="text-slate-300">ไม่ระบุ</span>}</td>
+                        <td className="px-4 py-3 text-right font-bold text-sm whitespace-nowrap">
+                          {log.amount ? (
+                            <span className={isOut ? 'text-red-500' : 'text-emerald-600'}>
+                              {isOut ? '−' : '+'}฿{Number(log.amount).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                            </span>
+                          ) : <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className="px-4 py-3 text-slate-400 text-xs">{log.note || '—'}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 

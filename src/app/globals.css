@@ -11,6 +11,9 @@
 }
 
 html { -webkit-text-size-adjust: 100%; }
+
+/* Kanit font via CSS variable — override Tailwind font-sans/font-heading */
+.font-sans, .font-heading { font-family: var(--font-kanit), sans-serif !important; }
 * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
 
 body {
