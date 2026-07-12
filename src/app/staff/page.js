@@ -62,6 +62,9 @@ export default function StaffPage() {
   const [amount,     setAmount]     = useState('')
   const [advLoad,    setAdvLoad]    = useState(false)
   const [advMsg,     setAdvMsg]     = useState(null)
+  /* drawer request */
+  const [drawerLoad, setDrawerLoad] = useState(false)
+  const [drawerMsg,  setDrawerMsg]  = useState(null)
   /* self-registration */
   const [regName,    setRegName]    = useState('')
   const [regNick,    setRegNick]    = useState('')
@@ -223,6 +226,22 @@ export default function StaffPage() {
       if (json.error) alert(json.error)
       else await refreshData()
     } catch { alert('เชื่อมต่อไม่ได้') }
+  }
+
+  async function doDrawerRequest() {
+    if (!session || drawerLoad) return
+    setDrawerLoad(true); setDrawerMsg(null)
+    try {
+      const res  = await fetch('/api/request-drawer', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employee_id: session.employee_id, password: session.password }),
+      })
+      const json = await res.json()
+      if (json.error) { setDrawerMsg({ ok: false, text: json.error }); return }
+      setDrawerMsg({ ok: true, text: 'ส่งคำขอแล้ว รอ admin อนุมัติ ทาง Telegram' })
+      setTimeout(() => setDrawerMsg(null), 6000)
+    } catch { setDrawerMsg({ ok: false, text: 'เชื่อมต่อไม่ได้' }) }
+    finally { setDrawerLoad(false) }
   }
 
   async function doRegister() {
@@ -458,6 +477,18 @@ export default function StaffPage() {
         {/* Tab: หน้าหลัก */}
         {tab==='home' && (
           <div className="space-y-3">
+            {/* ขอเปิดลิ้นชัก */}
+            <div className="bg-white rounded-2xl border border-slate-100 px-4 py-3">
+              <button onClick={doDrawerRequest} disabled={drawerLoad}
+                className="w-full py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 font-semibold text-sm active:bg-amber-100 disabled:opacity-40 transition-all">
+                {drawerLoad ? '⏳ กำลังส่งคำขอ…' : '🔓 ขอเปิดลิ้นชัก'}
+              </button>
+              {drawerMsg && (
+                <p className={`text-xs font-semibold text-center mt-2 ${drawerMsg.ok ? 'text-green-600' : 'text-red-500'}`}>
+                  {drawerMsg.ok ? '✅' : '❌'} {drawerMsg.text}
+                </p>
+              )}
+            </div>
             {(data?.recentAtt||[]).slice(0,7).map((a,i) => (
               <div key={i} className="bg-white rounded-2xl border border-slate-100 px-4 py-3 flex items-center justify-between">
                 <div>

@@ -79,6 +79,30 @@ export async function POST(req) {
       }
     }
 
+    if (action === 'approve_drawer' || action === 'reject_drawer') {
+      const status = action === 'approve_drawer' ? 'approved' : 'rejected'
+      const { data: dr } = await supabase
+        .from('drawer_requests')
+        .update({ status })
+        .eq('id', id)
+        .select('employee_name, note')
+        .single()
+
+      if (dr) {
+        if (status === 'approved') {
+          await supabase.from('drawer_logs').insert({
+            employee_name: dr.employee_name,
+            note: `คำขออนุมัติ${dr.note ? ` — ${dr.note}` : ''}`,
+          })
+        }
+        const emoji = status === 'approved' ? '✅' : '❌'
+        const word  = status === 'approved' ? 'อนุมัติแล้ว' : 'ไม่อนุมัติ'
+        await answerCallback(cfg.telegram_bot_token, cb.id, word)
+        await editMessageText(cfg.telegram_bot_token, chatId, messageId,
+          `🔓 <b>คำขอเปิดลิ้นชัก</b> — ${dr.employee_name}\n${emoji} ${word} โดย ${byName}`)
+      }
+    }
+
     return new Response('OK', { status: 200 })
   } catch (e) {
     console.error('[telegram-webhook]', e.message)

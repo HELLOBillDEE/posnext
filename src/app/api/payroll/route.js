@@ -19,7 +19,7 @@ export async function GET(req) {
     const dateTo   = `${period}-${String(lastDay).padStart(2, '0')}`
 
     const [{ data: employees }, { data: attendance }, { data: leaves }, { data: advances }] = await Promise.all([
-      supabase.from('employees').select('id, name, nickname, position, daily_rate').eq('active', true).order('name'),
+      supabase.from('employees').select('id, name, nickname, position, daily_rate, phone, password, pin').eq('active', true).order('name'),
       supabase.from('attendance').select('employee_id, date, check_in, check_out, status')
         .gte('date', dateFrom).lte('date', dateTo),
       supabase.from('leave_requests').select('employee_id, date_from, date_to, leave_period, status')

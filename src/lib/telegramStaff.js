@@ -138,6 +138,30 @@ export async function notifyDrawer({ employeeName, shopName, note }) {
   await sendMessage(cfg.telegram_bot_token, cfg.telegram_chat_id, text)
 }
 
+/* ── แจ้งเตือนคำขอเปิดลิ้นชัก ── */
+export async function notifyDrawerRequest({ id, empName, note }) {
+  const cfg = await getTelegramSettings()
+  if (!cfg) return
+
+  const now = new Date().toLocaleTimeString('th-TH', {
+    timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit',
+  })
+
+  const text = [
+    `🔓 <b>คำขอเปิดลิ้นชัก</b>`,
+    `👤 ${empName}`,
+    `🕐 ${now}`,
+    note ? `📝 ${note}` : null,
+  ].filter(Boolean).join('\n')
+
+  await sendMessage(cfg.telegram_bot_token, cfg.telegram_chat_id, text, {
+    inline_keyboard: [[
+      { text: '✅ อนุมัติ', callback_data: `approve_drawer:${id}` },
+      { text: '❌ ปฏิเสธ', callback_data: `reject_drawer:${id}` },
+    ]],
+  })
+}
+
 /* ── แจ้งเตือนคำขอเบิก ── */
 export async function notifyAdvance({ id, empName, amount }) {
   const cfg = await getTelegramSettings()

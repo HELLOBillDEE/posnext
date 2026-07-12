@@ -21,7 +21,7 @@ const SETTING_FIELDS = [
   { key:'line_group_id',        label:'LINE Group ID (บันทึกอัตโนมัติ)',   placeholder:'C... (ระบบกรอกให้เองเมื่อเพิ่ม Bot เข้ากลุ่ม)' },
 ]
 
-const TABS = ['ตั้งค่าร้าน', 'เครื่องพิมพ์', 'ลูกค้า', 'ซัพพลายเออร์', 'ประวัติสต็อก', '🔗 BillDEE Sync', '🔓 ลิ้นชัก', '💰 พนักงาน']
+const TABS = ['ตั้งค่าร้าน', 'เครื่องพิมพ์', 'ซัพพลายเออร์', 'ประวัติสต็อก', '🔓 ลิ้นชัก', '💰 พนักงาน']
 
 const DEF_BILLDEE = { url: '', business_id: '', token: '', enabled: false }
 function loadBillDeeConfig() {
@@ -80,22 +80,18 @@ export default function AdminPage() {
     const { data: cfg } = await supabase.from('settings').select('*')
     if (cfg) setSettings(Object.fromEntries(cfg.map(r => [r.key, r.value])))
     if (tab === 2) {
-      const { data } = await supabase.from('customers').select('*').order('name')
-      setCustomers(data || [])
-    }
-    if (tab === 3) {
       const { data } = await supabase.from('suppliers').select('*').order('name')
       setSuppliers(data || [])
     }
-    if (tab === 4) {
+    if (tab === 3) {
       const { data } = await supabase.from('stock_history').select('*, products(name)').order('created_at', { ascending: false }).limit(100)
       setStockHist(data || [])
     }
-    if (tab === 6) {
+    if (tab === 4) {
       const { data } = await supabase.from('drawer_logs').select('*').order('opened_at', { ascending: false }).limit(200)
       setDrawerLogs(data || [])
     }
-    if (tab === 7) loadPayroll(payrollPeriod)
+    if (tab === 5) loadPayroll(payrollPeriod)
   }
 
   async function loadPayroll(period) {
@@ -323,7 +319,10 @@ export default function AdminPage() {
     setDrawerAction('opening'); setDrawerMsg('')
     try {
       await kickDrawerViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100)
+      await supabase.from('drawer_logs').insert({ employee_name: 'แอดมิน', note: 'เปิดด้วยตนเอง (หลังบ้าน)' })
       setDrawerAction('ok'); setDrawerMsg('เปิดลิ้นชักสำเร็จ ✓')
+      const { data } = await supabase.from('drawer_logs').select('*').order('opened_at', { ascending: false }).limit(200)
+      setDrawerLogs(data || [])
     } catch (e) {
       setDrawerAction('error'); setDrawerMsg('ไม่สามารถเปิดลิ้นชักได้: ' + (e?.message || 'error'))
     } finally {
@@ -598,43 +597,8 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* ── Customers ── */}
-      {tab === 2 && (
-        <div>
-          <div className="flex gap-2 mb-3">
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="ค้นหาลูกค้า"
-              className="field flex-1" />
-            <button onClick={() => { setCustForm({ code:'', name:'', phone:'', address:'', tax_id:'', credit_limit:'0' }); setCustModal('add') }}
-              className="btn-primary shrink-0">+ เพิ่มลูกค้า</button>
-          </div>
-          <div className="card overflow-hidden">
-            <div className="divide-y divide-slate-50">
-              {filteredCust.map(c => (
-                <div key={c.id} className="px-4 py-3 flex justify-between items-center hover:bg-slate-50">
-                  <div>
-                    <p className="font-semibold text-sm text-slate-800">{c.name}</p>
-                    <p className="text-xs text-slate-400">{c.phone || '—'} · เครดิต ฿{fmt(c.credit_limit)}</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => { setCustForm({ ...c, credit_limit: String(c.credit_limit||0) }); setCustModal({ id: c.id }) }}
-                      className="text-xs text-brand border border-brand/30 px-3 py-1.5 rounded-lg active:bg-brand/5">แก้ไข</button>
-                    <button onClick={async () => {
-                      if (!confirm(`ลบลูกค้า "${c.name}" ?`)) return
-                      await supabase.from('customers').delete().eq('id', c.id)
-                      const { data } = await supabase.from('customers').select('*').order('name')
-                      setCustomers(data || [])
-                    }} className="text-xs text-red-400 border border-red-200 px-3 py-1.5 rounded-lg active:bg-red-50">ลบ</button>
-                  </div>
-                </div>
-              ))}
-              {filteredCust.length === 0 && <div className="text-center py-10 text-slate-400 text-sm">ไม่พบลูกค้า</div>}
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* ── Suppliers ── */}
-      {tab === 3 && (
+      {tab === 2 && (
         <div>
           <div className="flex gap-2 mb-3">
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="ค้นหาซัพพลายเออร์"
@@ -661,7 +625,7 @@ export default function AdminPage() {
       )}
 
       {/* ── Stock history ── */}
-      {tab === 4 && (
+      {tab === 3 && (
         <div className="card overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -697,82 +661,8 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* ── BillDEE Sync ── */}
-      {tab === 5 && (
-        <div className="space-y-5 max-w-xl">
-          <div className="card-pad space-y-4">
-            <div className="flex items-center gap-3 pb-2 border-b border-slate-100">
-              <div className="w-10 h-10 bg-teal-50 rounded-xl flex items-center justify-center text-xl">🔗</div>
-              <div>
-                <h2 className="font-heading font-semibold text-slate-800">เชื่อมต่อกับ BillDEE</h2>
-                <p className="text-xs text-slate-400">ยอดขาย POS จะส่งเป็นรายรับใน BillDEE อัตโนมัติ</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50">
-              <span className="text-sm font-semibold text-slate-700">เปิดใช้งาน Auto Sync</span>
-              <button onClick={() => setBilldee(p => ({ ...p, enabled: !p.enabled }))}
-                className={`relative w-12 h-6 rounded-full transition-colors ${billdee.enabled ? 'bg-teal-500' : 'bg-slate-300'}`}>
-                <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${billdee.enabled ? 'left-7' : 'left-1'}`} />
-              </button>
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-slate-500 block mb-1.5">BillDEE App URL</label>
-              <input value={billdee.url} onChange={e => setBilldee(p => ({ ...p, url: e.target.value }))}
-                className="field w-full font-mono text-sm" placeholder="https://billdeeline-xxx.vercel.app" />
-              <p className="text-[10px] text-slate-400 mt-1">URL ของแอป BillDEE ที่ Deploy บน Vercel</p>
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-slate-500 block mb-1.5">Business ID (UUID)</label>
-              <input value={billdee.business_id} onChange={e => setBilldee(p => ({ ...p, business_id: e.target.value }))}
-                className="field w-full font-mono text-sm" placeholder="xxxxxxxx-xxxx-4xxx-xxxx-xxxxxxxxxxxx" />
-              <p className="text-[10px] text-slate-400 mt-1">ดูได้จาก BillDEE → ตั้งค่า → ข้อมูลบัญชี (Business ID)</p>
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-slate-500 block mb-1.5">POS Sync Token</label>
-              <input value={billdee.token} onChange={e => setBilldee(p => ({ ...p, token: e.target.value }))}
-                className="field w-full font-mono text-sm" type="password" placeholder="ใส่ค่าเดียวกับ POS_SYNC_TOKEN ใน Vercel" />
-              <p className="text-[10px] text-slate-400 mt-1">ตั้งค่า POS_SYNC_TOKEN ใน Vercel Environment Variables ของ BillDEE</p>
-            </div>
-
-            {billdeeStatus === 'ok' && (
-              <div className="flex items-center gap-2 p-3 rounded-xl bg-emerald-50 text-emerald-700 text-sm font-semibold">
-                ✅ เชื่อมต่อสำเร็จ! BillDEE รับ Sync ได้แล้ว
-              </div>
-            )}
-            {billdeeStatus === 'error' && (
-              <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 text-red-700 text-sm">
-                ❌ เชื่อมต่อไม่ได้ — ตรวจสอบ URL, Business ID และ Token อีกครั้ง
-              </div>
-            )}
-
-            <div className="flex gap-2">
-              <button onClick={testBillDeeSync} disabled={billdeeStatus === 'testing'}
-                className="flex-1 py-3 rounded-xl border-2 border-teal-500 text-teal-600 text-sm font-bold active:bg-teal-50 disabled:opacity-50">
-                {billdeeStatus === 'testing' ? '⏳ กำลังทดสอบ...' : '🧪 ทดสอบการเชื่อมต่อ'}
-              </button>
-              <button onClick={saveBillDee} className="flex-1 py-3 rounded-xl btn-primary text-sm font-bold">
-                💾 บันทึก
-              </button>
-            </div>
-          </div>
-
-          <div className="bg-teal-50 border border-teal-100 rounded-2xl p-4 text-sm text-teal-800 space-y-2">
-            <p className="font-semibold">📋 วิธีตั้งค่า</p>
-            <p>1. เข้า <strong>Vercel</strong> → Project BillDEE → Settings → Environment Variables</p>
-            <p>2. เพิ่ม <code className="bg-teal-100 px-1 rounded text-xs">POS_SYNC_TOKEN</code> = ตัวเลขสุ่มที่คุณกำหนดเอง</p>
-            <p>3. กลับมาใส่ค่าเดียวกันในช่อง "POS Sync Token" ด้านบน</p>
-            <p>4. Business ID หาได้จาก BillDEE: เปิดแอป → กด ⚙️ ตั้งค่า → คัดลอก Business ID</p>
-            <p>5. กด "ทดสอบการเชื่อมต่อ" → ถ้าขึ้น ✅ ก็พร้อมใช้งาน</p>
-          </div>
-        </div>
-      )}
-
       {/* ── ลิ้นชัก ── */}
-      {tab === 6 && (
+      {tab === 4 && (
         <div className="space-y-3 max-w-2xl">
           {/* Quick actions */}
           <div className="card-pad flex flex-wrap gap-3 items-center">
@@ -843,17 +733,29 @@ export default function AdminPage() {
       )}
 
       {/* ── พนักงาน / Payroll ── */}
-      {tab === 7 && (
+      {tab === 5 && (
         <div className="space-y-4 max-w-3xl">
           {/* Period selector */}
           <div className="flex items-center gap-3 flex-wrap">
             <h2 className="font-heading font-semibold text-slate-800">เงินเดือนพนักงาน</h2>
             <div className="flex items-center gap-2 ml-auto">
+              <button onClick={() => {
+                const [y,m] = payrollPeriod.split('-').map(Number)
+                const d = new Date(y, m-2, 1)
+                const p = d.toLocaleDateString('sv-SE',{timeZone:'Asia/Bangkok'}).slice(0,7)
+                setPayrollPeriod(p); loadPayroll(p)
+              }} className="btn-secondary text-sm px-3 py-2">‹</button>
               <input type="month" value={payrollPeriod}
                 onChange={e => { setPayrollPeriod(e.target.value); loadPayroll(e.target.value) }}
                 className="field text-sm" />
+              <button onClick={() => {
+                const [y,m] = payrollPeriod.split('-').map(Number)
+                const d = new Date(y, m, 1)
+                const p = d.toLocaleDateString('sv-SE',{timeZone:'Asia/Bangkok'}).slice(0,7)
+                setPayrollPeriod(p); loadPayroll(p)
+              }} className="btn-secondary text-sm px-3 py-2">›</button>
               <button onClick={() => loadPayroll(payrollPeriod)}
-                className="btn-secondary text-sm px-3 py-2">↻ โหลด</button>
+                className="btn-secondary text-sm px-3 py-2">↻</button>
             </div>
           </div>
 
@@ -892,6 +794,11 @@ export default function AdminPage() {
                       <div>
                         <p className="font-bold text-slate-800">{emp.nickname || emp.name}</p>
                         <p className="text-xs text-slate-400">{emp.position || 'พนักงาน'}</p>
+                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
+                          {emp.phone && <p className="text-xs text-slate-500">📱 {emp.phone}</p>}
+                          {emp.password && <p className="text-xs text-slate-500">🔑 {emp.password}</p>}
+                          {emp.pin && <p className="text-xs text-slate-500">🔢 PIN: {emp.pin}</p>}
+                        </div>
                       </div>
                       {/* Edit daily rate */}
                       <div className="flex items-center gap-1.5">
