@@ -1,10 +1,12 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
+import { useAuth } from '@/components/AuthProvider'
 import { supabase } from '@/lib/supabase'
 import { convertThaiBarcode, fmt, genReceiptNo } from '@/lib/utils'
 import { printViaBridge, buildReceiptESCPOS, kickDrawerViaBridge, buildDrawerKickESCPOS } from '@/lib/printBridge'
 import { syncSaleToBillDee } from '@/lib/billdeeSyncClient'
 import { buildFormalDocHTML, previewNextDocNo, commitNextDocNo } from '@/lib/docBuilder'
+import { cacheSet, cacheGet, addToQueue } from '@/lib/offlineQueue'
 
 // HID keyboard usage-code → ASCII char
 const HID_KEY = {
@@ -44,7 +46,13 @@ const PAY_METHODS = [
 
 const QUICK_CASH = [20, 50, 100, 500, 1000]
 
+const PRICE_TIERS = [
+  { id: 'wholesale', label: 'ราคาส่ง',  pct: 5 },
+  { id: 'mechanic',  label: 'ราคาช่าง', pct: 5 },
+]
+
 export default function POSPage() {
+  const { empMode } = useAuth() || {}
   const [products, setProducts]     = useState([])
   const [categories, setCategories] = useState([])
   const [settings, setSettings]     = useState({})
@@ -64,6 +72,7 @@ export default function POSPage() {
   const [note, setNote]             = useState('')
   const [saving, setSaving]         = useState(false)
   const [lastDone, setLastDone]     = useState(null)
+  const [printStatus, setPrintStatus] = useState(null) // null | 'printing' | 'ok' | 'fail'
   const [numpad, setNumpad]         = useState(null) // { idx, field, value }
   const [customer, setCustomer]     = useState(null)  // { id, name, phone }
   const [showCustModal, setShowCustModal] = useState(false)
@@ -73,45 +82,94 @@ export default function POSPage() {
   const [shiftModalMode, setShiftModalMode] = useState('open') // 'open' | 'close'
   const [showDrawerModal, setShowDrawerModal] = useState(false)
   const [changeDisplay, setChangeDisplay]     = useState(null) // { change, total, payAmount }
+  const [priceTier, setPriceTier]             = useState(null) // null | 'wholesale' | 'mechanic'
   // Web HID scanner
   const [hidDevice, setHidDevice]   = useState(null)
   const [hidError, setHidError]     = useState('')
-  const inputRef   = useRef(null)
-  const scannerRef = useRef(null)
-  const scannerBuf = useRef({ val: '', t0: 0 })
+  const inputRef      = useRef(null)
+  const scannerRef    = useRef(null)
+  const textSearchRef = useRef(null)
   const hidBuffer  = useRef('')
   const hidTimer   = useRef(null)
   const physBuf    = useRef({ chars: '', t0: 0 })
   // Refs สำหรับ global scanner listener (ไม่ต้อง re-register ตอน state เปลี่ยน)
   const productsRef = useRef([])
   const showPayRef  = useRef(false)
+  const wasPaying   = useRef(false)
   useEffect(() => { productsRef.current = products }, [products])
   useEffect(() => { showPayRef.current  = showPay  }, [showPay])
 
   useEffect(() => { loadData() }, [])
-  useEffect(() => { if (!showPay) setTimeout(() => inputRef.current?.focus(), 100) }, [showPay])
+  // Focus กลับไปที่ช่อง scan เฉพาะตอนปิด payment modal (true→false) ไม่ใช่ตอน mount
+  useEffect(() => {
+    if (!showPay && wasPaying.current) setTimeout(() => inputRef.current?.focus(), 100)
+    wasPaying.current = showPay
+  }, [showPay])
+
+  // Printer keepalive — ping ทุก 5 นาทีเพื่อไม่ให้เครื่องพิมหลับ
+  useEffect(() => {
+    function pingPrinters() {
+      const receipt = JSON.parse(localStorage.getItem('printer_receipt') || '{}')
+      const barcode = JSON.parse(localStorage.getItem('printer_barcode') || '{}')
+      if (!receipt.ip && !barcode.ip) return
+      fetch('/api/printer-keepalive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ receipt, barcode }),
+      }).catch(() => {})
+    }
+    pingPrinters()
+    const id = setInterval(pingPrinters, 5 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  const payMethodRef = useRef('cash')
+  useEffect(() => { payMethodRef.current = payMethod }, [payMethod])
+
+  // คีย์บอร์ดทำงานใน numpad modal
+  useEffect(() => {
+    if (!numpad) return
+    function onNumKey(e) {
+      const k = e.key
+      if (k >= '0' && k <= '9') { e.preventDefault(); numpadKey(k) }
+      else if (k === '.') { e.preventDefault(); numpadKey('.') }
+      else if (k === 'Backspace') { e.preventDefault(); numpadKey('⌫') }
+      else if (k === 'Enter' || k === 'NumpadEnter') { e.preventDefault(); numpadConfirm() }
+      else if (k === 'Escape') { e.preventDefault(); setNumpad(null) }
+    }
+    window.addEventListener('keydown', onNumKey)
+    return () => window.removeEventListener('keydown', onNumKey)
+  }, [numpad])
   useEffect(() => { setVisibleCount(40) }, [search, activeCat])
 
   // Cleanup HID on unmount
   useEffect(() => () => { if (hidDevice?.opened) hidDevice.close() }, [hidDevice])
 
 
+
   async function loadData() {
+    if (!navigator.onLine) {
+      // ออฟไลน์ — โหลดจาก cache
+      const prods = cacheGet('products'); if (prods) setProducts(prods)
+      const cats  = cacheGet('categories'); if (cats) setCategories(cats)
+      const cfg   = cacheGet('settings'); if (cfg) setSettings(cfg)
+      const emps  = cacheGet('employees'); if (emps) setEmployees(emps)
+      return
+    }
     const [{ data: prods, error: prodErr }, { data: cats }, { data: cfg }, { data: emps }] = await Promise.all([
       supabase.from('products').select('*, categories(name)').eq('active', true).order('name'),
       supabase.from('categories').select('*').order('name'),
       supabase.from('settings').select('*'),
       supabase.from('employees').select('id,name,nickname').eq('active', true).order('name'),
     ])
-    setEmployees(emps || [])
+    setEmployees(emps || []); cacheSet('employees', emps || [])
     if (prodErr) console.error('products load error:', prodErr)
-    setProducts(prods || [])
-    setCategories(cats || [])
+    setProducts(prods || []); cacheSet('products', prods || [])
+    setCategories(cats || []); cacheSet('categories', cats || [])
     if (cfg) {
       const s = Object.fromEntries(cfg.map(r => [r.key, r.value]))
-      setSettings(s)
+      setSettings(s); cacheSet('settings', s)
     }
-    // Load current open shift
     const { data: openShift } = await supabase.from('shifts').select('*').eq('status','open').order('opened_at',{ascending:false}).limit(1).maybeSingle()
     setShift(openShift || null)
   }
@@ -165,7 +223,7 @@ export default function POSPage() {
   }
 
 
-  // Physical key code → ASCII (ภาษา-independent)
+  // Physical key → ASCII (ไม่สนภาษาที่ใช้อยู่)
   const PHYS = {
     Digit0:'0',Digit1:'1',Digit2:'2',Digit3:'3',Digit4:'4',
     Digit5:'5',Digit6:'6',Digit7:'7',Digit8:'8',Digit9:'9',
@@ -180,14 +238,17 @@ export default function POSPage() {
   const SKIP_CODES = new Set(['ShiftLeft','ShiftRight','CapsLock','AltLeft','AltRight',
     'ControlLeft','ControlRight','MetaLeft','MetaRight','Tab','Escape'])
 
-  // Global scanner listener — ทำงานไม่ว่าโฟกัสจะอยู่ที่ไหน
+  // Global scanner listener — ใช้ e.code (physical key) ทำงานได้ทุกภาษา
   useEffect(() => {
     function onGlobalKey(e) {
-      // ถ้าอยู่ใน modal payment หรือ input อื่น (ไม่ใช่ search) → ข้าม
       if (showPayRef.current) return
       const tag = e.target?.tagName
       if (tag === 'TEXTAREA' || tag === 'SELECT') return
-      if (tag === 'INPUT' && e.target !== inputRef.current && e.target !== scannerRef.current) return
+      // ช่องค้นหาข้อความ: ให้พิมปกติ แต่ยัง collect physBuf เผื่อ scanner ยิงขณะโฟกัสที่นี่
+      if (tag === 'INPUT' && e.target !== inputRef.current && e.target !== scannerRef.current
+          && e.target !== textSearchRef.current) return
+      // ถ้า focus อยู่ที่ textSearchRef: ให้ text ทำงานปกติ แต่ scanner ยังจับได้ผ่าน physBuf
+      const onTextSearch = tag === 'INPUT' && e.target === textSearchRef.current
 
       const isEnter = e.key === 'Enter' || e.code === 'NumpadEnter'
 
@@ -195,14 +256,15 @@ export default function POSPage() {
         const { chars, t0 } = physBuf.current
         physBuf.current = { chars: '', t0: 0 }
 
-        // ≥4 ตัว ภายใน 400ms = scanner
-        if (chars.length >= 4 && t0 > 0 && (Date.now() - t0) < 400) {
+        // ≥4 ตัว ภายใน 200ms = scanner (คนพิมเร็วที่สุดก็ยัง 300ms+)
+        if (chars.length >= 4 && t0 > 0 && (Date.now() - t0) < 200) {
           e.preventDefault()
+          if (onTextSearch) setSearch('')   // ล้าง search ที่พิมลงไป
           scannerHit(chars)
           return
         }
 
-        // manual: ใช้ค่าใน search input (ถ้ามี)
+        // Enter ในช่อง header input (manual barcode)
         if (e.target === inputRef.current) {
           const raw = (e.target.value || '').trim()
           if (raw) { scannerHit(raw); setSearch('') }
@@ -211,7 +273,6 @@ export default function POSPage() {
         return
       }
 
-      // สะสม physical key chars
       const physChar = PHYS[e.code]
       if (physChar) {
         const now = Date.now()
@@ -221,9 +282,9 @@ export default function POSPage() {
       }
     }
 
-    document.addEventListener('keydown', onGlobalKey, true)   // capture phase
+    document.addEventListener('keydown', onGlobalKey, true)
     return () => document.removeEventListener('keydown', onGlobalKey, true)
-  }, [])  // ← empty: ลงทะเบียนครั้งเดียว ใช้ refs แทน state
+  }, [])
 
   // เรียกจาก global listener — ใช้ productsRef เพื่อไม่ต้อง re-register
   function scannerHit(code) {
@@ -242,11 +303,11 @@ export default function POSPage() {
     setCart(prev => {
       const idx = prev.findIndex(i => i.pid === prod.id)
       if (idx >= 0) {
-        const n = [...prev]
-        n[idx] = { ...n[idx], qty: n[idx].qty + qty }
-        return n
+        // ย้ายขึ้นบนสุด + เพิ่ม qty
+        const updated = { ...prev[idx], qty: prev[idx].qty + qty }
+        return [updated, ...prev.filter((_, i) => i !== idx)]
       }
-      return [...prev, { pid: prod.id, name: prod.name, barcode: prod.barcode, unit: prod.unit, price: prod.price, cost: prod.cost || 0, qty, disc: 0, note: '' }]
+      return [{ pid: prod.id, name: prod.name, barcode: prod.barcode, unit: prod.unit, price: prod.price, cost: prod.cost || 0, qty, disc: 0, note: '' }, ...prev]
     })
   }
 
@@ -298,12 +359,15 @@ export default function POSPage() {
     setNumpad(null)
   }
 
-  const subtotal = cart.reduce((s, i) => s + i.price * i.qty - i.disc, 0)
-  const billDisc = parseFloat(billDiscount) || 0
-  const vatRate  = parseFloat(settings.vat_rate || 0) / 100
-  const vatAmt   = (subtotal - billDisc) * vatRate
-  const total    = Math.max(0, subtotal - billDisc + vatAmt)
-  const change   = (parseFloat(payAmount) || 0) - total
+  const subtotal  = cart.reduce((s, i) => s + i.price * i.qty - i.disc, 0)
+  const billDisc  = parseFloat(billDiscount) || 0
+  const tierPct   = PRICE_TIERS.find(t => t.id === priceTier)?.pct || 0
+  const tierDisc  = Math.floor(subtotal * tierPct / 100)
+  const totalDisc = billDisc + tierDisc
+  const vatRate   = parseFloat(settings.vat_rate || 0) / 100
+  const vatAmt    = (subtotal - totalDisc) * vatRate
+  const total     = Math.max(0, subtotal - totalDisc + vatAmt)
+  const change    = (parseFloat(payAmount) || 0) - total
 
   // mixed payment totals
   const mixCash     = parseFloat(mixAmounts.cash)     || 0
@@ -410,24 +474,55 @@ export default function POSPage() {
         saveChange = Math.max(0, change)
         saveNote   = note
       }
-      const { data: sale, error } = await supabase.from('sales').insert({
-        receipt_no: receiptNo, subtotal, discount: billDisc, vat: vatAmt, total,
-        payment_method: saveMethod,
-        payment_amount: saveAmount,
-        change_amount:  saveChange,
-        note: saveNote,
+      const tierLabel = PRICE_TIERS.find(t => t.id === priceTier)?.label
+      if (tierLabel) saveNote = [tierLabel, saveNote].filter(Boolean).join(' ')
+
+      const saleData = {
+        receipt_no: receiptNo, subtotal, discount: totalDisc, vat: vatAmt, total,
+        payment_method: saveMethod, payment_amount: saveAmount,
+        change_amount: saveChange, note: saveNote,
         customer_id: customer?.id || null,
-      }).select().single()
+      }
+      const saleItems = cart.map(i => ({
+        product_id: i.pid, product_name: i.name,
+        barcode: i.barcode, unit: i.unit, qty: i.qty,
+        price: i.price, cost: i.cost, discount: i.disc,
+        subtotal: i.price * i.qty - i.disc, note: i.note || null,
+      }))
+
+      // ── ออฟไลน์: เพิ่มเข้า queue ──
+      if (!navigator.onLine) {
+        addToQueue('sale', { saleData, items: saleItems })
+        window.dispatchEvent(new Event('offline-queue-changed'))
+        const receipt = {
+          receipt_no: receiptNo, subtotal, discount: billDisc, vat: vatAmt, total,
+          payment_method: saveMethod, payment_amount: saveAmount, change_amount: saveChange,
+          items: cart, note: saveNote,
+          shopName: settings.shop_name, shopAddress: settings.shop_address,
+          shopPhone: settings.shop_phone, footer: settings.receipt_footer,
+          lineQr: settings.line_qr || '', hasLineQr: !!settings.line_qr,
+          cashier: currentEmp ? (currentEmp.nickname || currentEmp.name) : '',
+          change: Math.max(0, change), vatRate,
+          customerName: customer?.name || '', customerPhone: customer?.phone || '',
+        }
+        setLastDone(receipt)
+        const cfg = getReceiptCfg()
+        if (cfg.ip) {
+          buildReceiptESCPOS(receipt, parseInt(cfg.paper_width) || 80).then(bytes =>
+            printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
+          ).catch(() => {})
+        }
+        setCart([]); setBillDiscount(''); setPayAmount(''); setNote(''); setCustomer(null)
+        setShowPay(false)
+        setSaving(false)
+        return
+      }
+
+      // ── ออนไลน์: บันทึกปกติ ──
+      const { data: sale, error } = await supabase.from('sales').insert(saleData).select().single()
       if (error) throw error
 
-      await supabase.from('sale_items').insert(
-        cart.map(i => ({
-          sale_id: sale.id, product_id: i.pid, product_name: i.name,
-          barcode: i.barcode, unit: i.unit, qty: i.qty,
-          price: i.price, cost: i.cost, discount: i.disc,
-          subtotal: i.price * i.qty - i.disc, note: i.note || null,
-        }))
-      )
+      await supabase.from('sale_items').insert(saleItems.map(i => ({ ...i, sale_id: sale.id })))
 
       for (const i of cart) {
         try {
@@ -458,6 +553,7 @@ export default function POSPage() {
       const needDrawer = payMode === 'single' ? saveMethod === 'cash'
         : mixCash > 0  // mixed — เปิดถ้ามีส่วนเงินสด
       if (useBridge) {
+        setPrintStatus('printing')
         buildReceiptESCPOS(receipt, parseInt(cfg.paper_width) || 80).then(async bytes => {
           if (needDrawer) {
             const kick = buildDrawerKickESCPOS()
@@ -468,11 +564,23 @@ export default function POSPage() {
           } else {
             await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
           }
-        }).catch(e => console.warn('Print/Drawer error:', e.message))
+          setPrintStatus('ok')
+        }).catch(e => {
+          console.warn('Print/Drawer error:', e.message)
+          setPrintStatus('fail')
+          alert('❌ พิมใบเสร็จไม่ได้: ' + e.message + '\nตรวจสอบ IP เครื่องพิมพ์ในหน้า Admin')
+        })
       } else {
-        // Blob URL approach — ไม่โดน Safari block แม้เรียกหลัง async
-        const blob = new Blob([buildReceiptHTML(receipt)], { type: 'text/html;charset=utf-8' })
-        window.open(URL.createObjectURL(blob))
+        const html = buildReceiptHTML(receipt)
+        const blob = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }))
+        const iframe = document.createElement('iframe')
+        iframe.style.cssText = 'position:fixed;left:-9999px;width:1px;height:1px;opacity:0'
+        document.body.appendChild(iframe)
+        iframe.onload = () => {
+          try { iframe.contentWindow.focus(); iframe.contentWindow.print() } catch {}
+          setTimeout(() => { document.body.removeChild(iframe); URL.revokeObjectURL(blob) }, 2000)
+        }
+        iframe.src = blob
       }
 
       // Sync to BillDEE (fire-and-forget)
@@ -483,15 +591,17 @@ export default function POSPage() {
       )
 
       // แจ้งเตือน LINE กลุ่ม (fire-and-forget)
-      if (settings.line_channel_token && settings.line_group_id) {
-        fetch('/api/notify-line', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sale: receipt }),
-        }).catch(() => {})
-      }
+      fetch('/api/notify-line', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sale: receipt,
+          line_channel_token: settings.line_channel_token || '',
+          line_group_id: settings.line_group_id || '',
+        }),
+      }).catch(() => {})
 
-      setCart([]); setBillDiscount(''); setPayAmount(''); setNote(''); setCustomer(null)
+      setCart([]); setBillDiscount(''); setPayAmount(''); setNote(''); setCustomer(null); setPriceTier(null)
       setPayMode('single'); setPayMethod('cash'); setMixAmounts({ cash:'', transfer:'', credit:'' })
       setShowPay(false)
       // แสดงหน้าเงินทอน (เฉพาะจ่ายเงินสด)
@@ -511,11 +621,21 @@ export default function POSPage() {
       try {
         const bytes = await buildReceiptESCPOS(r, parseInt(cfg.paper_width) || 80)
         await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
-        return
-      } catch (e) { console.warn('Print failed:', e.message) }
+      } catch (e) {
+        alert('❌ พิมใบเสร็จไม่ได้: ' + e.message + '\nตรวจสอบ IP เครื่องพิมพ์ในหน้า Admin')
+      }
+      return
     }
-    const blob = new Blob([buildReceiptHTML(r)], { type: 'text/html;charset=utf-8' })
-    window.open(URL.createObjectURL(blob))
+    const html = buildReceiptHTML(r)
+    const blob = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }))
+    const iframe = document.createElement('iframe')
+    iframe.style.cssText = 'position:fixed;left:-9999px;width:1px;height:1px;opacity:0'
+    document.body.appendChild(iframe)
+    iframe.onload = () => {
+      try { iframe.contentWindow.focus(); iframe.contentWindow.print() } catch {}
+      setTimeout(() => { document.body.removeChild(iframe); URL.revokeObjectURL(blob) }, 2000)
+    }
+    iframe.src = blob
   }
 
   const filtered = products.filter(p => {
@@ -559,20 +679,6 @@ export default function POSPage() {
           autoComplete="off"
           aria-hidden="true"
           style={{ position: 'fixed', left: '-9999px', width: 1, height: 1, opacity: 0 }}
-          onKeyDown={e => {
-            if (e.key === 'Enter') {
-              const { val, t0 } = scannerBuf.current
-              scannerBuf.current = { val: '', t0: 0 }
-              if (val.length >= 3 && (Date.now() - t0) < 500) scannerHit(val)
-              e.preventDefault(); return
-            }
-            if (e.key.length === 1 && e.key.charCodeAt(0) < 128) {
-              const now = Date.now()
-              scannerBuf.current = { val: scannerBuf.current.val + e.key, t0: scannerBuf.current.t0 || now }
-            } else {
-              scannerBuf.current = { val: '', t0: 0 }
-            }
-          }}
           onChange={() => {}}
         />
         {hidDevice ? (
@@ -594,12 +700,33 @@ export default function POSPage() {
         <div className="bg-red-600 text-white text-xs px-4 py-2 text-center">{hidError}</div>
       )}
 
+      {/* Print status banner */}
+      {printStatus === 'printing' && (
+        <div className="bg-amber-500 text-white text-xs px-4 py-2 text-center font-semibold shrink-0">
+          🖨️ กำลังพิมพ์ใบเสร็จ...
+        </div>
+      )}
+      {printStatus === 'fail' && lastDone && (
+        <div className="bg-red-600 text-white text-xs px-4 py-2 flex items-center justify-between shrink-0">
+          <span>⚠️ พิมพ์ใบเสร็จไม่สำเร็จ</span>
+          <button
+            onClick={() => { setPrintStatus('printing'); openReceipt(lastDone).then(() => setPrintStatus('ok')).catch(() => setPrintStatus('fail')) }}
+            className="bg-white text-red-600 font-bold px-3 py-1 rounded-lg text-xs ml-3">
+            พิมใหม่
+          </button>
+        </div>
+      )}
+
       {/* Shift banner */}
       {shift ? (
         <div className="bg-emerald-700 text-white px-4 py-2 flex items-center justify-between text-xs shrink-0 gap-2">
           <span className="font-semibold">🟢 กะเปิดอยู่ · เงินเริ่มต้น ฿{fmt(shift.opening_cash)} · เปิดเมื่อ {new Date(shift.opened_at).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})}</span>
           <div className="flex items-center gap-2 shrink-0">
-            <button onClick={() => setShowEmpPick(true)}
+            <button onClick={async () => {
+                const { data } = await supabase.from('employees').select('id,name,nickname').eq('active', true).order('name')
+                if (data) setEmployees(data)
+                setShowEmpPick(true)
+              }}
               className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg font-semibold transition-colors">
               👤 {currentEmp ? (currentEmp.nickname || currentEmp.name) : 'เลือกพนักงาน'}
             </button>
@@ -637,11 +764,35 @@ export default function POSPage() {
             ))}
           </div>
 
+          {/* Text search bar */}
+          <div className="px-3 py-2 bg-white border-b border-gray-100 flex-shrink-0">
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">🔍</span>
+              <input
+                ref={textSearchRef}
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                onBlur={() => setTimeout(() => {
+                  if (document.activeElement === document.body) scannerRef.current?.focus()
+                }, 150)}
+                placeholder="พิมพ์ชื่อสินค้าที่ต้องการค้นหา..."
+                className="w-full pl-9 pr-8 py-2 rounded-lg border border-gray-200 text-sm text-slate-800 placeholder:text-slate-400 outline-none focus:border-brand focus:ring-1 focus:ring-brand/30 bg-gray-50"
+              />
+              {search && (
+                <button
+                  onClick={() => { setSearch(''); textSearchRef.current?.focus() }}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-lg leading-none"
+                >×</button>
+              )}
+            </div>
+          </div>
+
           {/* Product grid */}
           <div onScroll={handleGridScroll} className="flex-1 overflow-y-auto p-3 grid grid-cols-2 lg:grid-cols-3 gap-3 content-start">
             {displayed.map(p => (
               <button key={p.id} onClick={() => addToCart(p)}
-                disabled={p.stock <= 0}
+                disabled={false}
                 className="bg-white rounded-xl border border-gray-100 text-left shadow-sm active:scale-95 transition-all relative flex flex-col hover:border-brand/40 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed">
                 {/* Stock badge */}
                 {p.stock <= 0 && (
@@ -750,6 +901,7 @@ export default function POSPage() {
           {/* Summary */}
           <div className="border-t border-gray-100 p-4 bg-gray-50/80 space-y-2.5">
             <div className="flex justify-between text-sm text-slate-500"><span>ยอดรวม</span><span className="font-medium text-slate-700">฿{fmt(subtotal)}</span></div>
+            {tierDisc > 0 && <div className="flex justify-between text-sm text-violet-500"><span>{PRICE_TIERS.find(t=>t.id===priceTier)?.label} −{tierPct}%</span><span>−฿{fmt(tierDisc)}</span></div>}
             {billDisc > 0 && <div className="flex justify-between text-sm text-red-500"><span>ส่วนลดบิล</span><span>−฿{fmt(billDisc)}</span></div>}
             {vatAmt > 0 && <div className="flex justify-between text-xs text-slate-400"><span>VAT {settings.vat_rate}%</span><span>฿{fmt(vatAmt)}</span></div>}
             <div className="flex justify-between items-baseline border-t border-gray-200 pt-2.5">
@@ -793,8 +945,20 @@ export default function POSPage() {
                 ))}
               </div>
 
+              {/* Price Tier */}
+              <div className="grid grid-cols-2 gap-2">
+                {PRICE_TIERS.map(t => (
+                  <button key={t.id} onClick={() => setPriceTier(priceTier === t.id ? null : t.id)}
+                    className={`py-2.5 rounded-xl text-xs font-bold border-2 transition-all
+                      ${priceTier === t.id ? 'border-violet-500 bg-violet-50 text-violet-700' : 'border-slate-200 text-slate-400 active:bg-slate-50'}`}>
+                    {t.label} −{t.pct}%
+                  </button>
+                ))}
+              </div>
+
               {/* Total */}
               <div className="bg-slate-50 rounded-2xl p-3 text-center border border-slate-100">
+                {tierDisc > 0 && <p className="text-xs text-violet-500 font-semibold mb-0.5">{PRICE_TIERS.find(t=>t.id===priceTier)?.label} ลด {tierPct}% = −฿{fmt(tierDisc)}</p>}
                 <p className="text-xs text-slate-400 mb-0.5">ยอดชำระ</p>
                 <p className="font-heading font-bold text-4xl text-brand">฿{fmt(total)}</p>
               </div>
@@ -837,14 +1001,16 @@ export default function POSPage() {
                   <>
                     <div>
                       <label className="text-xs font-semibold text-slate-500 block mb-1.5">รับเงิน (บาท)</label>
-                      <button onClick={() => setNumpad({ idx: -1, field: 'pay', value: payAmount || '0' })}
+<button onClick={() => setNumpad({ idx: -1, field: 'pay', value: payAmount || '0' })}
                         className="w-full border-2 border-slate-200 rounded-2xl px-4 py-3 text-2xl text-right font-bold text-slate-800 bg-white hover:border-brand transition-colors">
                         {payAmount || <span className="text-slate-300">0.00</span>}
                       </button>
                     </div>
-                    <div className="grid grid-cols-5 gap-1.5">
+                    <div className="grid grid-cols-6 gap-1.5">
+                      <button onClick={() => setPayAmount(String(total))}
+                        className="col-span-1 bg-brand text-white rounded-xl py-2 text-xs font-bold active:opacity-80">เต็ม</button>
                       {QUICK_CASH.map(n => (
-                        <button key={n} onClick={() => setPayAmount(String(n))}
+                        <button key={n} onClick={() => setPayAmount(String((parseFloat(payAmount) || 0) + n))}
                           className="bg-slate-100 text-slate-700 rounded-xl py-2 text-xs font-semibold active:bg-slate-200">{n}</button>
                       ))}
                     </div>
@@ -975,6 +1141,7 @@ export default function POSPage() {
         <DrawerOpenModal
           settings={settings}
           currentEmp={currentEmp}
+          empMode={empMode}
           onClose={() => setShowDrawerModal(false)}
         />
       )}
@@ -1032,7 +1199,16 @@ export default function POSPage() {
       {/* ── Numpad Modal ── */}
       {numpad && (
         <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/30" onClick={() => setNumpad(null)}>
-          <div className="bg-white rounded-t-3xl w-full max-w-sm pb-safe shadow-2xl" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-t-3xl w-full max-w-sm pb-safe shadow-2xl" onClick={e => e.stopPropagation()}
+            tabIndex={0} autoFocus
+            onKeyDown={e => {
+              const k = e.key
+              if (k >= '0' && k <= '9') { e.preventDefault(); numpadKey(k) }
+              else if (k === '.') { e.preventDefault(); numpadKey('.') }
+              else if (k === 'Backspace') { e.preventDefault(); numpadKey('⌫') }
+              else if (k === 'Enter' || k === 'NumpadEnter') { e.preventDefault(); numpadConfirm() }
+              else if (k === 'Escape') { e.preventDefault(); setNumpad(null) }
+            }}>
             <div className="px-5 pt-4 pb-2">
               <p className="text-xs text-slate-400 mb-1">{numpad.field === 'qty' ? 'จำนวน' : numpad.field === 'price' ? 'ราคา' : numpad.field === 'pay' ? 'รับเงิน (บาท)' : numpad.field === 'billdisc' ? 'ส่วนลดบิล (บาท)' : 'ส่วนลด'}</p>
               <p className="text-3xl font-bold text-slate-800 text-right tracking-wide">{numpad.value || '0'}</p>
@@ -1056,7 +1232,8 @@ export default function POSPage() {
   )
 }
 
-function DrawerOpenModal({ settings, currentEmp, onClose }) {
+function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
+  const isEmployee = !!empMode
   const [pin, setPin]         = useState('')
   const [direction, setDir]   = useState('in')  // 'in' | 'out'
   const [amount, setAmount]   = useState('')
@@ -1067,11 +1244,22 @@ function DrawerOpenModal({ settings, currentEmp, onClose }) {
   const [saving, setSaving]   = useState(false)
 
   async function confirm() {
-    const correctPin = settings.admin_pin || ''
-    if (correctPin && pin !== correctPin) {
-      setErrMsg('PIN ไม่ถูกต้อง')
-      setPin('')
-      return
+    if (isEmployee) {
+      // ตรวจ PIN ของพนักงานเองจาก DB
+      const { data: empData } = await supabase
+        .from('employees').select('pin').eq('id', empMode.id).single()
+      if (empData?.pin && pin !== empData.pin) {
+        setErrMsg('PIN ไม่ถูกต้อง')
+        setPin('')
+        return
+      }
+    } else {
+      const correctPin = settings.admin_pin || ''
+      if (correctPin && pin !== correctPin) {
+        setErrMsg('PIN ไม่ถูกต้อง')
+        setPin('')
+        return
+      }
     }
     setErrMsg('')
     setSaving(true)
@@ -1084,7 +1272,7 @@ function DrawerOpenModal({ settings, currentEmp, onClose }) {
       console.warn('Drawer kick error:', e.message)
     }
 
-    const empName   = currentEmp ? (currentEmp.nickname || currentEmp.name) : 'ไม่ระบุ'
+    const empName   = currentEmp ? (currentEmp.nickname || currentEmp.name) : (empMode?.name || 'ไม่ระบุ')
     const dirLabel  = direction === 'in' ? 'รับเงินเข้า' : 'เบิกเงินออก'
     const amtNum    = parseFloat(amount) || 0
     const fullNote  = [dirLabel, amtNum ? `฿${amtNum.toLocaleString('th-TH')}` : null, noteText.trim()].filter(Boolean).join(' — ')
@@ -1103,7 +1291,12 @@ function DrawerOpenModal({ settings, currentEmp, onClose }) {
     fetch('/api/notify-drawer', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ employeeName: empName, note: fullNote }),
+      body: JSON.stringify({
+        employeeName: empName, note: fullNote,
+        shopName: settings.shop_name || 'ร้านค้า',
+        line_channel_token: settings.line_channel_token || '',
+        line_group_id: settings.line_group_id || '',
+      }),
     }).catch(() => {})
 
     setSaving(false)
@@ -1129,7 +1322,18 @@ function DrawerOpenModal({ settings, currentEmp, onClose }) {
   return (
     <div className="fixed inset-0 bg-black/70 z-50 flex items-end md:items-center justify-center p-3"
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="bg-white rounded-3xl w-full max-w-xs shadow-2xl overflow-hidden fade-in">
+      <div className="bg-white rounded-3xl w-full max-w-xs shadow-2xl overflow-hidden fade-in"
+        tabIndex={0} autoFocus
+        onKeyDown={e => {
+          if (step === 'done') return
+          const k = e.key
+          if (k >= '0' && k <= '9') { e.preventDefault(); numKey(k) }
+          else if (k === '.' && focus === 'amount') { e.preventDefault(); numKey('.') }
+          else if (k === 'Backspace') { e.preventDefault(); numKey('⌫') }
+          else if (k === 'Enter' || k === 'NumpadEnter') { e.preventDefault(); if (!saving && !(pin.length === 0 && (isEmployee || !!settings.admin_pin))) confirm() }
+          else if (k === 'Escape') { e.preventDefault(); onClose() }
+          else if (k === 'Tab') { e.preventDefault(); setFocus(f => f === 'amount' ? 'pin' : 'amount') }
+        }}>
         <div className="bg-[#0f1b14] text-white px-4 py-3.5 flex justify-between items-center">
           <h2 className="font-heading font-bold text-base">🔓 เปิดลิ้นชักเงิน</h2>
           <button onClick={onClose} className="text-2xl leading-none opacity-70">×</button>
@@ -1178,11 +1382,11 @@ function DrawerOpenModal({ settings, currentEmp, onClose }) {
               className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
 
             {/* PIN — แตะเพื่อโฟกัส */}
-            {settings.admin_pin ? (
+            {(isEmployee || settings.admin_pin) ? (
               <button onClick={() => setFocus('pin')}
                 className={`w-full rounded-2xl px-4 py-2.5 border-2 transition-all
                   ${focus === 'pin' ? 'border-brand bg-brand/5' : 'border-slate-200 bg-slate-50'}`}>
-                <p className="text-xs text-slate-400 mb-1.5">PIN</p>
+                <p className="text-xs text-slate-400 mb-1.5">{isEmployee ? 'PIN ของคุณ' : 'PIN'}</p>
                 <div className="flex justify-center gap-2">
                   {Array.from({ length: 4 }).map((_, i) => (
                     <div key={i}
@@ -1210,7 +1414,7 @@ function DrawerOpenModal({ settings, currentEmp, onClose }) {
               ))}
             </div>
 
-            <button onClick={confirm} disabled={saving || (!!settings.admin_pin && pin.length === 0)}
+            <button onClick={confirm} disabled={saving || (pin.length === 0 && (isEmployee || !!settings.admin_pin))}
               className={`w-full text-white font-bold py-3.5 rounded-2xl text-base disabled:opacity-40 active:scale-[0.98] transition-transform shadow-lg
                 ${direction === 'out' ? 'bg-red-500 shadow-red-200' : 'bg-brand shadow-brand/30'}`}>
               {saving ? '⏳ กำลังเปิด...' : `✓ ยืนยัน${direction === 'in' ? 'รับเงินเข้า' : 'เบิกเงินออก'}`}
@@ -1489,6 +1693,7 @@ function buildReceiptHTML(r) {
   <hr class="dash">
   ${r.customerName?`<div class="meta"><span>ลูกค้า</span><span>${r.customerName}${r.customerPhone?` ${r.customerPhone}`:''}</span></div>`:''}
   ${r.cashier?`<div class="meta"><span>พนักงาน</span><span>${r.cashier}</span></div>`:''}
+  ${r.note?`<div style="font-size:15px;padding:3px 0">หมายเหตุ: ${r.note}</div>`:''}
   <div class="meta"><span>เลขที่</span><span>${r.receipt_no}</span></div>
   <div class="meta"><span></span><span style="font-size:15px">** ${dtStr} **</span></div>
   <hr class="dash">

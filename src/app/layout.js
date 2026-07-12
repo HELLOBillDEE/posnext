@@ -60,7 +60,7 @@ export default function RootLayout({ children }) {
         <AuthProvider>
           <div className="flex min-h-screen">
             <Nav />
-            <main className="flex-1 md:ml-[220px] min-h-screen pb-[72px] md:pb-0">
+            <main className="flex-1 nav-main min-h-screen pb-[72px] md:pb-0">
               {children}
             </main>
           </div>

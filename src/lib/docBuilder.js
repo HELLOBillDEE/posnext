@@ -118,19 +118,15 @@ export function buildFormalDocHTML(docType, items, totals, customer, shop, opts 
     const disc = Number(item.disc) || 0
     const sub  = Number(item.subtotal) ?? (Number(item.price) * Number(item.qty) - disc)
     return `<tr>
-      <td style="padding:8px 8px;border:1px solid #e5e7eb;text-align:center;color:#555;font-size:12pt">${idx + 1}</td>
-      <td style="padding:8px 12px;border:1px solid #e5e7eb;font-size:12pt">${item.name || ''}${item.note ? `<br><span style="font-size:10pt;color:#888">${item.note}</span>` : ''}</td>
-      <td style="padding:8px 8px;border:1px solid #e5e7eb;text-align:center;font-size:12pt">${item.qty}</td>
-      <td style="padding:8px 8px;border:1px solid #e5e7eb;text-align:center;font-size:12pt">${item.unit || ''}</td>
-      <td style="padding:8px 10px;border:1px solid #e5e7eb;text-align:right;font-size:12pt">${isDelivery ? '—' : fmt2(item.price)}</td>
-      <td style="padding:8px 10px;border:1px solid #e5e7eb;text-align:right;font-size:12pt;font-weight:bold">${isDelivery ? '—' : fmt2(sub)}</td>
+      <td style="padding:6px 6px;border:1px solid #e5e7eb;text-align:center;color:#555;font-size:10pt">${idx + 1}</td>
+      <td style="padding:6px 10px;border:1px solid #e5e7eb;font-size:10pt">${item.name || ''}${item.note ? `<br><span style="font-size:9pt;color:#888">${item.note}</span>` : ''}</td>
+      <td style="padding:6px 6px;border:1px solid #e5e7eb;text-align:center;font-size:10pt">${item.qty}</td>
+      <td style="padding:6px 6px;border:1px solid #e5e7eb;text-align:center;font-size:10pt">${item.unit || ''}</td>
+      <td style="padding:6px 8px;border:1px solid #e5e7eb;text-align:right;font-size:10pt">${isDelivery ? '—' : fmt2(item.price)}</td>
+      <td style="padding:6px 8px;border:1px solid #e5e7eb;text-align:right;font-size:10pt;font-weight:bold">${isDelivery ? '—' : fmt2(sub)}</td>
     </tr>`
   }).join('')
 
-  const fillerCount = Math.max(0, 7 - (items || []).length)
-  const fillerRows  = Array.from({ length: fillerCount }, () =>
-    `<tr style="height:28px"><td style="border:1px solid #e5e7eb"></td><td style="border:1px solid #e5e7eb"></td><td style="border:1px solid #e5e7eb"></td><td style="border:1px solid #e5e7eb"></td><td style="border:1px solid #e5e7eb"></td><td style="border:1px solid #e5e7eb"></td></tr>`
-  ).join('')
 
   // Payment method checkboxes
   const pmCash     = opts.payment_method === 'cash'     || opts.payment_method === 'เงินสด'
@@ -138,7 +134,7 @@ export function buildFormalDocHTML(docType, items, totals, customer, shop, opts 
   const chk = (on) => `<span style="display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border:1.5px solid #555;margin-right:5px;vertical-align:middle;background:${on?'#333':'white'};color:white;font-size:9px">${on?'✓':''}</span>`
 
   const bankInfo = (shop.shop_bank_account_name || shop.shop_bank_name)
-    ? `<div style="font-size:11pt;margin-top:4px;color:#444">
+    ? `<div style="font-size:9.5pt;margin-top:4px;color:#444">
         ${shop.shop_bank_account_name ? `<div>ชื่อบัญชี <strong>${shop.shop_bank_account_name}</strong></div>` : ''}
         ${shop.shop_bank_name ? `<div>ธนาคาร ${shop.shop_bank_name}${shop.shop_bank_account ? ` เลขที่บัญชี <strong>${shop.shop_bank_account}</strong>` : ''}</div>` : ''}
       </div>` : ''
@@ -149,15 +145,15 @@ export function buildFormalDocHTML(docType, items, totals, customer, shop, opts 
 <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   @page { size: A4; margin: 14mm 18mm 14mm; }
-  body { font-family: 'Kanit',Arial,sans-serif; font-size: 13pt; margin: 0; padding: 0; color: #111; line-height: 1.5; }
+  body { font-family: 'Kanit',Arial,sans-serif; font-size: 11pt; margin: 0; padding: 0; color: #111; line-height: 1.4; }
   .accent { color: ${accent}; }
-  .sec-label { font-size: 12pt; font-weight: bold; color: ${accent}; margin-bottom: 3px; }
-  table.items { width: 100%; border-collapse: collapse; margin: 14px 0 0; }
-  table.items th { background: #1e293b; color: white; padding: 9px 10px; font-size: 12pt; border: 1px solid #1e293b; }
-  .sum-label { color: ${accent}; font-size: 12pt; text-align: right; padding: 4px 10px; }
-  .sum-val   { font-size: 12pt; text-align: right; padding: 4px 10px; min-width: 110px; }
-  .total-label { color: ${accent}; font-size: 14pt; font-weight: bold; text-align: right; padding: 6px 10px; }
-  .total-val   { font-size: 14pt; font-weight: bold; text-align: right; padding: 6px 10px; border-top: 1px solid #ddd; }
+  .sec-label { font-size: 10pt; font-weight: bold; color: ${accent}; margin-bottom: 3px; }
+  table.items { width: 100%; border-collapse: collapse; margin: 10px 0 0; }
+  table.items th { background: #1e293b; color: white; padding: 7px 8px; font-size: 10pt; border: 1px solid #1e293b; }
+  .sum-label { color: ${accent}; font-size: 10pt; text-align: right; padding: 3px 8px; }
+  .sum-val   { font-size: 10pt; text-align: right; padding: 3px 8px; min-width: 100px; }
+  .total-label { color: ${accent}; font-size: 12pt; font-weight: bold; text-align: right; padding: 5px 8px; }
+  .total-val   { font-size: 12pt; font-weight: bold; text-align: right; padding: 5px 8px; border-top: 1px solid #ddd; }
   .sig-box { flex: 1; text-align: center; }
   .sig-line { border-bottom: 1px solid #999; height: 42px; margin-bottom: 4px; }
   @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
@@ -168,19 +164,19 @@ export function buildFormalDocHTML(docType, items, totals, customer, shop, opts 
   <tr>
     <td style="width:60%;vertical-align:top">
       ${logoHTML}
-      <p style="font-size:14pt;font-weight:bold;margin:0 0 2px">${shop.shop_name || 'ร้านค้า'}</p>
-      ${shop.shop_address ? `<p style="font-size:11pt;color:#555;margin:0 0 2px;max-width:280px">${shop.shop_address.replace(/\n/g,'<br>')}</p>` : ''}
-      ${shop.shop_tax_id ? `<p style="font-size:11pt;color:#555;margin:0 0 2px">เลขประจำตัวผู้เสียภาษี ${shop.shop_tax_id}</p>` : ''}
-      ${shop.shop_phone ? `<p style="font-size:11pt;color:#555;margin:0 0 2px">โทร. ${shop.shop_phone}</p>` : ''}
-      ${shop.shop_email ? `<p style="font-size:11pt;color:#555;margin:0">อีเมล ${shop.shop_email}</p>` : ''}
+      <p style="font-size:12pt;font-weight:bold;margin:0 0 2px">${shop.shop_name || 'ร้านค้า'}</p>
+      ${shop.shop_address ? `<p style="font-size:9.5pt;color:#555;margin:0 0 2px;max-width:280px">${shop.shop_address.replace(/\n/g,'<br>')}</p>` : ''}
+      ${shop.shop_tax_id ? `<p style="font-size:9.5pt;color:#555;margin:0 0 2px">เลขประจำตัวผู้เสียภาษี ${shop.shop_tax_id}</p>` : ''}
+      ${shop.shop_phone ? `<p style="font-size:9.5pt;color:#555;margin:0 0 2px">โทร. ${shop.shop_phone}</p>` : ''}
+      ${shop.shop_email ? `<p style="font-size:9.5pt;color:#555;margin:0">อีเมล ${shop.shop_email}</p>` : ''}
     </td>
     <td style="vertical-align:top;text-align:right">
-      <p style="font-size:28pt;font-weight:bold;color:${accent};margin:0 0 12px;line-height:1.1">${title.th}</p>
+      <p style="font-size:22pt;font-weight:bold;color:${accent};margin:0 0 10px;line-height:1.1">${title.th}</p>
       <table style="margin-left:auto;border-collapse:collapse">
-        <tr><td style="font-size:12pt;color:#555;padding:2px 10px 2px 0;text-align:right">เลขที่</td><td style="font-size:12pt;font-weight:bold;padding:2px 0;min-width:130px">${docNo || '—'}</td></tr>
-        <tr><td style="font-size:12pt;color:#555;padding:2px 10px 2px 0;text-align:right">วันที่</td><td style="font-size:12pt;padding:2px 0;min-width:160px">${today || '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'}</td></tr>
-        ${isQuotation && opts.valid_until ? `<tr><td style="font-size:12pt;color:#555;padding:2px 10px 2px 0;text-align:right">ใช้ได้ถึง</td><td style="font-size:12pt;padding:2px 0">${formatThaiDate(opts.valid_until)}</td></tr>` : ''}
-        ${opts.prepared_by ? `<tr><td style="font-size:12pt;color:#555;padding:2px 10px 2px 0;text-align:right">ผู้ขาย</td><td style="font-size:12pt;padding:2px 0">${opts.prepared_by}</td></tr>` : ''}
+        <tr><td style="font-size:10pt;color:#555;padding:2px 8px 2px 0;text-align:right">เลขที่</td><td style="font-size:10pt;font-weight:bold;padding:2px 0;min-width:120px">${docNo || '—'}</td></tr>
+        <tr><td style="font-size:10pt;color:#555;padding:2px 8px 2px 0;text-align:right">วันที่</td><td style="font-size:10pt;padding:2px 0;min-width:150px">${today || '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'}</td></tr>
+        ${isQuotation && opts.valid_until ? `<tr><td style="font-size:10pt;color:#555;padding:2px 8px 2px 0;text-align:right">ใช้ได้ถึง</td><td style="font-size:10pt;padding:2px 0">${formatThaiDate(opts.valid_until)}</td></tr>` : ''}
+        ${opts.prepared_by ? `<tr><td style="font-size:10pt;color:#555;padding:2px 8px 2px 0;text-align:right">ผู้ขาย</td><td style="font-size:10pt;padding:2px 0">${opts.prepared_by}</td></tr>` : ''}
       </table>
     </td>
   </tr>
@@ -191,11 +187,11 @@ export function buildFormalDocHTML(docType, items, totals, customer, shop, opts 
 <!-- ═══ Customer Info ═══ -->
 <div style="margin-bottom:14px">
   <p class="sec-label">ลูกค้า</p>
-  ${customer?.name ? `<p style="font-size:13pt;font-weight:bold;margin:0 0 2px">${customer.name}</p>` : '<p style="font-size:13pt;margin:0 0 2px;color:#aaa">— ไม่ระบุ —</p>'}
-  ${customer?.address ? `<p style="font-size:11pt;color:#555;margin:0 0 2px;max-width:380px">${customer.address.replace(/\n/g,'<br>')}</p>` : ''}
-  ${customer?.tax_id ? `<p style="font-size:11pt;color:#555;margin:0 0 2px">เลขประจำตัวผู้เสียภาษี ${customer.tax_id}</p>` : ''}
-  ${customer?.contact ? `<p style="font-size:11pt;color:#555;margin:0 0 2px">ผู้ติดต่อ ${customer.contact}</p>` : ''}
-  ${customer?.phone ? `<p style="font-size:11pt;color:#555;margin:0">โทร. ${customer.phone}</p>` : ''}
+  ${customer?.name ? `<p style="font-size:11pt;font-weight:bold;margin:0 0 2px">${customer.name}</p>` : '<p style="font-size:11pt;margin:0 0 2px;color:#aaa">— ไม่ระบุ —</p>'}
+  ${customer?.address ? `<p style="font-size:9.5pt;color:#555;margin:0 0 2px;max-width:380px">${customer.address.replace(/\n/g,'<br>')}</p>` : ''}
+  ${customer?.tax_id ? `<p style="font-size:9.5pt;color:#555;margin:0 0 2px">เลขประจำตัวผู้เสียภาษี ${customer.tax_id}</p>` : ''}
+  ${customer?.contact ? `<p style="font-size:9.5pt;color:#555;margin:0 0 2px">ผู้ติดต่อ ${customer.contact}</p>` : ''}
+  ${customer?.phone ? `<p style="font-size:9.5pt;color:#555;margin:0">โทร. ${customer.phone}</p>` : ''}
 </div>
 
 <!-- ═══ Items Table ═══ -->
@@ -212,16 +208,15 @@ export function buildFormalDocHTML(docType, items, totals, customer, shop, opts 
   </thead>
   <tbody>
     ${itemRows}
-    ${fillerRows}
   </tbody>
 </table>
 
 <!-- ═══ Summary ═══ -->
 <table style="width:100%;border-collapse:collapse;margin-top:0">
   <tr>
-    <td style="vertical-align:top;padding:10px 0 0;font-size:12pt;width:55%">
-      <p style="margin:0 0 4px;color:#555;font-size:11pt">(${numberToThaiText(total)})</p>
-      ${opts.note ? `<p style="margin:4px 0;font-size:11pt;color:#555">หมายเหตุ: ${opts.note}</p>` : ''}
+    <td style="vertical-align:top;padding:10px 0 0;font-size:10pt;width:55%">
+      <p style="margin:0 0 4px;color:#555;font-size:9.5pt">(${numberToThaiText(total)})</p>
+      ${opts.note ? `<p style="margin:4px 0;font-size:9.5pt;color:#555">หมายเหตุ: ${opts.note}</p>` : ''}
     </td>
     <td style="vertical-align:top;padding-top:10px">
       <table style="width:100%;border-collapse:collapse">
@@ -237,9 +232,9 @@ export function buildFormalDocHTML(docType, items, totals, customer, shop, opts 
 ${!isDelivery && !isQuotation ? `
 <!-- ═══ Payment ═══ -->
 <div style="margin-top:12px;border-top:1px solid #eee;padding-top:10px">
-  <p style="font-size:12pt;font-weight:bold;margin:0 0 6px">ข้อมูลการชำระเงิน:</p>
+  <p style="font-size:10pt;font-weight:bold;margin:0 0 6px">ข้อมูลการชำระเงิน:</p>
   ${bankInfo}
-  <div style="margin-top:6px;font-size:12pt">
+  <div style="margin-top:6px;font-size:10pt">
     <div style="margin-bottom:4px">${chk(pmCash)} เงินสด${opts.paid_date ? `&nbsp; ชำระวันที่ <strong>${opts.paid_date}</strong> ยอด <strong>${fmt2(opts.paid_amount || total)}</strong> บาท` : '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'}</div>
     <div style="margin-bottom:4px">${chk(pmTransfer)} เงินโอน &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</div>
   </div>
@@ -249,14 +244,14 @@ ${!isDelivery && !isQuotation ? `
 <div style="display:flex;justify-content:space-around;margin-top:20px;gap:16px">
   <div class="sig-box">
     <div class="sig-line"></div>
-    <div style="font-size:12pt">${isQuotation ? 'ผู้เสนอราคา' : isDelivery ? 'ผู้ส่งของ' : 'อนุมัติโดย'}</div>
-    <div style="font-size:11pt;color:#777;margin-top:2px">วันที่ ................................</div>
+    <div style="font-size:10pt">${isQuotation ? 'ผู้เสนอราคา' : isDelivery ? 'ผู้ส่งของ' : 'อนุมัติโดย'}</div>
+    <div style="font-size:9.5pt;color:#777;margin-top:2px">วันที่ ................................</div>
   </div>
   <div style="flex:0.2"></div>
   <div class="sig-box">
     <div class="sig-line"></div>
-    <div style="font-size:12pt">${isQuotation ? 'ผู้รับใบเสนอราคา' : isDelivery ? 'ผู้รับของ' : 'รับชำระเงิน'}</div>
-    <div style="font-size:11pt;color:#777;margin-top:2px">วันที่ ................................</div>
+    <div style="font-size:10pt">${isQuotation ? 'ผู้รับใบเสนอราคา' : isDelivery ? 'ผู้รับของ' : 'รับชำระเงิน'}</div>
+    <div style="font-size:9.5pt;color:#777;margin-top:2px">วันที่ ................................</div>
   </div>
 </div>
 

@@ -1,5 +1,7 @@
 'use client'
 
+import JsBarcode from 'jsbarcode'
+
 // แปลงข้อความเป็น TIS-620 (Thai thermal printers ใช้ TIS-620 ไม่ใช่ UTF-8)
 function tis620(str) {
   const out = []
@@ -17,24 +19,51 @@ function tis620(str) {
 }
 
 // ส่ง ESC/POS ไปเครื่องพิมพ์ผ่าน Next.js API route (ไม่ต้องมี bridge server)
-export async function printViaBridge(bridgeUrl, ip, port, bytes) {
-  const b64 = btoa(Array.from(bytes).map(b => String.fromCharCode(b)).join(''))
-  // bridgeUrl ใช้ origin ของ Next.js server (Mac ในร้าน)
-  const origin = bridgeUrl || (typeof window !== 'undefined' ? window.location.origin : '')
-  const url = origin.replace(/\/$/, '') + '/api/print-raw'
+function getPosToken() {
+  if (typeof document === 'undefined') return ''
+  const m = document.cookie.match(/(?:^|;\s*)pos_token=([^;]+)/)
+  return m ? decodeURIComponent(m[1]) : ''
+}
+
+async function sendPrintRequest(url, token, ip, port, b64, timeoutMs = 30000) {
   const ctrl = new AbortController()
-  const tid = setTimeout(() => ctrl.abort(), 8000)
+  const tid = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify({ ip, port: parseInt(port) || 9100, data: b64 }),
       signal: ctrl.signal,
     })
-    if (!res.ok) throw new Error('Print error: ' + await res.text())
+    if (!res.ok) {
+      let msg = await res.text()
+      try { msg = JSON.parse(msg).error || msg } catch {}
+      throw new Error(msg)
+    }
+    return true
   } finally {
     clearTimeout(tid)
   }
+}
+
+// delays: ms ก่อน retry แต่ละครั้ง เช่น [0,3000,6000] = ทันที,รอ3วิ,รอ6วิ
+export async function printViaBridge(bridgeUrl, ip, port, bytes, delays = [0, 3000, 6000]) {
+  const b64 = btoa(Array.from(bytes).map(b => String.fromCharCode(b)).join(''))
+  const url = (typeof window !== 'undefined' ? window.location.origin : '') + '/api/print-raw'
+  let lastErr
+  for (let i = 0; i < delays.length; i++) {
+    if (delays[i]) await new Promise(r => setTimeout(r, delays[i]))
+    try {
+      await sendPrintRequest(url, getPosToken(), ip, port, b64)
+      return
+    } catch (e) {
+      lastErr = e
+    }
+  }
+  throw lastErr
 }
 
 // คำสั่งเปิดลิ้นชัก (cash drawer) ผ่าน printer port
@@ -45,7 +74,8 @@ export function buildDrawerKickESCPOS() {
 
 // เปิดลิ้นชักผ่าน bridge
 export async function kickDrawerViaBridge(bridgeUrl, ip, port) {
-  return printViaBridge(bridgeUrl, ip, port, buildDrawerKickESCPOS())
+  // ใช้ retry เดียวกับ receipt เพื่อรองรับ printer sleep mode ตอนเช้า
+  return printViaBridge(bridgeUrl, ip, port, buildDrawerKickESCPOS(), [0, 3000, 6000])
 }
 
 // สร้าง ESC/POS ใบเสร็จแบบ bitmap — ไม่มีปัญหา Thai codepage
@@ -106,6 +136,7 @@ export async function buildReceiptESCPOS(r, paperMM = 80) {
   two('ชำระ', n(r.payment_amount || r.total).toFixed(2))
   if (n(r.change) > 0) two('ทอน', n(r.change).toFixed(2))
   if (r.cashier) two('ผู้รับเงิน', r.cashier)
+  if (r.note)    { div(); line('หมายเหตุ: ' + r.note, 'left', Math.round(fSm * 0.9)) }
 
   nl()
   line(r.footer || 'ขอบคุณที่ใช้บริการ', 'center')
@@ -251,16 +282,6 @@ export async function buildLabelESCPOS(items, size, printerWidthMM = 100) {
   const lw   = Math.floor((pgW - m * 2) / cols)
   const lh   = pgH - m * 2
 
-  // Load JsBarcode dynamically if not yet loaded
-  if (typeof window.JsBarcode === 'undefined') {
-    await new Promise((resolve, reject) => {
-      const s = document.createElement('script')
-      s.src = 'https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js'
-      s.onload = resolve; s.onerror = reject
-      document.head.appendChild(s)
-    })
-  }
-
   const canvas = document.createElement('canvas')
   canvas.width  = pgW
   canvas.height = pgH
@@ -278,41 +299,64 @@ export async function buildLabelESCPOS(items, size, printerWidthMM = 100) {
 
     for (let col = 0; col < rowItems.length; col++) {
       const item = rowItems[col]
-      const ox = m + col * lw   // origin x (dots)
-      const oy = m               // origin y (dots)
+      const cx   = m + col * lw + lw / 2   // center x of this label cell
+      const oy   = m
 
-      // Product name
-      const nameFontPx = Math.max(10, Math.round(lh * 0.18))
+      const nameBoxH    = Math.round(lh * 0.28)   // fixed name area height
+      const nameFontPx  = Math.max(12, Math.round(lh * 0.22))
+      const smallFontPx = Math.round(nameBoxH * 0.43)  // smaller font for 2-line
+      const priceFontPx = Math.max(14, Math.round(lh * 0.28))
+      const bcFontPx    = Math.max(8,  Math.round(lh * 0.09))
+      const bcStartY    = oy + nameBoxH + 3   // barcode always starts here
+
+      // ── Name: ซิดซ้าย, 1 หรือ 2 บรรทัดอัตโนมัติ ──
+      ctx.textAlign = 'left'
+      const lx   = m + col * lw + 2   // left edge of label cell
+      const name = (item.name || '').trim()
       ctx.font = `bold ${nameFontPx}px Kanit, sans-serif`
-      ctx.textAlign = 'center'
-      ctx.fillText(
-        item.name.length > 14 ? item.name.slice(0, 13) + '…' : item.name,
-        ox + lw / 2, oy + nameFontPx
-      )
 
-      // Barcode
+      if (ctx.measureText(name).width <= lw - 4) {
+        ctx.fillText(name, lx, oy + Math.round((nameBoxH + nameFontPx) / 2))
+      } else {
+        ctx.font = `bold ${smallFontPx}px Kanit, sans-serif`
+        const maxW = lw - 4
+        const mid  = Math.ceil(name.length / 2)
+        const sp   = name.indexOf(' ', mid - 3)
+        const split = (sp > 0 && sp <= mid + 5) ? sp : mid
+        let l1 = name.slice(0, split).trim()
+        let l2 = name.slice(split).trim()
+        while (ctx.measureText(l1 + '…').width > maxW && l1.length > 1) l1 = l1.slice(0, -1)
+        while (ctx.measureText(l2 + '…').width > maxW && l2.length > 1) l2 = l2.slice(0, -1)
+        if (l1.length < name.slice(0, split).trim().length) l1 += '…'
+        if (l2.length < name.slice(split).trim().length)    l2 += '…'
+        ctx.fillText(l1, lx, oy + smallFontPx)
+        ctx.fillText(l2, lx, oy + smallFontPx * 2 + 2)
+      }
+
+      // ── Barcode ──
       if (item.barcode) {
         try {
           const bc = document.createElement('canvas')
-          window.JsBarcode(bc, item.barcode, {
+          JsBarcode(bc, item.barcode, {
             format: 'CODE128',
             width: Math.max(1, Math.floor(lw / 72)),
-            height: Math.round(lh * 0.52),
+            height: Math.round(lh * 0.38),
             displayValue: true,
-            fontSize: Math.max(6, Math.round(lh * 0.09)),
+            fontSize: bcFontPx,
             margin: 0,
           })
-          const bx = ox + Math.floor((lw - bc.width) / 2)
-          const by = oy + nameFontPx + 3
-          ctx.drawImage(bc, bx, by)
+          // scale down if barcode is wider than label
+          const scale = bc.width > lw ? lw / bc.width : 1
+          const dw = Math.round(bc.width * scale)
+          const dh = Math.round(bc.height * scale)
+          ctx.drawImage(bc, Math.round(cx - dw / 2), bcStartY, dw, dh)
         } catch { /* skip if barcode fails */ }
       }
 
-      // Price
-      const priceFontPx = Math.max(10, Math.round(lh * 0.16))
+      // ── Price: ซิดซ้าย ด้านล่าง ──
       ctx.font = `bold ${priceFontPx}px Kanit, sans-serif`
-      ctx.textAlign = 'center'
-      ctx.fillText('฿' + Number(item.price).toFixed(2), ox + lw / 2, oy + lh - 3)
+      ctx.textAlign = 'left'
+      ctx.fillText('฿' + Number(item.price).toFixed(2), lx, oy + lh - 2)
     }
 
     // Canvas → 1-bit bitmap for GS v 0
@@ -339,103 +383,86 @@ export async function buildLabelESCPOS(items, size, printerWidthMM = 100) {
   return new Uint8Array(allBytes)
 }
 
-// ─── TSPL Label Generator (canvas bitmap — รองรับภาษาไทย) ───────────────────
+// ─── TSPL Label Generator ─────────────────────────────────────────────────────
+// Hybrid: name bitmap (canvas, รองรับไทย) + native BARCODE + native TEXT
+// BARCODE command ให้ printer วางตำแหน่งบาร์โค้ดเอง — ไม่เกิดปัญหา bitmap x-offset
 export async function buildLabelTSPL(items, size) {
-  const dpm  = 8   // 203 DPI ≈ 8 dots/mm
+  const dpm  = 8
   const pw   = size.pw   || 100
   const ph   = size.ph   || 25
   const cols = size.cols || 3
-  const mx   = size.mx  ?? size.m ?? 1
+  const mx   = size.mx  ?? size.m ?? 0
   const my   = size.my  ?? size.m ?? 0
   const hGap = size.hGap ?? 2
   const vGap = size.vGap ?? 2
 
   const lw   = size.lw ?? (pw - mx*2 - hGap*(cols-1)) / cols
   const lh   = ph - my*2
-  const pwD  = Math.round(pw  * dpm)
   const phD  = Math.round(ph  * dpm)
   const lwD  = Math.round(lw  * dpm)
   const lhD  = Math.round(lh  * dpm)
   const mxD  = Math.round(mx  * dpm)
   const myD  = Math.round(my  * dpm)
   const hGpD = Math.round(hGap * dpm)
-  const wBytes = Math.ceil(pwD / 8)
+  const lwByt = Math.ceil(lwD / 8)
 
-  // โหลด JsBarcode ถ้ายังไม่มี
-  if (typeof window.JsBarcode === 'undefined') {
-    await new Promise((resolve, reject) => {
-      const s = document.createElement('script')
-      s.src = 'https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js'
-      s.onload = resolve; s.onerror = reject
-      document.head.appendChild(s)
-    })
-  }
+  // Layout
+  const nameBoxH = Math.round(lhD * 0.28)   // ~56 dots (7mm)
+  const namePx   = Math.max(14, Math.round(lhD * 0.15))
+  const smallPx  = Math.round(nameBoxH * 0.43)
+  const bcY      = myD + nameBoxH + 2        // barcode y
+  const bcH      = Math.round(lhD * 0.40)   // barcode height (ลดจาก 50% เพื่อเว้นที่ human-readable text)
+  const priceY   = bcY + bcH + 26           // price y (เว้น 26 dots สำหรับตัวเลขใต้บาร์โค้ด)
 
-  async function renderRow(rowItems) {
+  // Render product name (Thai) on small canvas → 1-bit bitmap ต่อ column
+  // escape 0x0D + 0x0A ป้องกัน TSPL parser ตัด BITMAP command กลางทาง
+  async function renderNameBitmap(name) {
     const canvas = document.createElement('canvas')
-    canvas.width  = pwD
-    canvas.height = phD
+    canvas.width  = lwD
+    canvas.height = nameBoxH
     const ctx = canvas.getContext('2d')
     ctx.fillStyle = '#fff'
-    ctx.fillRect(0, 0, pwD, phD)
+    ctx.fillRect(0, 0, lwD, nameBoxH)
     ctx.fillStyle = '#000'
+    ctx.textAlign = 'left'
 
-    for (let col = 0; col < rowItems.length; col++) {
-      const item = rowItems[col]
-      const ox = mxD + col * (lwD + hGpD)
-      const oy = myD
-      const cx = ox + lwD / 2
-
-      // ชื่อสินค้า
-      const namePx = Math.round(lhD * 0.1)
-      const nameY  = oy + namePx + 2
-      const bcY    = nameY + 4
-
-      ctx.font = `bold ${namePx}px Kanit, Arial, sans-serif`
-      ctx.textAlign = 'center'
-      const maxChars = Math.floor(lwD / (namePx * 0.65))
-      ctx.fillText((item.name || '').substring(0, maxChars), cx, nameY)
-
-      // บาร์โค้ด — render ก่อน เพื่อรู้ความสูงจริง
-      let bcBottom = bcY
-      if (item.barcode) {
-        try {
-          const bc = document.createElement('canvas')
-          // ความสูง bar = พื้นที่เหลือ หักชื่อ หักราคา หักข้อความใต้ barcode
-          const availH = phD - myD - nameY - namePx - 8
-          const bcH    = Math.max(40, Math.round(availH * 0.72))
-          window.JsBarcode(bc, item.barcode, {
-            format: 'CODE128', width: 1.4,
-            height: bcH,
-            displayValue: true, fontSize: 10, margin: 0,
-          })
-          const bx = ox + Math.round((lwD - bc.width) / 2)
-          ctx.drawImage(bc, bx, bcY)
-          bcBottom = bcY + bc.height   // ตำแหน่งใต้ barcode จริง
-        } catch(e) { /* skip */ }
-      }
-
-      // ราคา — วางทันทีใต้ barcode
-      const pricePx = Math.round(lhD * 0.1)
-      ctx.font = `bold ${pricePx}px Kanit, Arial, sans-serif`
-      ctx.textAlign = 'center'
-      ctx.fillText('฿' + Number(item.price).toFixed(2), cx, bcBottom + pricePx + 2)
+    const text = (name || '').trim()
+    ctx.font = `bold ${namePx}px Kanit, Arial, sans-serif`
+    if (ctx.measureText(text).width <= lwD - 4) {
+      ctx.fillText(text, 2, Math.round((nameBoxH + namePx) / 2))
+    } else {
+      ctx.font = `bold ${smallPx}px Kanit, Arial, sans-serif`
+      const maxW = lwD - 4
+      const mid  = Math.ceil(text.length / 2)
+      const sp   = text.indexOf(' ', mid - 3)
+      const split = (sp > 0 && sp <= mid + 5) ? sp : mid
+      let l1 = text.slice(0, split).trim()
+      let l2 = text.slice(split).trim()
+      while (ctx.measureText(l1 + '…').width > maxW && l1.length > 1) l1 = l1.slice(0, -1)
+      while (ctx.measureText(l2 + '…').width > maxW && l2.length > 1) l2 = l2.slice(0, -1)
+      if (l1.length < text.slice(0, split).trim().length) l1 += '…'
+      if (l2.length < text.slice(split).trim().length)    l2 += '…'
+      ctx.fillText(l1, 2, smallPx)
+      ctx.fillText(l2, 2, smallPx * 2 + 2)
     }
 
-    // canvas → 1-bit bitmap (TSPL: 0=black, 1=white — invert จาก ESC/POS)
-    const imgData = ctx.getImageData(0, 0, pwD, phD)
-    const bitmap  = new Uint8Array(wBytes * phD).fill(0xFF)   // เริ่มต้น=ขาวหมด
-    for (let y = 0; y < phD; y++) {
-      for (let x = 0; x < pwD; x++) {
-        const i   = (y * pwD + x) * 4
+    const imgData = ctx.getImageData(0, 0, lwD, nameBoxH)
+    const bmp = new Uint8Array(lwByt * nameBoxH).fill(0xFF)
+    for (let y = 0; y < nameBoxH; y++) {
+      for (let bx = 0; bx < lwD; bx++) {
+        const i   = (y * lwD + bx) * 4
         const lum = (imgData.data[i]*299 + imgData.data[i+1]*587 + imgData.data[i+2]*114) / 1000
-        if (lum < 128) bitmap[y * wBytes + (x >> 3)] &= ~(0x80 >> (x & 7))  // clear bit = ดำ
+        if (lum < 128) bmp[y * lwByt + (bx >> 3)] &= ~(0x80 >> (bx & 7))
       }
     }
-    return bitmap
+    // escape CR+LF ป้องกัน TSPL parser ตัด BITMAP data กลางทาง
+    for (let i = 0; i < bmp.length; i++) {
+      if (bmp[i] === 0x0D) bmp[i] = 0x0C
+      if (bmp[i] === 0x0A) bmp[i] = 0x0B
+    }
+    return bmp
   }
 
-  // Build TSPL byte stream
   const buf = []
   const ascii = s => { for (const c of s) buf.push(c.charCodeAt(0)) }
   const crlf  = () => buf.push(0x0D, 0x0A)
@@ -443,16 +470,33 @@ export async function buildLabelTSPL(items, size) {
 
   for (let row = 0; row < Math.ceil(items.length / cols); row++) {
     const rowItems = items.slice(row * cols, row * cols + cols)
-    const bitmap   = await renderRow(rowItems)
 
     line(`SIZE ${pw} mm, ${ph} mm`)
     line(`GAP ${vGap} mm, 0 mm`)
-    line(`DIRECTION 0`)
+    line(`DIRECTION 1`)
     line(`CLS`)
-    // BITMAP x,y,width_bytes,height,mode,<binary data>
-    ascii(`BITMAP 0,0,${wBytes},${phD},0,`)
-    for (const b of bitmap) buf.push(b)
-    crlf()
+
+    for (let col = 0; col < rowItems.length; col++) {
+      const item = rowItems[col]
+      const ox   = mxD + col * (lwD + hGpD)   // column left x in dots
+
+      // 1. Name: small bitmap (nameBoxH rows) + CR/LF escaped
+      const nameBmp = await renderNameBitmap(item.name)
+      ascii(`BITMAP ${ox},${myD},${lwByt},${nameBoxH},0,`)
+      for (const b of nameBmp) buf.push(b)
+      crlf()
+
+      // 2. Barcode: native TSPL — printer วางตำแหน่งเอง ไม่ผ่าน bitmap x-offset
+      if (item.barcode) {
+        const bc = String(item.barcode).replace(/["\r\n]/g, '')
+        line(`BARCODE ${ox},${bcY},"128",${bcH},1,0,2,2,"${bc}"`)
+      }
+
+      // 3. Price: native TSPL TEXT
+      const price = Number(item.price || 0).toFixed(2)
+      line(`TEXT ${ox},${priceY},"3",0,1,1,"${price}"`)
+    }
+
     line(`PRINT 1,1`)
     crlf()
   }

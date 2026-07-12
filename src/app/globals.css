@@ -8,6 +8,11 @@
   --brand-light: #EE4540;
   --brand-50:    #FFF0F2;
   --sidebar-bg:  #14060a;
+  --nav-w:       230px;
+}
+
+@media (min-width: 768px) {
+  .nav-main { margin-left: var(--nav-w); transition: margin-left 0.25s ease; }
 }
 
 html { -webkit-text-size-adjust: 100%; }

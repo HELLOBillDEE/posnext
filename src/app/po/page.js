@@ -4,12 +4,34 @@ import { supabase } from '@/lib/supabase'
 import { fmt, fmtDate, genPONo } from '@/lib/utils'
 
 const STATUS = { draft:'ร่าง', ordered:'สั่งซื้อแล้ว', received:'รับสินค้าแล้ว', cancelled:'ยกเลิก' }
+
+function genCKBarcode() {
+  const num = Math.floor(Math.random() * 100000000).toString().padStart(8, '0')
+  return 'CK' + num
+}
+
+async function genUniqueCKBarcode(supabase) {
+  let code, exists
+  do {
+    code = genCKBarcode()
+    const { data } = await supabase.from('products').select('id').eq('barcode', code).maybeSingle()
+    exists = !!data
+  } while (exists)
+  return code
+}
+
+const LABEL_SIZES = [
+  { id:'100x25x3', pw:100, ph:25, cols:3, lw:30, hGap:5, vGap:2, mx:0, my:0 },
+  { id:'58x30',    pw:58,  ph:30, cols:1, lw:54, hGap:0, vGap:2, mx:2, my:2 },
+  { id:'40x25',    pw:40,  ph:25, cols:1, lw:36, hGap:0, vGap:2, mx:2, my:2 },
+]
 const STATUS_COLOR = { draft:'bg-gray-100 text-gray-600', ordered:'bg-brand-50 text-brand-mid', received:'bg-green-100 text-green-700', cancelled:'bg-red-100 text-red-500' }
 
 export default function POPage() {
   const [pos, setPOs]             = useState([])
   const [suppliers, setSuppliers] = useState([])
   const [products, setProducts]   = useState([])
+  const [labelSize, setLabelSize] = useState('100x25x3')
   const [view, setView]           = useState('list')  // list | create | detail
   const [selected, setSelected]   = useState(null)
   const [form, setForm]           = useState({ supplier_id:'', note:'' })
@@ -25,32 +47,54 @@ export default function POPage() {
   const [scanSaving, setScanSaving]  = useState(false)
   const [minMargin, setMinMargin]     = useState(30)
   // AI อ่านใบส่งของ
+  const [printConfirm, setPrintConfirm] = useState(null)  // items to print
+  const [newProdModal, setNewProdModal] = useState(null)  // { idx, forEdit } | null
+  const [categories, setCategories]   = useState([])
   const [aiModal, setAiModal]        = useState(false)
   const [aiLoading, setAiLoading]    = useState(false)
   const [aiLoadMsg, setAiLoadMsg]    = useState('')
   const [aiError, setAiError]        = useState('')
-  const [aiResult, setAiResult]      = useState(null)   // { supplier, items:[...] }
-  const [aiReview, setAiReview]      = useState([])     // items พร้อม matched/new flag
+  const [aiResult, setAiResult]      = useState(null)
+  const [aiReview, setAiReview]      = useState([])
+  const [aiDone, setAiDone]          = useState([])     // items ที่ save แล้ว สำหรับปริ้น
 
   useEffect(() => { loadAll() }, [])
 
   async function loadAll() {
-    const [{ data: p }, { data: s }, { data: pr }, { data: cfg }] = await Promise.all([
+    const [{ data: p }, { data: s }, { data: pr }, { data: cfg }, { data: cats }] = await Promise.all([
       supabase.from('purchase_orders').select('*, suppliers(name), po_items(count)').order('created_at', { ascending: false }),
       supabase.from('suppliers').select('*').order('name'),
       supabase.from('products').select('id,name,barcode,unit,cost,price').eq('active',true).order('name'),
-      supabase.from('settings').select('key,value').eq('key', 'min_margin'),
+      supabase.from('settings').select('key,value').in('key', ['min_margin', 'label_size', 'printer_barcode']),
+      supabase.from('categories').select('id,name').order('name'),
     ])
     setPOs(p || [])
     setSuppliers(s || [])
     setProducts(pr || [])
-    if (cfg?.[0]?.value) setMinMargin(parseFloat(cfg[0].value) || 30)
+    setCategories(cats || [])
+    const cfgMap = Object.fromEntries((cfg || []).map(r => [r.key, r.value]))
+    if (cfgMap.min_margin)  setMinMargin(parseFloat(cfgMap.min_margin) || 30)
+    if (cfgMap.label_size)  setLabelSize(cfgMap.label_size)
+    if (cfgMap.printer_barcode) {
+      localStorage.setItem('printer_barcode', cfgMap.printer_barcode)
+    }
   }
 
   async function openDetail(po) {
     const { data } = await supabase.from('purchase_orders')
-      .select('*, suppliers(name), po_items(*, products(name))')
+      .select('*, suppliers(name), po_items(*, products(name,price))')
       .eq('id', po.id).single()
+    // auto-assign CK barcode ให้สินค้าที่ยังไม่มี
+    if (data?.po_items) {
+      for (const item of data.po_items) {
+        if (!item.barcode) {
+          const newBarcode = await genUniqueCKBarcode(supabase)
+          await supabase.from('po_items').update({ barcode: newBarcode }).eq('id', item.id)
+          if (item.product_id) await supabase.from('products').update({ barcode: newBarcode }).eq('id', item.product_id)
+          item.barcode = newBarcode
+        }
+      }
+    }
     setSelected(data)
     setView('detail')
   }
@@ -74,7 +118,7 @@ export default function POPage() {
       if (field === 'cost') {
         const cost = parseFloat(val) || 0
         const minP = cost ? Math.ceil(cost * (1 + minMargin / 100)) : ''
-        if (!n[idx].price || parseFloat(n[idx].price) < cost * (1 + minMargin / 100)) {
+        if (!n[idx].price || parseFloat(n[idx].price) === 0) {
           n[idx].price = String(minP)
         }
       }
@@ -88,6 +132,7 @@ export default function POPage() {
   const poTotal = items.reduce((s, i) => s + parseFloat(i.qty||0) * parseFloat(i.cost||0), 0)
 
   async function savePO() {
+    if (!form.supplier_id) return alert('กรุณาเลือกเจ้าหนี้ / ซัพพลายเออร์')
     const validItems = items.filter(i => i.product_id)
     if (validItems.length === 0) return alert('กรุณาเพิ่มรายการสินค้า')
     const belowMin = validItems.filter(i => {
@@ -95,7 +140,7 @@ export default function POPage() {
       const p = parseFloat(i.price) || 0
       return c > 0 && p < c * (1 + minMargin / 100)
     })
-    if (belowMin.length > 0) return alert(`ราคาขายต่ำกว่า ${minMargin}% จำนวน ${belowMin.length} รายการ`)
+    if (belowMin.length > 0 && !confirm(`ราคาขายต่ำกว่า ${minMargin}% จำนวน ${belowMin.length} รายการ\nต้องการบันทึกต่อไหม?`)) return
     setSaving(true)
     try {
       const poNo = genPONo()
@@ -194,20 +239,43 @@ export default function POPage() {
 
       setAiResult(data)
 
-      const reviewed = (data.items || []).map(ai => {
-        const aiCost = ai.unit_cost || (ai.total && ai.qty ? (ai.total / ai.qty) : null)
+      const reviewed = await Promise.all((data.items || []).map(async ai => {
+        // แปลงหน่วย "X ลัง-Y" → จำนวนหน่วยปลีก X*Y
+        let qty = ai.qty || 0
+        let unit = ai.unit || 'ชิ้น'
+        let total = ai.total || 0
+        let langConverted = false
+        const langMatch = unit.match(/^ลัง[-–](\d+)$/i) || String(ai.qty || '').match(/(\d+)\s*ลัง[-–](\d+)/i)
+        if (langMatch) {
+          if (langMatch[2]) {
+            // "X ลัง-Y" ใน qty field
+            qty = parseInt(langMatch[1]) * parseInt(langMatch[2])
+          } else {
+            // "ลัง-Y" ใน unit field, qty = จำนวนลัง
+            qty = (ai.qty || 1) * parseInt(langMatch[1])
+          }
+          unit = 'ชิ้น'
+          langConverted = true
+        }
+        // ถ้าแปลงจากลัง ให้คำนวณราคาต่อหน่วยปลีกจาก total/qty เสมอ
+        const aiCost = langConverted
+          ? (total && qty ? total / qty : null)
+          : (ai.unit_cost || (total && qty ? total / qty : null))
         const minPrice = aiCost ? Math.ceil(aiCost * (1 + minMargin / 100)) : null
         return {
           ...ai,
-          mode: 'new',          // 'new' | 'search'
-          product_id: null,     // set when user picks existing product
+          qty,
+          unit,
+          barcode: ai.barcode || await genUniqueCKBarcode(supabase),
+          mode: 'new',
+          product_id: null,
           matched: null,
           cost: aiCost,
           price: minPrice,
           searchText: '',
           enabled: true,
         }
-      })
+      }))
       setAiReview(reviewed)
     } catch (e) {
       setAiError(e.message)
@@ -289,9 +357,16 @@ export default function POPage() {
         )
       }
 
-      setAiModal(false)
-      setAiResult(null)
+      setAiDone(toProcess.map(i => ({
+        name: i.mode === 'search' && i.matched?.name ? i.matched.name : i.name,
+        barcode: i.mode === 'search' && i.matched?.barcode ? i.matched.barcode : (i.barcode || ''),
+        price: i.price || i.matched?.price || 0,
+        cost: i.cost || 0,
+        qty: i.qty || 1,
+        product_id: i.mode === 'search' ? i.product_id : null,
+      })))
       setAiReview([])
+      setAiResult(null)
       setAiError('')
       loadAll()
     } catch (e) {
@@ -299,6 +374,48 @@ export default function POPage() {
     } finally {
       setAiLoading(false)
       setAiLoadMsg('')
+    }
+  }
+
+  async function openPrintConfirm(items) {
+    const filled = await Promise.all(items.map(async i => {
+      if (i.barcode) return i
+      const newBarcode = await genUniqueCKBarcode(supabase)
+      // บันทึกบาร์โค้ดใหม่ลง products และ po_items
+      if (i.product_id) await supabase.from('products').update({ barcode: newBarcode }).eq('id', i.product_id)
+      if (i.po_item_id) await supabase.from('po_items').update({ barcode: newBarcode }).eq('id', i.po_item_id)
+      return { ...i, barcode: newBarcode }
+    }))
+    setPrintConfirm(filled)
+  }
+
+  async function printAiLabels(items) {
+    setPrintConfirm(null)
+    // บันทึกบาร์โค้ดทั้งหมดก่อนปริ้น — ใช้ product_id ตรงๆ หรือหาจาก po_items เป็น fallback
+    await Promise.all(items.map(async i => {
+      if (!i.barcode) return
+      let pid = i.product_id || null
+      // ถ้าไม่มี product_id ให้ดึงจาก po_items
+      if (!pid && i.po_item_id) {
+        const { data: poi } = await supabase.from('po_items').select('product_id').eq('id', i.po_item_id).maybeSingle()
+        pid = poi?.product_id || null
+      }
+      if (pid) await supabase.from('products').update({ barcode: i.barcode }).eq('id', pid)
+      if (i.po_item_id) await supabase.from('po_items').update({ barcode: i.barcode }).eq('id', i.po_item_id)
+    }))
+    const size = LABEL_SIZES.find(s => s.id === labelSize) || LABEL_SIZES[0]
+    const printItems = items.flatMap(i => Array(Math.max(1, parseInt(i.qty) || 3)).fill({ name: i.name, barcode: i.barcode, price: i.price }))
+    const saved = JSON.parse(localStorage.getItem('printer_barcode') || '{}')
+    const cfg = { ip: '192.168.2.49', port: 9100, paper_width: 100, lang: 'tspl', bridge_url: window.location.origin, ...saved }
+    if (!cfg.ip) return alert('ไม่พบการตั้งค่าเครื่องพิมพ์บาร์โค้ด กรุณาตั้งค่าที่หน้าตั้งค่า')
+    try {
+      const { buildLabelTSPL, buildLabelESCPOS, printViaBridge } = await import('@/lib/printBridge')
+      const bytes = cfg.lang === 'tspl'
+        ? await buildLabelTSPL(printItems, size)
+        : await buildLabelESCPOS(printItems, size, parseInt(cfg.paper_width) || 100)
+      await printViaBridge(cfg.bridge_url, cfg.ip, parseInt(cfg.port) || 9100, bytes)
+    } catch (e) {
+      alert('พิมพ์ไม่สำเร็จ: ' + e.message)
     }
   }
 
@@ -313,6 +430,7 @@ export default function POPage() {
   }
 
   async function saveEditPO() {
+    if (!editForm.supplier_id) return alert('กรุณาเลือกเจ้าหนี้ / ซัพพลายเออร์')
     if (editItems.filter(i => i.product_id).length === 0) return alert('ต้องมีสินค้าอย่างน้อย 1 รายการ')
     setSaving(true)
     try {
@@ -384,6 +502,20 @@ export default function POPage() {
     } finally { setSaving(false) }
   }
 
+  async function onNewProdCreated(prod) {
+    // โหลด products ใหม่แล้วเลือก product ที่สร้างเข้า item row
+    const { data: pr } = await supabase.from('products').select('id,name,barcode,unit,cost,price').eq('active',true).order('name')
+    setProducts(pr || [])
+    const { idx, forEdit } = newProdModal
+    const setter = forEdit ? setEditItems : setItems
+    setter(prev => {
+      const n = [...prev]
+      n[idx] = { ...n[idx], product_id: String(prod.id), product_name: prod.name, barcode: prod.barcode||'', unit: prod.unit||'', cost: String(prod.cost||''), price: String(prod.price||'') }
+      return n
+    })
+    setNewProdModal(null)
+  }
+
   function openScanReceive() {
     // เตรียมรายการจาก PO items
     setScanItems((selected?.po_items || []).map(i => ({ ...i, received: 0 })))
@@ -440,7 +572,61 @@ export default function POPage() {
 
   const filtered = pos.filter(p => !filterStatus || p.status === filterStatus)
 
-  // ===== AI Modal (ต้องอยู่ก่อน view checks ทั้งหมด) =====
+  // ===== Print Confirm (ต้องอยู่ก่อน aiModal — ใช้เมื่อไม่ได้อยู่ใน detail view) =====
+  if (printConfirm && view !== 'detail') return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-end justify-center">
+      <div className="bg-white rounded-t-2xl w-full max-w-lg shadow-2xl max-h-[85vh] flex flex-col">
+        <div className="bg-amber-500 text-white px-4 py-3 flex justify-between items-center rounded-t-2xl">
+          <h2 className="font-bold">🏷️ ยืนยันปริ้นสติ๊กเกอร์</h2>
+          <button onClick={() => setPrintConfirm(null)} className="text-2xl opacity-70">×</button>
+        </div>
+        <div className="flex-1 overflow-y-auto divide-y divide-gray-50">
+          {printConfirm.map((item, idx) => (
+            <div key={idx} className="px-4 py-2.5">
+              <p className="text-sm font-medium text-gray-800 mb-1">{item.name}</p>
+              {item.dupError && <p className="text-[10px] text-red-500 mb-1">⚠️ {item.dupError}</p>}
+              <div className="flex items-center gap-2">
+                <input type="text" value={item.barcode || ''}
+                  onChange={e => setPrintConfirm(p => { const n=[...p]; n[idx]={...n[idx],barcode:e.target.value,dupError:''}; return n })}
+                  onBlur={async e => {
+                    const val = e.target.value.trim()
+                    if (!val) return
+                    const dupInModal = printConfirm.some((it, i) => i !== idx && it.barcode === val)
+                    if (dupInModal) { setPrintConfirm(p => { const n=[...p]; n[idx]={...n[idx],dupError:'ซ้ำกับรายการอื่นใน PO นี้'}; return n }); return }
+                    const { data: existing } = await supabase.from('products').select('id,name').eq('barcode', val).neq('id', item.product_id || 0).maybeSingle()
+                    if (existing) { setPrintConfirm(p => { const n=[...p]; n[idx]={...n[idx],dupError:`ซ้ำกับ: ${existing.name}`}; return n }); return }
+                    setPrintConfirm(p => { const n=[...p]; n[idx]={...n[idx],dupError:''}; return n })
+                    if (item.product_id) await supabase.from('products').update({ barcode: val }).eq('id', item.product_id)
+                    if (item.po_item_id) await supabase.from('po_items').update({ barcode: val }).eq('id', item.po_item_id)
+                  }}
+                  className={`flex-1 border rounded-lg px-2 py-1 text-xs font-mono focus:border-brand outline-none ${item.dupError ? 'border-red-400 bg-red-50' : 'border-gray-200'}`} />
+                <button onClick={async () => {
+                  const nb = await genUniqueCKBarcode(supabase)
+                  setPrintConfirm(p => { const n=[...p]; n[idx]={...n[idx],barcode:nb,dupError:''}; return n })
+                }} className="text-[10px] text-brand border border-brand/30 rounded px-1.5 py-1 shrink-0">สุ่ม</button>
+                <input type="number" value={item.qty||1} min="1"
+                  onChange={e => setPrintConfirm(p => { const n=[...p]; n[idx]={...n[idx],qty:parseInt(e.target.value)||1}; return n })}
+                  className="w-14 border border-gray-200 rounded-lg px-2 py-1 text-xs text-center focus:border-brand outline-none" />
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 flex justify-between items-center">
+          <span className="text-sm text-gray-500">รวม <span className="font-bold text-gray-800">{printConfirm.reduce((s,i)=>s+(parseInt(i.qty)||1),0)}</span> ดวง</span>
+        </div>
+        <div className="p-3 border-t border-gray-100 flex gap-2">
+          <button onClick={() => setPrintConfirm(null)} className="flex-1 btn-secondary">ยกเลิก</button>
+          <button onClick={() => printAiLabels(printConfirm)}
+            disabled={printConfirm.some(i => i.dupError)}
+            className="flex-1 bg-amber-500 text-white py-2.5 rounded-xl text-sm font-bold active:scale-95 disabled:opacity-40">
+            🖨️ ปริ้นเลย {printConfirm.reduce((s,i)=>s+(parseInt(i.qty)||1),0)} ดวง
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+
+  // ===== AI Modal =====
   if (aiModal) return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-end justify-center">
       <div className="bg-white rounded-t-2xl w-full max-w-lg shadow-2xl max-h-[92vh] flex flex-col">
@@ -448,6 +634,21 @@ export default function POPage() {
           <h2 className="font-bold">📸 AI วิเคราะห์ใบส่งของ</h2>
           <button onClick={() => { setAiModal(false); setAiResult(null); setAiReview([]); setAiError('') }} className="text-2xl opacity-70">×</button>
         </div>
+
+        {/* หน้าหลัง approve — ปริ้นสติ๊กเกอร์ */}
+        {!aiLoading && aiDone.length > 0 && aiReview.length === 0 && (
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 py-10">
+            <div className="text-5xl">✅</div>
+            <p className="font-bold text-gray-800">บันทึกแล้ว {aiDone.length} รายการ</p>
+            <p className="text-xs text-gray-400 text-center">ต้องการปริ้นสติ๊กเกอร์บาร์โค้ด<br/>3 ดวงต่อสินค้า (100×25 mm)?</p>
+            <button onClick={() => openPrintConfirm(aiDone)}
+              className="bg-brand text-white px-6 py-3 rounded-xl font-bold text-sm shadow active:scale-95">
+              🏷️ ปริ้นสติ๊กเกอร์ {aiDone.reduce((s,i)=>s+(parseInt(i.qty)||1),0)} ดวง
+            </button>
+            <button onClick={() => { setAiModal(false); setAiDone([]) }}
+              className="text-gray-400 text-sm">ข้ามไปก่อน</button>
+          </div>
+        )}
 
         {aiLoading && (
           <div className="flex-1 flex flex-col items-center justify-center gap-4 py-12">
@@ -496,10 +697,37 @@ export default function POPage() {
                         className="mt-1 w-4 h-4 accent-brand shrink-0" />
                       <div className="flex-1 min-w-0">
 
-                        {/* ชื่อจาก AI */}
-                        <p className="text-sm font-semibold text-gray-800 mb-2">{item.name}
-                          {item.unit ? <span className="text-gray-400 font-normal text-xs ml-1">({item.unit})</span> : ''}
-                        </p>
+                        {/* ชื่อจาก AI — แก้ได้เมื่อ mode=new */}
+                        {item.mode === 'new' ? (
+                          <input
+                            type="text"
+                            value={item.name || ''}
+                            onChange={e => upd({ name: e.target.value })}
+                            className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm font-semibold text-gray-800 focus:border-brand outline-none mb-2"
+                            placeholder="ชื่อสินค้า"
+                          />
+                        ) : (
+                          <p className="text-sm font-semibold text-gray-800 mb-2">{item.name}
+                            {item.unit ? <span className="text-gray-400 font-normal text-xs ml-1">({item.unit})</span> : ''}
+                          </p>
+                        )}
+
+                        {/* Barcode — mode new เท่านั้น */}
+                        {item.mode === 'new' && (
+                          <div className="flex items-center gap-1 mb-2">
+                            <input
+                              type="text"
+                              value={item.barcode || ''}
+                              onChange={e => upd({ barcode: e.target.value })}
+                              className="flex-1 border border-gray-200 rounded-lg px-2 py-1 text-xs text-gray-500 focus:border-brand outline-none font-mono"
+                              placeholder="บาร์โค้ด"
+                            />
+                            <button onClick={async () => upd({ barcode: await genUniqueCKBarcode(supabase) })}
+                              className="text-[10px] text-brand border border-brand/30 rounded px-1.5 py-1 shrink-0">
+                              สุ่มใหม่
+                            </button>
+                          </div>
+                        )}
 
                         {/* Mode toggle */}
                         <div className="flex gap-1 mb-2">
@@ -582,8 +810,14 @@ export default function POPage() {
                               className={`w-full border rounded px-1 py-1 text-center ${priceLow ? 'border-red-300 bg-red-50' : 'border-gray-200'}`} />
                             {priceLow && (
                               <button onClick={() => upd({ price: Math.ceil(item.cost*(1+minMargin/100)) })}
-                                className="text-[9px] text-brand mt-0.5 block">
+                                className="text-[9px] text-red-500 mt-0.5 block">
                                 → ฿{Math.ceil(item.cost*(1+minMargin/100))}
+                              </button>
+                            )}
+                            {item.cost > 0 && (
+                              <button onClick={() => upd({ price: Math.ceil(item.cost*1.35) })}
+                                className="text-[9px] text-brand mt-0.5 block">
+                                +35% = ฿{Math.ceil(item.cost*1.35)}
                               </button>
                             )}
                           </div>
@@ -626,7 +860,7 @@ export default function POPage() {
                   onChange={e => { if(e.target.files[0]) analyzeDelivery(e.target.files[0]) }} />
               </label>
               <button onClick={confirmAiReceive}
-                disabled={aiLoading || aiReview.filter(i=>i.enabled).length===0 || aiReview.some(i=>i.enabled&&i.cost&&i.price&&i.price<i.cost*(1+minMargin/100))}
+                disabled={aiLoading || aiReview.filter(i=>i.enabled).length===0}
                 className="flex-1 bg-brand-mid text-white py-2.5 rounded-xl text-sm font-bold disabled:opacity-40">
                 ✅ Approve {aiReview.filter(i=>i.enabled).length} รายการ
               </button>
@@ -735,11 +969,16 @@ export default function POPage() {
                 return (
                 <tr key={idx}>
                   <td className="px-3 py-1.5">
-                    <select value={item.product_id} onChange={e => setItemField(idx,'product_id',e.target.value)}
-                      className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:border-brand outline-none">
-                      <option value="">— เลือกสินค้า —</option>
-                      {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
+                    <div className="flex gap-1">
+                      <select value={item.product_id} onChange={e => setItemField(idx,'product_id',e.target.value)}
+                        className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:border-brand outline-none min-w-0">
+                        <option value="">— เลือกสินค้า —</option>
+                        {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                      <button onClick={() => setNewProdModal({ idx, forEdit: false })}
+                        title="เพิ่มสินค้าใหม่"
+                        className="shrink-0 px-2 py-1 bg-brand text-white text-[10px] font-bold rounded-lg active:scale-95">✦</button>
+                    </div>
                   </td>
                   <td className="px-2 py-1.5">
                     <input type="number" value={item.qty} min="0"
@@ -759,7 +998,11 @@ export default function POPage() {
                       className={`w-full border rounded-lg px-2 py-1.5 text-xs text-right ${priceLow ? 'border-red-300 bg-red-50' : 'border-gray-200'}`} />
                     {priceLow && (
                       <button onClick={() => setItemField(idx,'price',String(minP))}
-                        className="text-[9px] text-brand block w-full text-right mt-0.5">→ {minP}</button>
+                        className="text-[9px] text-red-500 block w-full text-right mt-0.5">→ {minP}</button>
+                    )}
+                    {cost > 0 && (
+                      <button onClick={() => setItemField(idx,'price',String(Math.ceil(cost*1.35)))}
+                        className="text-[9px] text-brand block w-full text-right mt-0.5">+35% = ฿{Math.ceil(cost*1.35)}</button>
                     )}
                   </td>
                   <td className="px-3 py-1.5 text-right text-xs font-medium text-gray-700">
@@ -787,6 +1030,10 @@ export default function POPage() {
           {saving ? 'กำลังบันทึก...' : '💾 บันทึก PO'}
         </button>
       </div>
+
+      {newProdModal && !newProdModal.forEdit && (
+        <NewProductModal categories={categories} onCreated={onNewProdCreated} onClose={() => setNewProdModal(null)} />
+      )}
     </div>
   )
 
@@ -834,11 +1081,16 @@ export default function POPage() {
                 {editItems.map((item, idx) => (
                   <tr key={idx}>
                     <td className="px-3 py-1.5">
-                      <select value={item.product_id} onChange={e => setEditItemField(idx,'product_id',e.target.value)}
-                        className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:border-brand outline-none">
-                        <option value="">— เลือกสินค้า —</option>
-                        {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                      </select>
+                      <div className="flex gap-1">
+                        <select value={item.product_id} onChange={e => setEditItemField(idx,'product_id',e.target.value)}
+                          className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:border-brand outline-none min-w-0">
+                          <option value="">— เลือกสินค้า —</option>
+                          {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                        </select>
+                        <button onClick={() => setNewProdModal({ idx, forEdit: true })}
+                          title="เพิ่มสินค้าใหม่"
+                          className="shrink-0 px-2 py-1 bg-brand text-white text-[10px] font-bold rounded-lg active:scale-95">✦</button>
+                      </div>
                     </td>
                     <td className="px-2 py-1.5">
                       <input type="number" value={item.qty} min="0"
@@ -874,6 +1126,10 @@ export default function POPage() {
             {saving ? 'กำลังบันทึก...' : '💾 บันทึกการแก้ไข'}
           </button>
         </div>
+
+        {newProdModal && newProdModal.forEdit && (
+          <NewProductModal categories={categories} onCreated={onNewProdCreated} onClose={() => setNewProdModal(null)} />
+        )}
       </div>
     )
   }
@@ -956,19 +1212,14 @@ export default function POPage() {
         </div>
       </div>
 
-      {/* Print PO button for barcode labels from PO */}
-      {po.status === 'received' && (
-        <button onClick={() => {
-          const items = (po.po_items || []).filter(i => i.barcode)
-          if (items.length === 0) return alert('ไม่มีสินค้าที่มีบาร์โค้ด')
-          const size = { w:58, h:30 }
-          const win = window.open('', '_blank', 'width=600,height=800')
-          if (!win) return
-          win.document.write(buildPOLabelHTML(items, size))
-          win.document.close()
-          setTimeout(() => win.print(), 600)
-        }} className="w-full bg-amber-500 text-white py-3 rounded-xl text-sm font-bold active:scale-95 transition-transform shadow">
-          🏷️ ปริ้นสติ๊กเกอร์บาร์โค้ดจาก PO นี้
+      {/* ปริ้นสติ๊กเกอร์บาร์โค้ดจาก PO */}
+      {(po.po_items||[]).some(i => i.barcode) && (
+        <button onClick={() => openPrintConfirm(
+          (po.po_items||[]).filter(i => i.barcode).map(i => ({
+            name: i.product_name, barcode: i.barcode, price: i.products?.price ?? i.cost, qty: i.qty, product_id: i.product_id, po_item_id: i.id,
+          }))
+        )} className="w-full bg-amber-500 text-white py-3 rounded-xl text-sm font-bold active:scale-95 transition-transform shadow">
+          🏷️ ปริ้นสติ๊กเกอร์บาร์โค้ด ({(po.po_items||[]).filter(i=>i.barcode).reduce((s,i)=>s+(parseInt(i.qty)||1),0)} ดวง)
         </button>
       )}
 
@@ -1027,11 +1278,185 @@ export default function POPage() {
           </div>
         </div>
       )}
+
+      {/* Print Confirm Modal */}
+      {printConfirm && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-end justify-center">
+          <div className="bg-white rounded-t-2xl w-full max-w-lg shadow-2xl max-h-[85vh] flex flex-col">
+            <div className="bg-amber-500 text-white px-4 py-3 flex justify-between items-center rounded-t-2xl">
+              <h2 className="font-bold">🏷️ ยืนยันปริ้นสติ๊กเกอร์</h2>
+              <button onClick={() => setPrintConfirm(null)} className="text-2xl opacity-70">×</button>
+            </div>
+            <div className="flex-1 overflow-y-auto divide-y divide-gray-50">
+              {printConfirm.map((item, idx) => (
+                <div key={idx} className="px-4 py-2.5">
+                  <p className="text-sm font-medium text-gray-800 mb-1">{item.name}</p>
+                  {item.dupError && <p className="text-[10px] text-red-500 mb-1">⚠️ {item.dupError}</p>}
+                  <div className="flex items-center gap-2">
+                    <input type="text" value={item.barcode || ''}
+                      onChange={e => setPrintConfirm(p => { const n=[...p]; n[idx]={...n[idx],barcode:e.target.value,dupError:''}; return n })}
+                      onBlur={async e => {
+                        const val = e.target.value.trim()
+                        if (!val) return
+                        // ตรวจซ้ำใน modal เดียวกัน
+                        const dupInModal = printConfirm.some((it, i) => i !== idx && it.barcode === val)
+                        if (dupInModal) {
+                          setPrintConfirm(p => { const n=[...p]; n[idx]={...n[idx],dupError:'ซ้ำกับรายการอื่นใน PO นี้'}; return n })
+                          return
+                        }
+                        // ตรวจซ้ำใน products DB
+                        const { data: existing } = await supabase.from('products').select('id,name').eq('barcode', val).neq('id', item.product_id || 0).maybeSingle()
+                        if (existing) {
+                          setPrintConfirm(p => { const n=[...p]; n[idx]={...n[idx],dupError:`ซ้ำกับ: ${existing.name}`}; return n })
+                          return
+                        }
+                        setPrintConfirm(p => { const n=[...p]; n[idx]={...n[idx],dupError:''}; return n })
+                        if (item.product_id) await supabase.from('products').update({ barcode: val }).eq('id', item.product_id)
+                        if (item.po_item_id) await supabase.from('po_items').update({ barcode: val }).eq('id', item.po_item_id)
+                      }}
+                      className={`flex-1 border rounded-lg px-2 py-1 text-xs font-mono focus:border-brand outline-none ${item.dupError ? 'border-red-400 bg-red-50' : 'border-gray-200'}`} />
+                    <button onClick={async () => {
+                      const nb = await genUniqueCKBarcode(supabase)
+                      setPrintConfirm(p => { const n=[...p]; n[idx]={...n[idx],barcode:nb,dupError:''}; return n })
+                    }} className="text-[10px] text-brand border border-brand/30 rounded px-1.5 py-1 shrink-0">สุ่ม</button>
+                    <input type="number" min="1" value={item.qty || 1}
+                      onChange={e => setPrintConfirm(p => { const n=[...p]; n[idx]={...n[idx],qty:parseInt(e.target.value)||1}; return n })}
+                      className="w-12 border border-gray-200 rounded-lg px-1 py-1 text-sm text-center focus:border-brand outline-none" />
+                    <span className="text-xs text-gray-400 shrink-0">ดวง</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 flex justify-between items-center">
+              <span className="text-sm text-gray-500">รวม <span className="font-bold text-gray-800">{printConfirm.reduce((s,i)=>s+(parseInt(i.qty)||1),0)}</span> ดวง</span>
+            </div>
+            <div className="p-3 border-t border-gray-100 flex gap-2">
+              <button onClick={() => setPrintConfirm(null)} className="flex-1 btn-secondary">ยกเลิก</button>
+              <button onClick={() => printAiLabels(printConfirm)}
+                disabled={printConfirm.some(i => i.dupError)}
+                className="flex-1 bg-amber-500 text-white py-2.5 rounded-xl text-sm font-bold active:scale-95 disabled:opacity-40">
+                🖨️ ปริ้นเลย {printConfirm.reduce((s,i)=>s+(parseInt(i.qty)||1),0)} ดวง
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 
-  // ── AI Modal ──
   return null
+}
+
+function NewProductModal({ categories, onCreated, onClose }) {
+  const [name, setName] = useState('')
+  const [unit, setUnit] = useState('ชิ้น')
+  const [barcode, setBarcode] = useState('')
+  const [cost, setCost] = useState('')
+  const [price, setPrice] = useState('')
+  const [catId, setCatId] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    genUniqueCKBarcode(supabase).then(b => setBarcode(b))
+  }, [])
+
+  async function save() {
+    if (!name.trim()) { alert('กรุณากรอกชื่อสินค้า'); return }
+    if (!price) { alert('กรุณากรอกราคาขาย'); return }
+    setSaving(true)
+    try {
+      const { data, error } = await supabase.from('products').insert({
+        name: name.trim(),
+        barcode: barcode || null,
+        unit: unit || 'ชิ้น',
+        cost: parseFloat(cost) || 0,
+        price: parseFloat(price) || 0,
+        stock: 0,
+        min_stock: 5,
+        active: true,
+        category_id: catId ? parseInt(catId) : null,
+      }).select().single()
+      if (error) throw error
+      onCreated(data)
+    } catch (e) {
+      alert('เกิดข้อผิดพลาด: ' + e.message)
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-[100] flex items-end md:items-center justify-center p-3"
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden">
+        <div className="flex justify-between items-center px-4 py-3.5" style={{ background: '#C72C41' }}>
+          <h2 className="font-bold text-base text-white">✦ เพิ่มสินค้าใหม่</h2>
+          <button onClick={onClose} className="text-2xl opacity-70 leading-none text-white">×</button>
+        </div>
+        <div className="p-4 space-y-3">
+          <div>
+            <label className="text-xs font-semibold text-gray-500 block mb-1.5">บาร์โค้ด CK</label>
+            <div className="flex gap-2">
+              <input value={barcode} onChange={e => setBarcode(e.target.value)}
+                className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:border-brand outline-none" />
+              <button type="button" onClick={async () => setBarcode(await genUniqueCKBarcode(supabase))}
+                className="shrink-0 px-3 py-2 bg-brand/10 text-brand text-xs font-bold rounded-xl border border-brand/20 hover:bg-brand/20 whitespace-nowrap">
+                🎲 สุ่ม
+              </button>
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-500 block mb-1.5">ชื่อสินค้า *</label>
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="ชื่อสินค้า" autoFocus
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-semibold text-gray-500 block mb-1.5">หมวดหมู่</label>
+              <select value={catId} onChange={e => setCatId(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none">
+                <option value="">— ไม่ระบุ —</option>
+                {(categories||[]).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-gray-500 block mb-1.5">หน่วย</label>
+              <input value={unit} onChange={e => setUnit(e.target.value)} placeholder="ชิ้น"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-semibold text-gray-500 block mb-1.5">ราคาทุน (฿)</label>
+              <input type="number" value={cost} onChange={e => setCost(e.target.value)} placeholder="0"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-gray-500 block mb-1.5">ราคาขาย (฿) *</label>
+              <input type="number" value={price} onChange={e => setPrice(e.target.value)} placeholder="0"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+            </div>
+          </div>
+          {cost && !price && parseFloat(cost) > 0 && (
+            <button type="button" onClick={() => setPrice(String(Math.ceil(parseFloat(cost) * 1.35)))}
+              className="text-[10px] text-brand -mt-1 hover:underline">
+              แนะนำ +35% = ฿{Math.ceil(parseFloat(cost) * 1.35)}
+            </button>
+          )}
+          <div className="flex gap-2 pt-1">
+            <button type="button" onClick={onClose}
+              className="flex-1 border border-gray-200 text-gray-600 py-3 rounded-2xl text-sm font-semibold">
+              ยกเลิก
+            </button>
+            <button type="button" onClick={save} disabled={saving}
+              className="flex-1 text-white py-3 rounded-2xl text-sm font-bold disabled:opacity-50 shadow active:scale-95"
+              style={{ background: '#C72C41' }}>
+              {saving ? '⏳ กำลังบันทึก...' : '+ เพิ่มสินค้า'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function addItemRow() {

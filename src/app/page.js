@@ -44,30 +44,35 @@ export default function Dashboard() {
 
   async function loadAll() {
     setLoading(true)
-    const from = dateRange.from + 'T00:00:00'
-    const to   = dateRange.to   + 'T23:59:59'
-    const [
-      { data: salesData },
-      { data: low },
-      { data: cfg },
-      { data: recent },
-      { data: expData },
-    ] = await Promise.all([
-      supabase.from('sales').select('total,status').gte('created_at', from).lte('created_at', to).eq('status','completed'),
-      supabase.from('products').select('id,name,stock,min_stock,unit').filter('stock','lte','min_stock').eq('active',true).order('stock').limit(8),
-      supabase.from('settings').select('*'),
-      supabase.from('sales').select('id,receipt_no,total,payment_method,created_at,status').gte('created_at', from).lte('created_at', to).order('created_at',{ascending:false}).limit(8),
-      supabase.from('expenses').select('amount').gte('expense_date', dateRange.from).lte('expense_date', dateRange.to),
-    ])
-    const completed = (salesData || []).filter(s => s.status === 'completed')
-    const revenue = completed.reduce((s, r) => s + Number(r.total), 0)
-    const orders  = completed.length
-    setStats({ revenue, orders, avg: orders ? revenue / orders : 0 })
-    setRecentSales(recent || [])
-    setTotalExpenses((expData || []).reduce((s, e) => s + Number(e.amount), 0))
-    setLowStock((low || []).filter(p => p.stock <= p.min_stock))
-    if (cfg) setSettings(Object.fromEntries(cfg.map(r => [r.key, r.value])))
-    setLoading(false)
+    try {
+      const from = dateRange.from + 'T00:00:00'
+      const to   = dateRange.to   + 'T23:59:59'
+      const [
+        { data: salesData },
+        { data: low },
+        { data: cfg },
+        { data: recent },
+        { data: expData },
+      ] = await Promise.all([
+        supabase.from('sales').select('total,status').gte('created_at', from).lte('created_at', to).eq('status','completed'),
+        supabase.from('products').select('id,name,stock,min_stock,unit').filter('stock','lte','min_stock').eq('active',true).order('stock').limit(8),
+        supabase.from('settings').select('*'),
+        supabase.from('sales').select('id,receipt_no,total,payment_method,created_at,status').gte('created_at', from).lte('created_at', to).order('created_at',{ascending:false}).limit(8),
+        supabase.from('expenses').select('amount').gte('expense_date', dateRange.from).lte('expense_date', dateRange.to),
+      ])
+      const completed = (salesData || []).filter(s => s.status === 'completed')
+      const revenue = completed.reduce((s, r) => s + Number(r.total), 0)
+      const orders  = completed.length
+      setStats({ revenue, orders, avg: orders ? revenue / orders : 0 })
+      setRecentSales(recent || [])
+      setTotalExpenses((expData || []).reduce((s, e) => s + Number(e.amount), 0))
+      setLowStock((low || []).filter(p => p.stock <= p.min_stock))
+      if (cfg) setSettings(Object.fromEntries(cfg.map(r => [r.key, r.value])))
+    } catch (e) {
+      console.error('[dashboard] loadAll error:', e?.message)
+    } finally {
+      setLoading(false)
+    }
   }
 
   const shopName = settings.shop_name || 'ร้านค้า'

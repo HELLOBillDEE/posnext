@@ -3,6 +3,8 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { fmt, fmtDT, todayISO, PAY_LABEL } from '@/lib/utils'
 import { buildFormalDocHTML, commitNextDocNo } from '@/lib/docBuilder'
+import { buildReceiptESCPOS, printViaBridge } from '@/lib/printBridge'
+import { cacheSet, cacheGet } from '@/lib/offlineQueue'
 
 const TABS = ['ใบเสร็จขาย', 'ใบสั่งซื้อ (PO)', 'ลูกหนี้ AR', 'เจ้าหนี้ AP']
 
@@ -10,6 +12,7 @@ export default function DocumentsPage() {
   const [tab, setTab]         = useState(0)
   const [sales, setSales]     = useState([])
   const [pos, setPOs]         = useState([])
+  const [suppliers, setSuppliers] = useState([])
   const [settings, setSettings] = useState({})
   const [dateFrom, setDateFrom] = useState(todayISO())
   const [dateTo, setDateTo]   = useState(todayISO())
@@ -25,6 +28,17 @@ export default function DocumentsPage() {
 
   async function loadData() {
     setLoading(true)
+    // ── ออฟไลน์: โหลดจาก cache ──
+    if (!navigator.onLine) {
+      const cached = cacheGet(`docs_tab${tab}`)
+      if (tab === 0) setSales(cached || [])
+      if (tab === 1) setPOs(cached || [])
+      if (tab === 3) setSuppliers(cached || [])
+      const cfgCache = cacheGet('settings')
+      if (cfgCache) setSettings(cfgCache)
+      setLoading(false)
+      return
+    }
     const { data: cfg } = await supabase.from('settings').select('*')
     if (cfg) setSettings(Object.fromEntries(cfg.map(r => [r.key, r.value])))
     const from = dateFrom + 'T00:00:00'
@@ -35,6 +49,7 @@ export default function DocumentsPage() {
         .gte('created_at', from).lte('created_at', to)
         .order('created_at', { ascending: false })
       setSales(data || [])
+      cacheSet('docs_tab0', data || [])
     }
     if (tab === 1) {
       const { data } = await supabase.from('purchase_orders')
@@ -42,15 +57,34 @@ export default function DocumentsPage() {
         .gte('created_at', from).lte('created_at', to)
         .order('created_at', { ascending: false })
       setPOs(data || [])
+      cacheSet('docs_tab1', data || [])
+    }
+    if (tab === 3) {
+      const { data: poAll } = await supabase.from('purchase_orders')
+        .select('id,po_no,status,total,created_at,supplier_id,suppliers(id,name,code,phone,address,tax_id)')
+        .order('created_at', { ascending: false })
+      const map = new Map()
+      for (const po of (poAll || [])) {
+        const sid = po.supplier_id ?? '__none__'
+        if (!map.has(sid)) map.set(sid, { supplier: po.suppliers || null, pos: [] })
+        map.get(sid).pos.push(po)
+      }
+      const suppliers = [...map.values()]
+      setSuppliers(suppliers)
+      cacheSet('docs_tab3', suppliers)
     }
     setLoading(false)
   }
 
   async function openSaleDetail(sale) {
-    const { data } = await supabase.from('sales')
-      .select('*, customers(*), sale_items(*)')
-      .eq('id', sale.id).single()
-    setDetail({ type: 'sale', data })
+    const { data: saleData } = await supabase.from('sales').select('*').eq('id', sale.id).single()
+    const [{ data: items }, { data: customers }] = await Promise.all([
+      supabase.from('sale_items').select('*').eq('sale_id', sale.id).order('id'),
+      saleData?.customer_id
+        ? supabase.from('customers').select('*').eq('id', saleData.customer_id).single()
+        : Promise.resolve({ data: null }),
+    ])
+    setDetail({ type: 'sale', data: { ...(saleData || {}), sale_items: items || [], customers: customers || null } })
   }
 
   async function openPODetail(po) {
@@ -58,6 +92,10 @@ export default function DocumentsPage() {
       .select('*, suppliers(*), po_items(*)')
       .eq('id', po.id).single()
     setDetail({ type: 'po', data })
+  }
+
+  function openSupplierGroup(group) {
+    setDetail({ type: 'supplier', data: group })
   }
 
   async function voidSale(id) {
@@ -191,11 +229,38 @@ export default function DocumentsPage() {
             </div>
           )}
 
-          {(tab === 2 || tab === 3) && (
+          {tab === 2 && (
             <div className="text-center py-12 text-gray-400 text-sm">
-              <p className="text-3xl mb-2">{tab === 2 ? '📥' : '📤'}</p>
-              <p>{tab === 2 ? 'ลูกหนี้ (AR)' : 'เจ้าหนี้ (AP)'}</p>
+              <p className="text-3xl mb-2">📥</p>
+              <p>ลูกหนี้ (AR)</p>
               <p className="text-xs mt-1">เปิดจากบิลขายที่มีการจ่ายแบบ "เชื่อ"</p>
+            </div>
+          )}
+
+          {tab === 3 && !loading && (
+            <div className="divide-y divide-gray-50">
+              {suppliers.filter(g => !search ||
+                (g.supplier?.name||'ไม่ระบุ').includes(search) ||
+                g.pos.some(p => p.po_no.includes(search))
+              ).map((g, idx) => {
+                const name = g.supplier?.name || 'ไม่ระบุเจ้าหนี้'
+                const total = g.pos.reduce((s, p) => s + Number(p.total||0), 0)
+                const isActive = detail?.type === 'supplier' && detail?.data === g
+                return (
+                  <div key={g.supplier?.id ?? '__none__'} onClick={() => openSupplierGroup(g)}
+                    className={`px-4 py-3 cursor-pointer active:bg-gray-50 flex justify-between items-center ${isActive ? 'bg-brand-50' : ''}`}>
+                    <div>
+                      <p className="font-medium text-sm text-gray-800">{name}</p>
+                      <p className="text-xs text-gray-400">{g.pos.length} รายการ</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-semibold text-sm text-brand">฿{fmt(total)}</p>
+                      <span className="text-gray-300 text-xs">→</span>
+                    </div>
+                  </div>
+                )
+              })}
+              {suppliers.length === 0 && <div className="text-center py-12 text-gray-400 text-sm">ไม่มี PO ในระบบ</div>}
             </div>
           )}
         </div>
@@ -205,6 +270,7 @@ export default function DocumentsPage() {
           {detail?.type === 'sale' && (
             <SaleDetail
               d={detail.data}
+              settings={settings}
               docType={printDocType}
               docDate={printDate}
               blankDate={blankDate}
@@ -217,6 +283,7 @@ export default function DocumentsPage() {
             />
           )}
           {detail?.type === 'po' && <PODetail d={detail.data} onPrint={printDetail} />}
+          {detail?.type === 'supplier' && <SupplierAPDetail d={detail.data} />}
         </div>
       </div>
 
@@ -224,6 +291,7 @@ export default function DocumentsPage() {
       {showEdit && detail?.type === 'sale' && (
         <EditBillModal
           sale={detail.data}
+          settings={settings}
           onClose={() => setShowEdit(false)}
           onSaved={async () => {
             setShowEdit(false)
@@ -242,7 +310,36 @@ const DOC_OPTS = [
   { value: 'quotation',        label: '📝 ใบเสนอราคา' },
 ]
 
-function SaleDetail({ d, docType, docDate, blankDate, onDocTypeChange, onDocDateChange, onBlankDateChange, onVoid, onPrint, onEdit }) {
+async function printReceiptSmall(d, settings) {
+  try {
+    const cfg = JSON.parse(localStorage.getItem('printer_receipt') || '{}')
+    const r = {
+      shopName: settings.shop_name || 'ร้านค้า',
+      shopAddress: settings.shop_address || '',
+      shopPhone: settings.shop_phone || '',
+      items: (d.sale_items || []).map(i => ({
+        name: i.product_name, qty: Number(i.qty), price: Number(i.price),
+        disc: Number(i.discount) || 0, note: i.note || '',
+      })),
+      subtotal: Number(d.subtotal), discount: Number(d.discount) || 0,
+      vat: Number(d.vat) || 0, vatRate: 0, total: Number(d.total),
+      payment_method: d.payment_method, payment_amount: Number(d.payment_amount) || 0,
+      change: Number(d.change_amount) || 0,
+      receipt_no: d.receipt_no, created_at: d.created_at,
+      customerName: d.customers?.name || '', customerPhone: d.customers?.phone || '',
+    }
+    if (cfg.ip) {
+      const bytes = await buildReceiptESCPOS(r, cfg.paper_mm || 80)
+      await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
+    } else {
+      const blob = new Blob([buildDocReceiptHTML(r)], { type: 'text/html;charset=utf-8' })
+      window.open(URL.createObjectURL(blob))
+    }
+  } catch (e) { alert('พิมไม่สำเร็จ: ' + e.message) }
+}
+
+function SaleDetail({ d, settings, docType, docDate, blankDate, onDocTypeChange, onDocDateChange, onBlankDateChange, onVoid, onPrint, onEdit }) {
+  if (!d) return <div className="p-6 text-center text-gray-400 text-sm">กำลังโหลด...</div>
   return (
     <div>
       <div className="bg-brand text-white px-4 py-3 flex justify-between items-center flex-wrap gap-2">
@@ -251,6 +348,7 @@ function SaleDetail({ d, docType, docDate, blankDate, onDocTypeChange, onDocDate
           <p className="text-[10px] opacity-70">{fmtDT(d.created_at)}</p>
         </div>
         <div className="flex gap-1.5 flex-wrap">
+          <button onClick={() => printReceiptSmall(d, settings)} className="bg-white/20 text-white px-3 py-1.5 rounded-lg text-xs font-medium">🖨️ ใบเสร็จย่อ</button>
           {d.status !== 'voided' && (
             <button onClick={onEdit} className="bg-amber-400 text-white px-3 py-1.5 rounded-lg text-xs font-medium">✏️ แก้ไข</button>
           )}
@@ -335,6 +433,59 @@ function PODetail({ d, onPrint }) {
   )
 }
 
+const PO_STATUS = { draft:'ร่าง', ordered:'สั่งแล้ว', received:'รับแล้ว', cancelled:'ยกเลิก' }
+const PO_STATUS_CLS = { draft:'bg-gray-100 text-gray-500', ordered:'bg-blue-50 text-blue-600', received:'bg-green-100 text-green-700', cancelled:'bg-red-100 text-red-500' }
+
+function SupplierAPDetail({ d }) {
+  const { supplier, pos: poList } = d
+  const name = supplier?.name || 'ไม่ระบุเจ้าหนี้'
+  const totalPaid    = poList.filter(p => p.status === 'received').reduce((s, p) => s + Number(p.total||0), 0)
+  const totalPending = poList.filter(p => p.status === 'ordered' ).reduce((s, p) => s + Number(p.total||0), 0)
+  return (
+    <div>
+      <div className="bg-brand-mid text-white px-4 py-3">
+        <p className="font-bold text-sm">{name}</p>
+        <p className="text-[10px] opacity-70">
+          {supplier ? [supplier.code, supplier.phone].filter(Boolean).join(' · ') || 'เจ้าหนี้' : 'PO ที่ยังไม่ได้ระบุเจ้าหนี้'}
+        </p>
+      </div>
+      {supplier && (supplier.address || supplier.tax_id) && (
+        <div className="px-4 py-2 border-b border-gray-100 text-xs text-gray-500 space-y-0.5">
+          {supplier.address && <p>{supplier.address}</p>}
+          {supplier.tax_id && <p>เลขภาษี: {supplier.tax_id}</p>}
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-2 px-4 py-3 border-b border-gray-100">
+        <div className="bg-orange-50 rounded-xl p-2 text-center">
+          <p className="text-[10px] text-orange-400 mb-0.5">รอรับสินค้า</p>
+          <p className="font-bold text-orange-600 text-sm">฿{fmt(totalPending)}</p>
+        </div>
+        <div className="bg-green-50 rounded-xl p-2 text-center">
+          <p className="text-[10px] text-green-500 mb-0.5">รับแล้วทั้งหมด</p>
+          <p className="font-bold text-green-700 text-sm">฿{fmt(totalPaid)}</p>
+        </div>
+      </div>
+      <div className="p-3 space-y-1.5">
+        {poList.length === 0 && <p className="text-center text-gray-400 text-sm py-6">ยังไม่มี PO</p>}
+        {poList.map(p => (
+          <div key={p.id} className="flex items-center gap-2 border border-gray-100 rounded-xl px-3 py-2">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-gray-800">{p.po_no}</p>
+              <p className="text-[10px] text-gray-400">{fmtDT(p.created_at)}</p>
+            </div>
+            <div className="text-right shrink-0">
+              <p className="text-sm font-bold text-brand">฿{fmt(p.total)}</p>
+              <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${PO_STATUS_CLS[p.status]||'bg-gray-100 text-gray-500'}`}>
+                {PO_STATUS[p.status]||p.status}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function Row({ label, val, bold, cls='' }) {
   return (
     <div className={`flex justify-between text-sm ${bold ? 'font-bold text-brand text-base' : 'text-gray-600'} ${cls}`}>
@@ -344,20 +495,41 @@ function Row({ label, val, bold, cls='' }) {
 }
 
 /* ── Edit Bill Modal ── */
-function EditBillModal({ sale, onClose, onSaved }) {
-  const [items, setItems]       = useState([])
-  const [discount, setDiscount] = useState(String(sale.discount || 0))
-  const [note, setNote]         = useState(sale.note || '')
+function EditBillModal({ sale, settings, onClose, onSaved }) {
+  const [items, setItems]         = useState([])
+  const [discount, setDiscount]   = useState(String(sale.discount || 0))
+  const [note, setNote]           = useState(sale.note || '')
+  const [customer, setCustomer]   = useState(sale.customers || null)
+  const [custSearch, setCustSearch] = useState('')
+  const [custResults, setCustResults] = useState([])
   const [prodSearch, setProdSearch] = useState('')
   const [prodResults, setProdResults] = useState([])
-  const [saving, setSaving]     = useState(false)
+  const [saving, setSaving]       = useState(false)
+  const [printing, setPrinting]   = useState(false)
+
+  const [itemsLoading, setItemsLoading] = useState(true)
 
   useEffect(() => {
-    setItems((sale.sale_items || []).map(i => ({
-      id: i.id, pid: i.product_id, name: i.product_name, qty: i.qty,
-      price: i.price, cost: i.cost || 0, disc: i.discount || 0, unit: i.unit,
-    })))
-  }, [sale])
+    if (!sale?.id) return
+    setItemsLoading(true)
+    supabase.from('sale_items').select('*').eq('sale_id', sale.id).order('id')
+      .then(({ data }) => {
+        setItems((data || []).map(i => ({
+          id: i.id, pid: i.product_id, name: i.product_name,
+          qty: Number(i.qty), price: Number(i.price),
+          cost: Number(i.cost) || 0, disc: Number(i.discount) || 0,
+          unit: i.unit || '', note: i.note || '',
+        })))
+        setItemsLoading(false)
+      })
+  }, [sale?.id])
+
+  useEffect(() => {
+    if (!custSearch.trim()) { setCustResults([]); return }
+    supabase.from('customers').select('id,name,phone,address,tax_id,credit_limit,balance')
+      .ilike('name', '%'+custSearch+'%').limit(6)
+      .then(({ data }) => setCustResults(data || []))
+  }, [custSearch])
 
   useEffect(() => {
     if (!prodSearch.trim()) { setProdResults([]); return }
@@ -392,29 +564,75 @@ function EditBillModal({ sale, onClose, onSaved }) {
   const discAmt  = parseFloat(discount) || 0
   const total    = Math.max(0, subtotal - discAmt)
 
+  async function printCurrentReceipt() {
+    setPrinting(true)
+    try {
+      const r = {
+        shopName: settings?.shop_name || 'ร้านค้า',
+        shopAddress: settings?.shop_address || '',
+        shopPhone: settings?.shop_phone || '',
+        items: items.map(i => ({ name: i.name, qty: Number(i.qty), price: Number(i.price), disc: Number(i.disc)||0, note: i.note||'' })),
+        subtotal, discount: discAmt, vat: 0, vatRate: 0, total,
+        payment_method: sale.payment_method, payment_amount: Number(sale.payment_amount)||0,
+        change: Number(sale.change_amount)||0,
+        receipt_no: sale.receipt_no, created_at: sale.created_at,
+        customerName: customer?.name || '', customerPhone: customer?.phone || '',
+      }
+      const cfg = JSON.parse(localStorage.getItem('printer_receipt') || '{}')
+      if (cfg.ip) {
+        const bytes = await buildReceiptESCPOS(r, cfg.paper_mm || 80)
+        await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
+      } else {
+        const blob = new Blob([buildDocReceiptHTML(r)], { type: 'text/html;charset=utf-8' })
+        window.open(URL.createObjectURL(blob))
+      }
+    } catch (e) { alert('พิมไม่สำเร็จ: ' + e.message) }
+    finally { setPrinting(false) }
+  }
+
+  async function printInvoice() {
+    setPrinting(true)
+    try {
+      const docItems = items.map(i => ({
+        name: i.name, qty: i.qty, unit: i.unit || '',
+        price: i.price, disc: i.disc || 0,
+        subtotal: i.price * i.qty - (i.disc || 0),
+      }))
+      const custObj = customer ? {
+        name: customer.name, address: customer.address,
+        phone: customer.phone, tax_id: customer.tax_id, contact: customer.contact,
+      } : {}
+      const docNo = await commitNextDocNo('invoice')
+      const html = buildFormalDocHTML('invoice', docItems,
+        { subtotal, discount: discAmt, vat: 0, total }, custObj, settings || {},
+        { doc_no: docNo, date: new Date().toISOString().slice(0, 10), payment_method: sale.payment_method }
+      )
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+      window.open(URL.createObjectURL(blob))
+    } catch (e) { alert('ออกใบแจ้งหนี้ไม่สำเร็จ: ' + e.message) }
+    finally { setPrinting(false) }
+  }
+
   async function save() {
-    if (items.length === 0) return alert('ต้องมีสินค้าอย่างน้อย 1 รายการ')
     setSaving(true)
     try {
-      // Delete all old sale_items
-      await supabase.from('sale_items').delete().eq('sale_id', sale.id)
-
-      // Re-insert items
-      await supabase.from('sale_items').insert(
-        items.map(i => ({
-          sale_id: sale.id, product_id: i.pid, product_name: i.name,
-          unit: i.unit, qty: i.qty, price: i.price, cost: i.cost || 0,
-          discount: i.disc || 0,
-          subtotal: i.price * i.qty - (i.disc || 0),
-        }))
-      )
-
-      // Update sale totals
+      if (items.length > 0) {
+        await supabase.from('sale_items').delete().eq('sale_id', sale.id)
+        await supabase.from('sale_items').insert(
+          items.map(i => ({
+            sale_id: sale.id, product_id: i.pid, product_name: i.name,
+            unit: i.unit, qty: i.qty, price: i.price, cost: i.cost || 0,
+            discount: i.disc || 0,
+            subtotal: i.price * i.qty - (i.disc || 0),
+            note: i.note || null,
+          }))
+        )
+      }
       await supabase.from('sales').update({
         subtotal, discount: discAmt, total,
         note: note.trim() || null,
+        customer_id: customer?.id || null,
       }).eq('id', sale.id)
-
       onSaved()
     } catch (e) {
       alert('เกิดข้อผิดพลาด: ' + e.message)
@@ -436,6 +654,37 @@ function EditBillModal({ sale, onClose, onSaved }) {
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {/* Customer */}
+          <div className="relative">
+            {customer ? (
+              <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2">
+                <span className="text-lg">👤</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-blue-800 truncate">{customer.name}</p>
+                  {customer.phone && <p className="text-xs text-blue-500">{customer.phone}</p>}
+                </div>
+                <button onClick={() => setCustomer(null)} className="text-blue-300 hover:text-red-400 text-lg leading-none">×</button>
+              </div>
+            ) : (
+              <div className="relative">
+                <input value={custSearch} onChange={e => setCustSearch(e.target.value)}
+                  placeholder="👤 เพิ่มลูกค้า (ค้นหาชื่อ)..."
+                  className="w-full border border-blue-200 rounded-xl px-3 py-2.5 text-sm focus:border-blue-400 outline-none bg-blue-50/50" />
+                {custResults.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-lg z-20 max-h-40 overflow-y-auto mt-1">
+                    {custResults.map(c => (
+                      <button key={c.id} onClick={() => { setCustomer(c); setCustSearch(''); setCustResults([]) }}
+                        className="w-full px-3 py-2 text-left hover:bg-blue-50 flex justify-between text-sm border-b border-gray-50 last:border-0">
+                        <span className="font-medium text-slate-700">{c.name}</span>
+                        {c.phone && <span className="text-xs text-gray-400">{c.phone}</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Add product search */}
           <div className="relative">
             <input value={prodSearch} onChange={e => setProdSearch(e.target.value)}
@@ -456,6 +705,7 @@ function EditBillModal({ sale, onClose, onSaved }) {
 
           {/* Items */}
           <div className="space-y-2">
+            {itemsLoading && <p className="text-center text-slate-400 text-sm py-4">กำลังโหลดสินค้า...</p>}
             {items.map((item, idx) => (
               <div key={idx} className="border border-gray-100 rounded-2xl p-3 bg-gray-50/50">
                 <div className="flex justify-between items-start mb-2">
@@ -503,8 +753,20 @@ function EditBillModal({ sale, onClose, onSaved }) {
           </div>
         </div>
 
-        <div className="px-4 pb-4 pt-2 shrink-0">
-          <button onClick={save} disabled={saving || items.length === 0}
+        <div className="px-4 pb-4 pt-2 shrink-0 space-y-2">
+          <div className="flex gap-2">
+            <button onClick={printCurrentReceipt} disabled={printing || items.length === 0}
+              className="flex-1 bg-slate-700 text-white py-2.5 rounded-xl text-sm font-semibold disabled:opacity-40 active:scale-95">
+              🖨️ ใบเสร็จย่อ
+            </button>
+            {sale.payment_method === 'credit' && (
+              <button onClick={printInvoice} disabled={printing || items.length === 0}
+                className="flex-1 bg-blue-600 text-white py-2.5 rounded-xl text-sm font-semibold disabled:opacity-40 active:scale-95">
+                📄 ใบแจ้งหนี้
+              </button>
+            )}
+          </div>
+          <button onClick={save} disabled={saving}
             className="w-full bg-amber-500 text-white font-bold py-3.5 rounded-2xl text-base disabled:opacity-50 active:scale-[0.98] transition-transform">
             {saving ? '⏳ กำลังบันทึก...' : '✓ บันทึกการแก้ไข'}
           </button>
@@ -514,6 +776,42 @@ function EditBillModal({ sale, onClose, onSaved }) {
   )
 }
 
+
+function buildDocReceiptHTML(r) {
+  const PAY = { cash: 'เงินสด', transfer: 'โอน/QR', credit: 'เชื่อ', mixed: 'ผสม' }
+  const rows = (r.items || []).map(i => `
+    <tr>
+      <td style="padding:4px 0;font-size:17px;word-break:break-word">${i.name}${i.note?`<br><span style="font-size:14px;color:#555">${i.note}</span>`:''}</td>
+      <td style="text-align:center;font-size:17px;padding:4px 2px">${i.qty}</td>
+      <td style="text-align:right;font-size:17px;padding:4px 2px">${Number(i.price).toFixed(2)}</td>
+      <td style="text-align:right;font-size:17px;padding:4px 0">${(i.price*i.qty-(i.disc||0)).toFixed(2)}</td>
+    </tr>`).join('')
+  const dt = new Date(r.created_at||Date.now())
+  const dtStr = dt.toLocaleDateString('th-TH',{day:'2-digit',month:'2-digit',year:'numeric'})+' '+dt.toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Courier New',monospace;font-size:17px;width:72mm;padding:4px}
+  h2{font-size:22px;font-weight:bold;text-align:center;margin-bottom:2px}h3{font-size:18px;text-align:center;margin-bottom:2px}
+  .center{text-align:center;font-size:16px}.dash{border:none;border-top:1px dashed #000;margin:5px 0}
+  table{width:100%;border-collapse:collapse}.total-row td{font-size:20px;font-weight:bold;padding-top:4px}
+  .meta{font-size:16px;display:flex;justify-content:space-between;padding:2px 0}
+  @media print{body{margin:0;padding:2px}}</style></head><body>
+  <h2>${r.shopName||'ร้านค้า'}</h2><h3>ใบเสร็จรับเงิน</h3>
+  ${r.shopAddress?`<p class="center">${r.shopAddress}</p>`:''}${r.shopPhone?`<p class="center">โทร : ${r.shopPhone}</p>`:''}
+  <hr class="dash"><div class="meta"><span>รายการ</span><span>จำนวน</span><span>ราคา</span><span>รวม</span></div><hr class="dash">
+  <table>${rows}</table><hr class="dash">
+  <table>
+    <tr><td style="font-size:17px">รวม</td><td style="text-align:right;font-size:17px">${Number(r.subtotal).toFixed(2)}</td></tr>
+    ${r.discount>0?`<tr><td style="font-size:17px">ส่วนลด</td><td style="text-align:right;font-size:17px">-${Number(r.discount).toFixed(2)}</td></tr>`:''}
+    <tr class="total-row"><td>สุทธิ</td><td style="text-align:right">${Number(r.total).toFixed(2)}</td></tr>
+    <tr><td style="font-size:17px">${PAY[r.payment_method]||r.payment_method||''}</td><td style="text-align:right;font-size:17px">${r.payment_amount?Number(r.payment_amount).toFixed(2):''}</td></tr>
+    ${r.change>0?`<tr><td style="font-size:17px">เงินทอน</td><td style="text-align:right;font-size:17px">${Number(r.change).toFixed(2)}</td></tr>`:''}
+  </table><hr class="dash">
+  ${r.customerName?`<div class="meta"><span>ลูกค้า</span><span>${r.customerName}</span></div>`:''}
+  <div class="meta"><span>เลขที่</span><span>${r.receipt_no||''}</span></div>
+  <div class="meta"><span></span><span style="font-size:15px">** ${dtStr} **</span></div>
+  <hr class="dash"><div style="text-align:center;font-size:16px;margin-top:8px">ขอบคุณที่ใช้บริการ</div>
+  <script>window.onload=()=>{window.focus();window.print()}</script></body></html>`
+}
 
 function buildFullPOHTML(d, s) {
   const rows = (d.po_items || []).map(i => `

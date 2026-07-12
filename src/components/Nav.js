@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation'
 import { useAuth } from '@/components/AuthProvider'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
+import { queueCount, processQueue } from '@/lib/offlineQueue'
 
 /* ── SVG Icon set ── */
 const IC = {
@@ -57,6 +58,11 @@ const IC = {
       <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
     </svg>
   ),
+  customer: (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-[18px] h-[18px]">
+      <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+    </svg>
+  ),
   repair: (
     <svg viewBox="0 0 24 24" fill="currentColor" className="w-[18px] h-[18px]">
       <path d="M22.61 18.99l-9.08-9.08c.93-2.34.45-5.1-1.44-7C9.79.61 7.21.45 5.45 1.67L8.28 4.5 4.51 8.28 1.68 5.45C.45 7.21.62 9.8 2.92 12.09c1.86 1.86 4.58 2.35 6.89 1.48l9.11 9.11c.39.39 1.02.39 1.41 0l2.27-2.27c.4-.38.4-1.02.01-1.42z"/>
@@ -73,8 +79,9 @@ const ALL_TABS = [
   { href:'/',          label:'หน้าหลัก',  icon: IC.home,      adminOnly: true },
   { href:'/pos',       label:'ขาย',       icon: IC.pos },
   { href:'/products',  label:'สินค้า',    icon: IC.product },
-  { href:'/po',        label:'สั่งซื้อ',  icon: IC.po,        adminOnly: true },
+  { href:'/po',        label:'สั่งซื้อ',  icon: IC.po },
   { href:'/repair',    label:'คิวซ่อม',   icon: IC.repair },
+  { href:'/customers', label:'ลูกค้า',    icon: IC.customer },
   { href:'/documents', label:'เอกสาร',    icon: IC.doc },
   { href:'/reports',   label:'รายงาน',    icon: IC.report,    adminOnly: true },
   { href:'/employees', label:'พนักงาน',   icon: IC.employees, adminOnly: true },
@@ -86,6 +93,37 @@ const ALL_TABS = [
 export default function Nav() {
   const path = usePathname()
   const auth = useAuth()
+  const [isOnline, setIsOnline]           = useState(true)
+  const [pendingCount, setPendingCount]   = useState(0)
+  const [syncing, setSyncing]             = useState(false)
+
+  useEffect(() => {
+    const update = () => setIsOnline(navigator.onLine)
+    const updateCount = () => setPendingCount(queueCount())
+    window.addEventListener('online', update)
+    window.addEventListener('offline', update)
+    window.addEventListener('offline-queue-changed', updateCount)
+    update(); updateCount()
+    // auto-sync when back online
+    const handleOnline = async () => {
+      update()
+      const count = queueCount()
+      if (count === 0) return
+      setSyncing(true)
+      await processQueue(supabase)
+      setPendingCount(queueCount())
+      setSyncing(false)
+      window.dispatchEvent(new Event('offline-synced'))
+    }
+    window.addEventListener('online', handleOnline)
+    return () => {
+      window.removeEventListener('online', update)
+      window.removeEventListener('offline', update)
+      window.removeEventListener('offline-queue-changed', updateCount)
+      window.removeEventListener('online', handleOnline)
+    }
+  }, [])
+
   const [showEmpPicker, setShowEmpPicker] = useState(false)
   const [employees, setEmployees]         = useState([])
   const [selEmp, setSelEmp]               = useState(null)
@@ -97,6 +135,21 @@ export default function Nav() {
   const [adminPinError, setAdminPinError]   = useState('')
   const [storedAdminPin, setStoredAdminPin] = useState(null)
 
+  const [collapsed, setCollapsed] = useState(false)
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('nav_collapsed') === '1'
+      setCollapsed(saved)
+      document.documentElement.style.setProperty('--nav-w', saved ? '62px' : '230px')
+    } catch {}
+  }, [])
+
+  useEffect(() => {
+    try { localStorage.setItem('nav_collapsed', collapsed ? '1' : '0') } catch {}
+    document.documentElement.style.setProperty('--nav-w', collapsed ? '62px' : '230px')
+  }, [collapsed])
+
   if (path === '/login' || !auth?.user) return null
 
   const isAdmin = auth.role === 'admin'
@@ -105,7 +158,7 @@ export default function Nav() {
 
   async function openEmpPicker() {
     const { data } = await supabase.from('employees')
-      .select('id,name,position,pin').eq('active', true).eq('can_login', true).order('name')
+      .select('id,name,position,pin').eq('active', true).order('name')
     setEmployees(data || [])
     setSelEmp(null)
     setPin('')
@@ -153,46 +206,66 @@ export default function Nav() {
   return (
     <>
       {/* ── Sidebar (md+) ── */}
-      <aside className="hidden md:flex fixed left-0 top-0 bottom-0 w-[230px] flex-col z-50 no-print"
-        style={{ background: 'linear-gradient(180deg, #14060a 0%, #2D142C 100%)' }}>
+      <aside className="hidden md:flex fixed left-0 top-0 bottom-0 flex-col z-50 no-print overflow-hidden"
+        style={{
+          width: collapsed ? '62px' : '230px',
+          transition: 'width 0.25s ease',
+          background: 'linear-gradient(180deg, #14060a 0%, #2D142C 100%)',
+        }}>
 
         {/* Subtle border right */}
         <div className="absolute inset-y-0 right-0 w-px bg-gradient-to-b from-white/0 via-white/10 to-white/0" />
 
-        {/* Logo */}
-        <div className="px-5 py-5">
-          <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="CHERD" className="w-10 h-10 rounded-2xl shadow-lg flex-shrink-0 object-cover" />
-            <p className="text-[11px] text-white/40 mt-0.5">จัดการร้านค้า</p>
-          </div>
-        </div>
+        {/* Logo — click to toggle */}
+        <button onClick={() => setCollapsed(c => !c)}
+          className="flex items-center gap-3 px-4 py-5 w-full text-left hover:bg-white/5 transition-colors flex-shrink-0"
+          title={collapsed ? 'ขยายเมนู' : 'ย่อเมนู'}>
+          <img src="/logo.png" alt="CHERD" className="w-10 h-10 rounded-2xl shadow-lg flex-shrink-0 object-cover" />
+          {!collapsed && (
+            <div className="min-w-0">
+              <p className="text-[11px] text-white/40 whitespace-nowrap">จัดการร้านค้า</p>
+              {!isOnline ? (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full whitespace-nowrap" style={{background:'rgba(239,68,68,0.2)',color:'#f87171'}}>
+                  ● ออฟไลน์{pendingCount > 0 ? ` · ${pendingCount} รอ sync` : ''}
+                </span>
+              ) : syncing ? (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{background:'rgba(245,158,11,0.2)',color:'#fbbf24'}}>
+                  ⟳ sync…
+                </span>
+              ) : pendingCount > 0 ? (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{background:'rgba(245,158,11,0.2)',color:'#fbbf24'}}>
+                  ● {pendingCount} รอ sync
+                </span>
+              ) : null}
+            </div>
+          )}
+        </button>
 
         {/* Divider */}
-        <div className="mx-5 h-px bg-white/8 mb-2" />
+        <div className="mx-3 h-px bg-white/8 mb-2" />
 
         {/* Links */}
-        <nav className="flex-1 px-3 py-1 space-y-0.5 overflow-y-auto scroll-hidden">
+        <nav className="flex-1 px-2 py-1 space-y-0.5 overflow-y-auto scroll-hidden">
           {TABS.map(t => {
             const active = isActive(t.href)
             return (
-              <Link key={t.href} href={t.href}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all group
+              <Link key={t.href} href={t.href} title={collapsed ? t.label : undefined}
+                className={`flex items-center rounded-xl text-sm font-medium transition-all group
+                  ${collapsed ? 'justify-center p-2' : 'gap-3 px-3 py-2.5'}
                   ${active ? 'text-white' : 'text-white/45 hover:text-white/80'}`}
                 style={active ? {
                   background: 'rgba(199,44,65,0.25)',
                   border: '1px solid rgba(199,44,65,0.3)',
                 } : {}}>
 
-                {/* Icon container */}
-                <div className={`icon-glass ${active ? 'icon-glass-active' : 'icon-glass-inactive'}`}>
+                <div className={`icon-glass flex-shrink-0 ${active ? 'icon-glass-active' : 'icon-glass-inactive'}`}>
                   <span className={active ? 'text-white' : 'text-brand-light'}>
                     {t.icon}
                   </span>
                 </div>
 
-                <span className="flex-1">{t.label}</span>
-
-                {active && (
+                {!collapsed && <span className="flex-1 whitespace-nowrap">{t.label}</span>}
+                {!collapsed && active && (
                   <span className="w-1.5 h-1.5 rounded-full bg-brand-light/80 flex-shrink-0" />
                 )}
               </Link>
@@ -201,67 +274,79 @@ export default function Nav() {
         </nav>
 
         {/* User & Logout */}
-        <div className="px-3 pb-5 pt-3">
-          <div className="mx-0 h-px bg-white/8 mb-3" />
+        <div className="px-2 pb-5 pt-3">
+          <div className="h-px bg-white/8 mb-3" />
+
           {/* User chip */}
-          <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl mb-1"
-            style={{ background: auth.empMode ? 'rgba(16,185,129,0.12)' : 'rgba(255,255,255,0.05)', border: auth.empMode ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(255,255,255,0.08)' }}>
-            <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 text-white"
-              style={{ background: auth.empMode ? 'linear-gradient(135deg,#059669,#34d399)' : 'linear-gradient(135deg, #C72C41, #EE4540)' }}>
-              {auth.empMode ? auth.empMode.name[0] : (auth.user.email?.[0]?.toUpperCase() ?? 'U')}
+          {collapsed ? (
+            <div className="flex justify-center mb-2">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                title={auth.empMode ? auth.empMode.name : auth.user?.email}
+                style={{ background: auth.empMode ? 'linear-gradient(135deg,#059669,#34d399)' : 'linear-gradient(135deg,#C72C41,#EE4540)' }}>
+                {auth.empMode ? auth.empMode.name[0] : (auth.user?.email?.[0]?.toUpperCase() ?? 'U')}
+              </div>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[11px] text-white/70 truncate font-semibold">
-                {auth.empMode ? auth.empMode.name : auth.user.email}
-              </p>
-              {auth.empMode && <p className="text-[9px] text-emerald-400">{auth.empMode.position}</p>}
+          ) : (
+            <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl mb-1"
+              style={{ background: auth.empMode ? 'rgba(16,185,129,0.12)' : 'rgba(255,255,255,0.05)', border: auth.empMode ? '1px solid rgba(16,185,129,0.3)' : '1px solid rgba(255,255,255,0.08)' }}>
+              <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 text-white"
+                style={{ background: auth.empMode ? 'linear-gradient(135deg,#059669,#34d399)' : 'linear-gradient(135deg,#C72C41,#EE4540)' }}>
+                {auth.empMode ? auth.empMode.name[0] : (auth.user?.email?.[0]?.toUpperCase() ?? 'U')}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] text-white/70 truncate font-semibold">
+                  {auth.empMode ? auth.empMode.name : auth.user?.email}
+                </p>
+                {auth.empMode && <p className="text-[9px] text-emerald-400">{auth.empMode.position}</p>}
+              </div>
             </div>
-          </div>
+          )}
+
           {/* Switch / Logout */}
           {auth.empMode ? (
             <>
-              <button onClick={openEmpPicker}
-                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm text-white/40 transition-all group mb-1"
-                style={{ fontFamily: 'var(--font-kanit), sans-serif' }}
+              <button onClick={openEmpPicker} title="สลับพนักงาน"
+                className={`w-full flex items-center rounded-xl text-sm text-white/40 transition-all group mb-1
+                  ${collapsed ? 'justify-center p-2' : 'gap-3 px-3 py-2'}`}
                 onMouseEnter={e => e.currentTarget.style.background = 'rgba(199,44,65,0.1)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                <div className="icon-glass icon-glass-inactive w-8 h-8 rounded-lg">
+                <div className="icon-glass icon-glass-inactive w-8 h-8 rounded-lg flex-shrink-0">
                   <span className="text-brand-light text-sm">🔄</span>
                 </div>
-                <span className="group-hover:text-brand-light transition-colors text-xs">สลับพนักงาน</span>
+                {!collapsed && <span className="group-hover:text-brand-light transition-colors text-xs whitespace-nowrap">สลับพนักงาน</span>}
               </button>
-              <button onClick={openAdminPin}
-                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm text-white/40 transition-all group"
-                style={{ fontFamily: 'var(--font-kanit), sans-serif' }}
+              <button onClick={openAdminPin} title="โหมดแอดมิน"
+                className={`w-full flex items-center rounded-xl text-sm text-white/40 transition-all group
+                  ${collapsed ? 'justify-center p-2' : 'gap-3 px-3 py-2'}`}
                 onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.1)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                <div className="icon-glass icon-glass-inactive w-8 h-8 rounded-lg">
+                <div className="icon-glass icon-glass-inactive w-8 h-8 rounded-lg flex-shrink-0">
                   <span className="text-red-400 text-sm">🔐</span>
                 </div>
-                <span className="group-hover:text-red-400 transition-colors text-xs">โหมดแอดมิน</span>
+                {!collapsed && <span className="group-hover:text-red-400 transition-colors text-xs whitespace-nowrap">โหมดแอดมิน</span>}
               </button>
             </>
           ) : (
             <>
-              <button onClick={openEmpPicker}
-                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm text-white/40 transition-all group mb-1"
-                style={{ fontFamily: 'var(--font-kanit), sans-serif' }}
+              <button onClick={openEmpPicker} title="โหมดพนักงาน"
+                className={`w-full flex items-center rounded-xl text-sm text-white/40 transition-all group mb-1
+                  ${collapsed ? 'justify-center p-2' : 'gap-3 px-3 py-2'}`}
                 onMouseEnter={e => e.currentTarget.style.background = 'rgba(199,44,65,0.1)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                <div className="icon-glass icon-glass-inactive w-8 h-8 rounded-lg">
+                <div className="icon-glass icon-glass-inactive w-8 h-8 rounded-lg flex-shrink-0">
                   <span className="text-brand-light text-sm">👷</span>
                 </div>
-                <span className="group-hover:text-brand-light transition-colors text-xs">โหมดพนักงาน</span>
+                {!collapsed && <span className="group-hover:text-brand-light transition-colors text-xs whitespace-nowrap">โหมดพนักงาน</span>}
               </button>
-              <button onClick={auth.logout}
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-white/40 transition-all group"
-                style={{ fontFamily: 'var(--font-kanit), sans-serif' }}
+              <button onClick={auth.logout} title="ออกจากระบบ"
+                className={`w-full flex items-center rounded-xl text-sm text-white/40 transition-all group
+                  ${collapsed ? 'justify-center p-2' : 'gap-3 px-3 py-2.5'}`}
                 onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.12)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                <div className="icon-glass icon-glass-inactive group-hover:border-red-500/30 w-8 h-8 rounded-lg">
+                <div className="icon-glass icon-glass-inactive group-hover:border-red-500/30 w-8 h-8 rounded-lg flex-shrink-0">
                   <span className="text-white/40 group-hover:text-red-400 transition-colors">{IC.logout}</span>
                 </div>
-                <span className="group-hover:text-red-400 transition-colors">ออกจากระบบ</span>
+                {!collapsed && <span className="group-hover:text-red-400 transition-colors whitespace-nowrap">ออกจากระบบ</span>}
               </button>
             </>
           )}
@@ -307,6 +392,19 @@ export default function Nav() {
               </Link>
             )
           })}
+
+          {/* Account switcher */}
+          <button
+            onClick={openEmpPicker}
+            className="flex flex-col items-center justify-center py-1 px-2 flex-shrink-0 gap-1">
+            <div className="w-9 h-9 rounded-[11px] flex items-center justify-center font-bold text-white text-sm shadow-sm"
+              style={{ background: auth.empMode ? 'linear-gradient(135deg,#059669,#34d399)' : 'linear-gradient(135deg,#C72C41,#EE4540)' }}>
+              {auth.empMode ? auth.empMode.name[0] : (auth.user?.email?.[0]?.toUpperCase() ?? 'A')}
+            </div>
+            <span className="text-[9px] leading-tight font-semibold text-slate-400">
+              {auth.empMode ? 'สลับ' : 'พนักงาน'}
+            </span>
+          </button>
         </div>
       </nav>
 
@@ -398,6 +496,21 @@ export default function Nav() {
                     </button>
                   ))
                 }
+                {auth.empMode && (
+                  <button onClick={() => { setShowEmpPicker(false); openAdminPin() }}
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-left transition-all active:scale-[0.98] mt-1"
+                    style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)' }}>
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white shrink-0"
+                      style={{ background: 'linear-gradient(135deg,#C72C41,#EE4540)' }}>
+                      🔐
+                    </div>
+                    <div>
+                      <p className="font-semibold text-white text-sm">โหมดแอดมิน</p>
+                      <p className="text-white/40 text-xs">ต้องใส่ PIN แอดมิน</p>
+                    </div>
+                    <span className="ml-auto text-white/30">→</span>
+                  </button>
+                )}
               </div>
             ) : (
               <div className="px-5 pb-6">

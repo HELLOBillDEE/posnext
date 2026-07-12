@@ -6,14 +6,28 @@ import { supabase } from '@/lib/supabase'
 const AuthCtx = createContext(null)
 export const useAuth = () => useContext(AuthCtx)
 
-const COOKIE_OPTS = 'path=/; SameSite=Strict'
+const COOKIE_OPTS = 'path=/; SameSite=Strict; max-age=315360000' // 10 ปี (ถาวร)
 function setAuthCookie(token) { document.cookie = `pos_token=${token}; ${COOKIE_OPTS}` }
-function clearAuthCookie() { document.cookie = `pos_token=; ${COOKIE_OPTS}; max-age=0` }
+function clearAuthCookie() { document.cookie = `pos_token=; path=/; SameSite=Strict; max-age=0` }
 function setEmpCookie() { document.cookie = `pos_emp=1; ${COOKIE_OPTS}` }
-function clearEmpCookie() { document.cookie = `pos_emp=; ${COOKIE_OPTS}; max-age=0` }
+function clearEmpCookie() { document.cookie = `pos_emp=; path=/; SameSite=Strict; max-age=0` }
 
 // Routes employees can access
-const EMP_ROUTES = ['/pos', '/products', '/documents', '/repair']
+const EMP_ROUTES = ['/pos', '/products', '/documents', '/repair', '/customers', '/po']
+
+function getStoredUser() {
+  try {
+    // Supabase JS v2 stores session under "sb-<ref>-auth-token"
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i)
+      if (k && k.startsWith('sb-') && k.endsWith('-auth-token')) {
+        const s = JSON.parse(localStorage.getItem(k))
+        if (s?.user) return s.user
+      }
+    }
+  } catch {}
+  return undefined
+}
 
 export default function AuthProvider({ children }) {
   const [user, setUser]         = useState(undefined)
@@ -23,10 +37,20 @@ export default function AuthProvider({ children }) {
 
   // Load Supabase auth
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null)
-      if (session?.access_token) setAuthCookie(session.access_token)
-    })
+    // อ่าน session จาก localStorage ทันที (ไม่รอ network)
+    const cached = getStoredUser()
+    if (cached !== undefined) setUser(cached)
+
+    const timeout = cached ? null : setTimeout(() => setUser(null), 12000)
+
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => {
+        if (timeout) clearTimeout(timeout)
+        setUser(session?.user ?? null)
+        if (session?.access_token) setAuthCookie(session.access_token)
+      })
+      .catch(() => { if (timeout) clearTimeout(timeout); setUser(null) })
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
       setUser(session?.user ?? null)
       if (session?.access_token) setAuthCookie(session.access_token)
@@ -51,8 +75,9 @@ export default function AuthProvider({ children }) {
   // Routing guard
   useEffect(() => {
     if (user === undefined) return
-    if (!user && path !== '/login') { router.replace('/login'); return }
-    if (user && path === '/login') { router.replace('/'); return }
+    const publicPaths = ['/login', '/checkin', '/staff', '/leave', '/advance', '/my']
+    if (!user && !publicPaths.some(p => path === p || path.startsWith(p + '/'))) { router.replace('/login'); return }
+    if (user && path === '/login') { router.replace('/pos'); return }
 
     // Employee route restriction
     if (empMode && user) {

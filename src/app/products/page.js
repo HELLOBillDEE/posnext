@@ -7,12 +7,25 @@ import { fmt } from '@/lib/utils'
 // pw=page width, ph=row height, cols=columns per row, m=outer margin (mm)
 // pw = total paper width, lw = each label width, hGap = gap between columns, vGap = gap between rows
 const LABEL_SIZES = [
-  { id:'100x25x3', label:'100×25 mm · 3 ดวง/แถว', pw:102, ph:25, cols:3, lw:32, hGap:2, vGap:2, mx:1, my:0 },
+  { id:'100x25x3', label:'100×25 mm · 3 ดวง/แถว', pw:100, ph:25, cols:3, lw:30, hGap:5, vGap:2, mx:0, my:0 },
   { id:'58x30',    label:'58×30 mm · 1 ดวง/แถว',  pw:58,  ph:30, cols:1, lw:54, hGap:0, vGap:2, mx:2, my:2 },
   { id:'40x25',    label:'40×25 mm · 1 ดวง/แถว',  pw:40,  ph:25, cols:1, lw:36, hGap:0, vGap:2, mx:2, my:2 },
 ]
 
 const EMPTY_PROD = { barcode:'', name:'', category_id:'', unit:'ชิ้น', cost:'', price:'', stock:'', min_stock:'5', active:true }
+
+function genCKBarcode() {
+  return 'CK' + Math.floor(Math.random() * 100000000).toString().padStart(8, '0')
+}
+async function genUniqueCKBarcode(client) {
+  let code, exists
+  do {
+    code = genCKBarcode()
+    const { data } = await client.from('products').select('id').eq('barcode', code).maybeSingle()
+    exists = !!data
+  } while (exists)
+  return code
+}
 
 // Parse CSV text → array of objects using first row as headers
 function parseCSV(text) {
@@ -31,13 +44,18 @@ export default function ProductsPage() {
   const [products, setProducts]       = useState([])
   const [categories, setCategories]   = useState([])
   const [search, setSearch]           = useState('')
+  const [inputValue, setInputValue]   = useState('')
+  const searchTimer                   = useRef(null)
   const [filterCat, setFilterCat]     = useState('')
   const [filterStock, setFilterStock] = useState('all')
+  const [filterMargin, setFilterMargin] = useState('all')
   const [modal, setModal]             = useState(null)
   const [form, setForm]               = useState(EMPTY_PROD)
   const [saving, setSaving]           = useState(false)
   const [selected, setSelected]       = useState(new Set())
   const [printModal, setPrintModal]   = useState(false)
+  const [isPrinting, setIsPrinting]   = useState(false)
+  const [printerCfg, setPrinterCfg]   = useState(null)
   const [printQtys, setPrintQtys]     = useState({})
   const [labelSize, setLabelSize]     = useState('100x25x3')
   const [labelPreview, setLabelPreview] = useState(false)
@@ -63,23 +81,46 @@ export default function ProductsPage() {
 
   useEffect(() => { load() }, [])
 
-  useEffect(() => { setVisibleCount(20) }, [search, filterCat, filterStock])
+  useEffect(() => { setVisibleCount(20) }, [search, filterCat, filterStock, filterMargin])
 
   async function load() {
-    const [{ data: p }, { data: c }] = await Promise.all([
+    const [{ data: p }, { data: c }, { data: cfgRows }] = await Promise.all([
       supabase.from('products').select('*, categories(name)').order('name'),
       supabase.from('categories').select('*').order('name'),
+      supabase.from('settings').select('key,value').in('key', ['label_size', 'printer_barcode']),
     ])
     setProducts(p || [])
     setCategories(c || [])
+    const cfgMap = Object.fromEntries((cfgRows || []).map(r => [r.key, r.value]))
+    if (cfgMap.label_size) setLabelSize(cfgMap.label_size)
+    // sync printer config จาก DB ลง localStorage (ถ้าไม่มีค่า local)
+    if (cfgMap.printer_barcode) {
+      localStorage.setItem('printer_barcode', cfgMap.printer_barcode)
+    }
   }
 
+  const marginPct = p => p.cost > 0 && p.price > 0 ? (p.price - p.cost) / p.cost * 100 : null
+
   const filtered = products.filter(p => {
-    const matchSearch = !search || p.name.toLowerCase().includes(search.toLowerCase()) || (p.barcode||'').includes(search)
-    const matchCat    = !filterCat || String(p.category_id) === filterCat
-    const matchStock  = filterStock === 'all' || (filterStock === 'low' && p.stock <= p.min_stock) || (filterStock === 'out' && p.stock <= 0)
-    return matchSearch && matchCat && matchStock
+    const matchSearch  = !search || p.name.toLowerCase().includes(search.toLowerCase()) || (p.barcode||'').includes(search)
+    const matchCat     = !filterCat || String(p.category_id) === filterCat
+    const matchStock   = filterStock === 'all' || (filterStock === 'low' && p.stock <= p.min_stock) || (filterStock === 'out' && p.stock <= 0)
+    const m            = marginPct(p)
+    const matchMargin  = filterMargin === 'all' || (filterMargin === 'low' && m !== null && m < 35) || (filterMargin === 'none' && (m === null || p.cost === 0))
+    return matchSearch && matchCat && matchStock && matchMargin
   })
+
+  // สถิติกำไรทั้งร้าน (เฉพาะสินค้าที่มีทุนและราคาขาย)
+  const marginStats = (() => {
+    const withCost = products.filter(p => p.cost > 0 && p.price > 0)
+    if (!withCost.length) return null
+    const totalRevenue = withCost.reduce((s, p) => s + p.price * Math.max(p.stock, 0), 0)
+    const totalCost    = withCost.reduce((s, p) => s + p.cost  * Math.max(p.stock, 0), 0)
+    const avgMargin    = withCost.reduce((s, p) => s + marginPct(p), 0) / withCost.length
+    const belowThreshold = products.filter(p => { const m = marginPct(p); return m !== null && m < 35 }).length
+    const weightedMargin = totalCost > 0 ? (totalRevenue - totalCost) / totalCost * 100 : 0
+    return { avgMargin, weightedMargin, belowThreshold, total: withCost.length }
+  })()
 
   const paginated    = bulkMode ? filtered : filtered.slice(0, visibleCount)
 
@@ -94,7 +135,11 @@ export default function ProductsPage() {
     return () => obs.disconnect()
   }, [visibleCount, filtered.length])
 
-  function openAdd() { setForm(EMPTY_PROD); setModal('add') }
+  async function openAdd() {
+    const barcode = await genUniqueCKBarcode(supabase)
+    setForm({ ...EMPTY_PROD, barcode })
+    setModal('add')
+  }
   function openEdit(p) {
     setForm({ barcode: p.barcode||'', name: p.name, category_id: String(p.category_id||''), unit: p.unit||'ชิ้น', cost: String(p.cost||''), price: String(p.price||''), stock: String(p.stock||''), min_stock: String(p.min_stock||5), active: p.active })
     setModal({ type:'edit', id: p.id })
@@ -142,6 +187,8 @@ export default function ProductsPage() {
     const qtys = {}
     selected.forEach(id => { qtys[id] = 1 })
     setPrintQtys(qtys)
+    const cfg = JSON.parse(localStorage.getItem('printer_barcode') || '{}')
+    setPrinterCfg(cfg)
     setPrintModal(true)
   }
 
@@ -152,33 +199,50 @@ export default function ProductsPage() {
 
     // ลองพิมพ์ผ่าน bridge ก่อน
     const cfg = JSON.parse(localStorage.getItem('printer_barcode') || '{}')
-    if (cfg.ip) {
-      if (!cfg.bridge_url) {
-        alert('กรุณาตั้งค่า Bridge URL ก่อน\n(ตั้งค่า → เครื่องพิมพ์ → Bridge URL = http://IP-Mac:3000)')
-        return
-      }
+    if (!cfg.ip) return alert('ยังไม่ได้ตั้งค่า IP เครื่องพิมพ์บาร์โค้ด\nไปตั้งค่าที่ Admin → เครื่องพิมพ์')
+
+    setIsPrinting(true)
+    try {
+      const { buildLabelTSPL, buildLabelESCPOS, printViaBridge } = await import('@/lib/printBridge')
+      const lang  = cfg.lang || 'tspl'
+      const bytes = lang === 'tspl'
+        ? await buildLabelTSPL(items, size)
+        : await buildLabelESCPOS(items, size, parseInt(cfg.paper_width) || 100)
+
+      // ลองพิมที่ IP ที่บันทึกไว้ก่อน
       try {
-        const { buildLabelTSPL, buildLabelESCPOS, printViaBridge } = await import('@/lib/printBridge')
-        const lang  = cfg.lang || 'tspl'
-        const bytes = lang === 'tspl'
-          ? await buildLabelTSPL(items, size)
-          : await buildLabelESCPOS(items, size, parseInt(cfg.paper_width) || 100)
-        await printViaBridge(cfg.bridge_url, cfg.ip, cfg.port || 9100, bytes)
+        await printViaBridge('', cfg.ip, cfg.port || 9100, bytes, [0, 4000])
         setPrintModal(false)
         return
-      } catch (e) {
-        console.warn('Bridge label print failed, fallback to popup:', e.message)
-        alert('พิมพ์ไม่ได้: ' + e.message)
-        return
+      } catch (connErr) {
+        // ถ้า connect ไม่ได้ และมี MAC → ค้นหา IP ใหม่อัตโนมัติ
+        if (!cfg.mac) throw connErr
+        console.warn('Primary IP failed, auto-discovering printer by MAC...')
+        const res = await fetch('/api/find-printer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mac: cfg.mac, port: cfg.port || 9100 }),
+        })
+        const found = await res.json()
+        if (!found.ip) throw connErr
+        // พบ IP ใหม่ — อัปเดตและพิมพ์
+        const newCfg = { ...cfg, ip: found.ip }
+        localStorage.setItem('printer_barcode', JSON.stringify(newCfg))
+        supabase.from('settings').upsert({ key: 'printer_barcode', value: JSON.stringify(newCfg) }, { onConflict: 'key' })
+        setPrinterCfg(newCfg)
+        await printViaBridge('', found.ip, cfg.port || 9100, bytes, [0])
+        setPrintModal(false)
       }
+    } catch (e) {
+      console.warn('Label print failed:', e.message)
+      const msg = e.message || ''
+      if (msg.includes('EHOSTDOWN') || msg.includes('EHOSTUNREACH') || msg.includes('ENETUNREACH') || msg.includes('timeout') || msg.includes('เชื่อมต่อ'))
+        alert(`❌ หาเครื่องพิมไม่เจอ\nIP: ${cfg.ip}:${cfg.port||9100}\n\nตรวจสอบ:\n• เครื่องพิมเปิดอยู่ไหม?\n• สาย LAN เสียบอยู่ไหม?`)
+      else
+        alert(`❌ พิมพ์ไม่ได้: ${msg}`)
+    } finally {
+      setIsPrinting(false)
     }
-
-    // Fallback: browser popup
-    const win = window.open('', '_blank', 'width=600,height=800')
-    if (!win) return alert('อนุญาต popup ก่อน')
-    win.document.write(buildLabelHTML(items, size))
-    win.document.close()
-    setTimeout(() => win.print(), 600)
   }
 
   async function addCategory() {
@@ -411,9 +475,41 @@ export default function ProductsPage() {
         </div>
       </div>
 
+      {/* Margin summary */}
+      {role === 'admin' && marginStats && (
+        <div className="grid grid-cols-3 gap-2 mb-3">
+          <div className="card p-3 text-center">
+            <p className="text-xs text-slate-400 mb-0.5">%กำไรเฉลี่ย</p>
+            <p className={`text-xl font-bold ${marginStats.avgMargin >= 35 ? 'text-green-600' : 'text-amber-500'}`}>
+              {marginStats.avgMargin.toFixed(1)}%
+            </p>
+            <p className="text-[10px] text-slate-400">เฉลี่ยต่อรายการ</p>
+          </div>
+          <div className="card p-3 text-center">
+            <p className="text-xs text-slate-400 mb-0.5">%กำไรถ่วงน้ำหนัก</p>
+            <p className={`text-xl font-bold ${marginStats.weightedMargin >= 35 ? 'text-green-600' : 'text-amber-500'}`}>
+              {marginStats.weightedMargin.toFixed(1)}%
+            </p>
+            <p className="text-[10px] text-slate-400">ตามมูลค่าสต็อก</p>
+          </div>
+          <button
+            onClick={() => setFilterMargin(f => f === 'low' ? 'all' : 'low')}
+            className={`card p-3 text-center transition-colors ${filterMargin === 'low' ? 'ring-2 ring-red-400 bg-red-50' : 'hover:bg-red-50/50'}`}>
+            <p className="text-xs text-slate-400 mb-0.5">ต่ำกว่าเกณฑ์ 35%</p>
+            <p className="text-xl font-bold text-red-500">{marginStats.belowThreshold}</p>
+            <p className="text-[10px] text-slate-400">รายการ {filterMargin === 'low' ? '· กดเพื่อยกเลิก' : '· กดเพื่อดู'}</p>
+          </button>
+        </div>
+      )}
+
       {/* Filters */}
       <div className="flex flex-wrap gap-2 mb-3">
-        <input value={search} onChange={e => setSearch(e.target.value)}
+        <input value={inputValue} onChange={e => {
+          const v = e.target.value
+          setInputValue(v)
+          clearTimeout(searchTimer.current)
+          searchTimer.current = setTimeout(() => setSearch(v), 300)
+        }}
           placeholder="ค้นหาสินค้า / บาร์โค้ด"
           className="field flex-1 min-w-[160px]" />
         <select value={filterCat} onChange={e => setFilterCat(e.target.value)} className="field">
@@ -425,6 +521,13 @@ export default function ProductsPage() {
           <option value="low">ใกล้หมด</option>
           <option value="out">หมดแล้ว</option>
         </select>
+        {role === 'admin' && (
+          <select value={filterMargin} onChange={e => setFilterMargin(e.target.value)} className="field">
+            <option value="all">ทุก%กำไร</option>
+            <option value="low">กำไร &lt; 35%</option>
+            <option value="none">ไม่มีต้นทุน</option>
+          </select>
+        )}
       </div>
 
       {/* Select all */}
@@ -456,6 +559,7 @@ export default function ProductsPage() {
                 <th className="text-left px-3 py-3 font-semibold hidden sm:table-cell">หมวด</th>
                 <th className="text-right px-3 py-3 font-semibold">ราคาขาย</th>
                 <th className="text-right px-3 py-3 font-semibold hidden sm:table-cell">ทุน</th>
+                <th className="text-right px-3 py-3 font-semibold hidden sm:table-cell">%กำไร</th>
                 <th className="text-right px-3 py-3 font-semibold">สต็อก</th>
                 <th className="text-center px-3 py-3 font-semibold">สถานะ</th>
                 <th className="w-20 py-3 pr-3"></th>
@@ -488,6 +592,18 @@ export default function ProductsPage() {
                           className="w-20 border border-gray-200 rounded px-1.5 py-1 text-xs text-right focus:border-brand outline-none" />
                       : <span className="text-slate-400 text-xs">฿{fmt(p.cost)}</span>}
                   </td>}
+                  {role === 'admin' && (() => {
+                    const m = marginPct(bulkMode ? { cost: parseFloat(e.cost ?? p.cost), price: parseFloat(e.price ?? p.price) } : p)
+                    return (
+                      <td className="px-2 py-1.5 text-right hidden sm:table-cell">
+                        {m === null
+                          ? <span className="text-slate-300 text-xs">—</span>
+                          : <span className={`text-xs font-semibold ${m < 35 ? 'text-red-500' : m < 50 ? 'text-amber-500' : 'text-green-600'}`}>
+                              {m.toFixed(0)}%
+                            </span>}
+                      </td>
+                    )
+                  })()}
                   <td className="px-2 py-1.5 text-right">
                     {bulkMode
                       ? <input type="number" value={e.stock ?? ''} onChange={ev => setBulkField(p.id,'stock',ev.target.value)}
@@ -617,7 +733,19 @@ export default function ProductsPage() {
               <button onClick={() => setModal(null)} className="text-2xl opacity-70 leading-none">×</button>
             </div>
             <div className="p-4 space-y-3">
-              <Field label="บาร์โค้ด (Code128)" value={form.barcode} onChange={v => setForm(p=>({...p,barcode:v}))} placeholder="เว้นว่างถ้าไม่มีบาร์โค้ด" />
+              <div>
+                <label className="text-xs font-semibold text-slate-500 block mb-1.5">บาร์โค้ด (Code128)</label>
+                <div className="flex gap-2">
+                  <input value={form.barcode} onChange={e => setForm(p=>({...p,barcode:e.target.value}))}
+                    placeholder="เว้นว่างถ้าไม่มีบาร์โค้ด"
+                    className="field flex-1 font-mono text-sm" />
+                  <button type="button"
+                    onClick={async () => { const b = await genUniqueCKBarcode(supabase); setForm(p=>({...p,barcode:b})) }}
+                    className="shrink-0 px-3 py-2 bg-brand/10 text-brand text-xs font-bold rounded-xl border border-brand/20 hover:bg-brand/20 transition-colors whitespace-nowrap">
+                    🎲 สุ่ม CK
+                  </button>
+                </div>
+              </div>
               <Field label="ชื่อสินค้า *" value={form.name} onChange={v => setForm(p=>({...p,name:v}))} placeholder="ชื่อสินค้า" />
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -633,6 +761,13 @@ export default function ProductsPage() {
                 {role === 'admin' && <Field label="ราคาทุน (฿)" value={form.cost} onChange={v => setForm(p=>({...p,cost:v}))} type="number" placeholder="0" />}
                 <Field label="ราคาขาย (฿) *" value={form.price} onChange={v => setForm(p=>({...p,price:v}))} type="number" placeholder="0" />
               </div>
+              {parseFloat(form.cost) > 0 && (
+                <button type="button"
+                  onClick={() => setForm(p => ({ ...p, price: String(Math.ceil(parseFloat(p.cost||0) * 1.35)) }))}
+                  className="text-[10px] text-brand -mt-1">
+                  แนะนำราคาขาย +35% = ฿{Math.ceil(parseFloat(form.cost||0) * 1.35)}
+                </button>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <Field label="สต็อกปัจจุบัน" value={form.stock} onChange={v => setForm(p=>({...p,stock:v}))} type="number" placeholder="0" />
                 <Field label="สต็อกขั้นต่ำ" value={form.min_stock} onChange={v => setForm(p=>({...p,min_stock:v}))} type="number" placeholder="5" />
@@ -737,7 +872,10 @@ export default function ProductsPage() {
                 <label className="text-xs font-semibold text-slate-500 block mb-1.5">ขนาดสติ๊กเกอร์</label>
                 <div className="grid grid-cols-3 gap-2">
                   {LABEL_SIZES.map(s => (
-                    <button key={s.id} onClick={() => setLabelSize(s.id)}
+                    <button key={s.id} onClick={() => {
+                        setLabelSize(s.id)
+                        supabase.from('settings').upsert({ key: 'label_size', value: s.id }, { onConflict: 'key' })
+                      }}
                       className={`p-2.5 rounded-xl border-2 text-xs text-center transition-all font-semibold
                         ${labelSize === s.id ? 'border-amber-500 bg-amber-50 text-amber-700' : 'border-slate-200 text-slate-600'}`}>
                       {s.label}
@@ -791,11 +929,28 @@ export default function ProductsPage() {
                 })()}
               </div>
 
+              {printerCfg?.ip ? (
+                <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
+                  <span className="text-emerald-500 text-base">🖨️</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-emerald-700">เครื่องพิมพ์บาร์โค้ด</p>
+                    <p className="text-[11px] text-emerald-600 font-mono">{printerCfg.ip}:{printerCfg.port || 9100}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+                  <span className="text-red-500 text-base">⚠️</span>
+                  <div className="flex-1">
+                    <p className="text-xs font-semibold text-red-700">ยังไม่ได้ตั้งค่า IP เครื่องพิมพ์</p>
+                    <p className="text-[11px] text-red-500">ไปตั้งค่าที่ Admin → เครื่องพิมพ์</p>
+                  </div>
+                </div>
+              )}
               <div className="flex gap-2">
                 <button onClick={() => setPrintModal(false)} className="flex-1 btn-secondary">ยกเลิก</button>
-                <button onClick={printLabels}
-                  className="flex-1 bg-amber-500 text-white py-3 rounded-xl text-sm font-bold active:scale-95 transition-transform shadow">
-                  🖨️ สั่งพิมพ์
+                <button onClick={printLabels} disabled={isPrinting}
+                  className="flex-1 bg-amber-500 text-white py-3 rounded-xl text-sm font-bold active:scale-95 transition-transform shadow disabled:opacity-60">
+                  {isPrinting ? '⏳ กำลังพิมพ์...' : '🖨️ สั่งพิมพ์'}
                 </button>
               </div>
             </div>

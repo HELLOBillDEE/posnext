@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { fmt, fmtDate } from '@/lib/utils'
-import { printViaBridge, buildReceiptESCPOS, buildLabelTSPL, buildLabelESCPOS } from '@/lib/printBridge'
+import { printViaBridge, buildReceiptESCPOS, buildLabelTSPL, buildLabelESCPOS, kickDrawerViaBridge } from '@/lib/printBridge'
 
 const SETTING_FIELDS = [
   { key:'shop_name',       label:'ชื่อร้าน',                         placeholder:'ร้านของฉัน' },
@@ -21,7 +21,7 @@ const SETTING_FIELDS = [
   { key:'line_group_id',        label:'LINE Group ID (บันทึกอัตโนมัติ)',   placeholder:'C... (ระบบกรอกให้เองเมื่อเพิ่ม Bot เข้ากลุ่ม)' },
 ]
 
-const TABS = ['ตั้งค่าร้าน', 'เครื่องพิมพ์', 'ลูกค้า', 'ซัพพลายเออร์', 'ประวัติสต็อก', '🔗 BillDEE Sync', '🔓 ลิ้นชัก']
+const TABS = ['ตั้งค่าร้าน', 'เครื่องพิมพ์', 'ลูกค้า', 'ซัพพลายเออร์', 'ประวัติสต็อก', '🔗 BillDEE Sync', '🔓 ลิ้นชัก', '💰 พนักงาน']
 
 const DEF_BILLDEE = { url: '', business_id: '', token: '', enabled: false }
 function loadBillDeeConfig() {
@@ -29,7 +29,7 @@ function loadBillDeeConfig() {
   return JSON.parse(localStorage.getItem('billdee_config') || 'null') || DEF_BILLDEE
 }
 
-const DEF_BARCODE  = { name:'Barcode Printer', ip:'192.168.2.69', port:'9100', paper_width:'100', bridge_url:'', lang:'tspl' }
+const DEF_BARCODE  = { name:'Barcode Printer', ip:'192.168.2.48', port:'9100', paper_width:'100', bridge_url:'', lang:'tspl', mac:'' }
 const DEF_RECEIPT  = { name:'Receipt Printer', ip:'192.168.2.88', port:'9100', paper_width:'80',  bridge_url:'' }
 
 function loadPrinters() {
@@ -63,11 +63,18 @@ export default function AdminPage() {
   const [billdee, setBilldee] = useState(loadBillDeeConfig)
   const [billdeeStatus, setBilldeeStatus] = useState(null) // null | 'testing' | 'ok' | 'error'
   const [drawerLogs, setDrawerLogs]       = useState([])
+  const [drawerAction, setDrawerAction]   = useState('') // 'opening'|'waking'|'ok'|'error'
+  const [drawerMsg, setDrawerMsg]         = useState('')
+  const [payroll, setPayroll]             = useState(null)
+  const [payrollPeriod, setPayrollPeriod] = useState(() => new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Bangkok'}).slice(0,7))
+  const [payrollLoading, setPayrollLoading] = useState(false)
+  const [editRate, setEditRate]           = useState({})   // { [emp_id]: value }
+  const [leaveTab, setLeaveTab]           = useState(null) // employee id for leave detail view
   const [logoUploading, setLogoUploading]     = useState(false)
   const [qrUploading, setQrUploading]         = useState(false)
   const [lineQrUploading, setLineQrUploading] = useState(false)
 
-  useEffect(() => { loadAll() }, [tab])
+  useEffect(() => { loadAll() }, [tab])  // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadAll() {
     const { data: cfg } = await supabase.from('settings').select('*')
@@ -88,6 +95,32 @@ export default function AdminPage() {
       const { data } = await supabase.from('drawer_logs').select('*').order('opened_at', { ascending: false }).limit(200)
       setDrawerLogs(data || [])
     }
+    if (tab === 7) loadPayroll(payrollPeriod)
+  }
+
+  async function loadPayroll(period) {
+    setPayrollLoading(true)
+    try {
+      const res  = await fetch(`/api/payroll?period=${period}`)
+      const json = await res.json()
+      if (!json.error) {
+        setPayroll(json)
+        // init edit rate values from employees
+        const rates = {}
+        for (const e of json.employees || []) rates[e.id] = String(e.daily_rate || '')
+        setEditRate(rates)
+      }
+    } catch {}
+    setPayrollLoading(false)
+  }
+
+  async function saveRate(empId) {
+    const rate = Number(editRate[empId] || 0)
+    await fetch('/api/payroll', {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ employee_id: empId, daily_rate: rate }),
+    })
+    await loadPayroll(payrollPeriod)
   }
 
   async function uploadLogo(file) {
@@ -164,11 +197,19 @@ export default function AdminPage() {
     }
   }
 
-  function savePrinters() {
+  async function savePrinters() {
     localStorage.setItem('printer_barcode', JSON.stringify(printers.barcode))
     localStorage.setItem('printer_receipt', JSON.stringify(printers.receipt))
-    setPrinterSaved(true)
-    setTimeout(() => setPrinterSaved(false), 2000)
+    try {
+      const r1 = await supabase.from('settings').upsert({ key: 'printer_barcode', value: JSON.stringify(printers.barcode) }, { onConflict: 'key' })
+      if (r1.error) throw r1.error
+      const r2 = await supabase.from('settings').upsert({ key: 'printer_receipt', value: JSON.stringify(printers.receipt) }, { onConflict: 'key' })
+      if (r2.error) throw r2.error
+      setPrinterSaved(true)
+      setTimeout(() => setPrinterSaved(false), 2000)
+    } catch (e) {
+      alert('บันทึกเครื่องพิมพ์ไม่สำเร็จ: ' + (e?.message || e))
+    }
   }
 
   const [testReceiptStatus, setTestReceiptStatus] = useState(null)
@@ -235,7 +276,13 @@ export default function AdminPage() {
         setTestBarcodeStatus(null); return
       }
     } catch (e) {
-      alert('ทดสอบพิมพ์บาร์โค้ดล้มเหลว: ' + e.message)
+      const msg = e.message || ''
+      if (msg.includes('EHOSTDOWN') || msg.includes('EHOSTUNREACH') || msg.includes('ENETUNREACH'))
+        alert('เครื่องพิมบาร์โค้ดปิดอยู่หรือไม่ได้ต่อเน็ต\nกรุณาเปิดเครื่องและลองใหม่')
+      else if (msg.includes('ECONNREFUSED') || msg.includes('เชื่อมต่อ'))
+        alert('เชื่อมต่อเครื่องพิมไม่ได้ (' + cfg.ip + ')\nตรวจสอบ IP และพอร์ตในตั้งค่า')
+      else
+        alert('ทดสอบพิมพ์บาร์โค้ดล้มเหลว: ' + msg)
       setTestBarcodeStatus('error')
     }
     setTimeout(() => setTestBarcodeStatus(null), 3000)
@@ -268,6 +315,52 @@ export default function AdminPage() {
     <div class="footer">${r.footer}</div>
     <script>window.onload=()=>{window.focus();window.print()}</script>
     </body></html>`
+  }
+
+  async function handleOpenDrawer() {
+    const cfg = printers.receipt
+    if (!cfg?.ip) return alert('ยังไม่ได้ตั้งค่า IP เครื่องพิมในแท็บ เครื่องพิมพ์')
+    setDrawerAction('opening'); setDrawerMsg('')
+    try {
+      await kickDrawerViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100)
+      setDrawerAction('ok'); setDrawerMsg('เปิดลิ้นชักสำเร็จ ✓')
+    } catch (e) {
+      setDrawerAction('error'); setDrawerMsg('ไม่สามารถเปิดลิ้นชักได้: ' + (e?.message || 'error'))
+    } finally {
+      setTimeout(() => setDrawerAction(''), 4000)
+    }
+  }
+
+  async function handleWakePrinter() {
+    const cfg = printers.receipt
+    if (!cfg?.ip) return alert('ยังไม่ได้ตั้งค่า IP เครื่องพิมในแท็บ เครื่องพิมพ์')
+    setDrawerAction('waking'); setDrawerMsg('')
+    try {
+      const bytes = new Uint8Array([0x1B, 0x40, 0x0A, 0x1D, 0x56, 0x42, 0x00])
+      await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
+      setDrawerAction('ok'); setDrawerMsg('ปลุกใบเสร็จสำเร็จ ✓')
+    } catch (e) {
+      setDrawerAction('error'); setDrawerMsg('ไม่สามารถปลุกใบเสร็จได้: ' + (e?.message || 'error'))
+    } finally {
+      setTimeout(() => setDrawerAction(''), 4000)
+    }
+  }
+
+  async function handleWakeBarcode() {
+    const cfg = printers.barcode
+    if (!cfg?.ip) return alert('ยังไม่ได้ตั้งค่า IP เครื่องพิมบาร์โค้ดในแท็บ เครื่องพิมพ์')
+    setDrawerAction('waking-barcode'); setDrawerMsg('')
+    try {
+      // TSPL: ส่งแค่ SIZE+GAP (ไม่ PRINT) เพื่อปลุกโดยไม่พิมอะไร
+      const wake = 'SIZE 100 mm, 25 mm\r\nGAP 3 mm, 0 mm\r\n'
+      const bytes = new TextEncoder().encode(wake)
+      await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
+      setDrawerAction('ok'); setDrawerMsg('ปลุกบาร์โค้ดสำเร็จ ✓')
+    } catch (e) {
+      setDrawerAction('error'); setDrawerMsg('ไม่สามารถปลุกบาร์โค้ดได้: ' + (e?.message || 'error'))
+    } finally {
+      setTimeout(() => setDrawerAction(''), 4000)
+    }
   }
 
   function saveBillDee() {
@@ -325,9 +418,16 @@ export default function AdminPage() {
   async function saveSupplier() {
     if (!suppForm.name) return alert('กรุณากรอกชื่อซัพพลายเออร์')
     setSaving(true)
+    const payload = {
+      name: suppForm.name.trim(),
+      code: suppForm.code.trim() || null,
+      phone: suppForm.phone.trim() || null,
+      address: suppForm.address.trim() || null,
+      tax_id: suppForm.tax_id.trim() || null,
+    }
     try {
-      if (suppModal === 'add') await supabase.from('suppliers').insert(suppForm)
-      else await supabase.from('suppliers').update(suppForm).eq('id', suppModal.id)
+      if (suppModal === 'add') await supabase.from('suppliers').insert(payload)
+      else await supabase.from('suppliers').update(payload).eq('id', suppModal.id)
       setSuppModal(null)
       const { data } = await supabase.from('suppliers').select('*').order('name')
       setSuppliers(data || [])
@@ -450,6 +550,7 @@ export default function AdminPage() {
               values={printers.barcode}
               onChange={v => setPrinters(p => ({...p, barcode: {...p.barcode, ...v}}))}
               paperOptions={[{v:'100',l:'100mm (3 ดวง/แถว)'},{v:'58',l:'58mm (มาตรฐาน)'},{v:'40',l:'40mm (แคบ)'}]}
+              showMac
             />
             <button onClick={testPrintBarcode} disabled={testBarcodeStatus === 'printing'}
               className={`w-full py-2.5 rounded-xl text-sm font-semibold border transition-all active:scale-95 disabled:opacity-50
@@ -673,6 +774,26 @@ export default function AdminPage() {
       {/* ── ลิ้นชัก ── */}
       {tab === 6 && (
         <div className="space-y-3 max-w-2xl">
+          {/* Quick actions */}
+          <div className="card-pad flex flex-wrap gap-3 items-center">
+            <button onClick={handleOpenDrawer} disabled={!!drawerAction}
+              className="btn-primary px-4 py-2 text-sm disabled:opacity-50">
+              {drawerAction === 'opening' ? '⏳' : '🔓'} เรียกลิ้นชัก
+            </button>
+            <button onClick={handleWakePrinter} disabled={!!drawerAction}
+              className="btn-secondary px-4 py-2 text-sm disabled:opacity-50">
+              {drawerAction === 'waking' ? '⏳' : '🖨️'} ปลุกใบเสร็จ
+            </button>
+            <button onClick={handleWakeBarcode} disabled={!!drawerAction}
+              className="btn-secondary px-4 py-2 text-sm disabled:opacity-50">
+              {drawerAction === 'waking-barcode' ? '⏳' : '🏷️'} ปลุกบาร์โค้ด
+            </button>
+            {drawerAction && (
+              <span className={`text-sm font-medium ${drawerAction === 'ok' ? 'text-emerald-600' : drawerAction === 'error' ? 'text-red-500' : 'text-slate-400'}`}>
+                {drawerAction === 'opening' ? 'กำลังเปิดลิ้นชัก...' : drawerAction === 'waking' ? 'กำลังปลุกใบเสร็จ...' : drawerAction === 'waking-barcode' ? 'กำลังปลุกบาร์โค้ด...' : drawerMsg}
+              </span>
+            )}
+          </div>
           <div className="flex items-center justify-between">
             <h2 className="font-heading font-semibold text-slate-800">ประวัติการเปิดลิ้นชักด้วยตนเอง</h2>
             <span className="text-xs text-slate-400">{drawerLogs.length} รายการล่าสุด</span>
@@ -721,6 +842,211 @@ export default function AdminPage() {
         </div>
       )}
 
+      {/* ── พนักงาน / Payroll ── */}
+      {tab === 7 && (
+        <div className="space-y-4 max-w-3xl">
+          {/* Period selector */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <h2 className="font-heading font-semibold text-slate-800">เงินเดือนพนักงาน</h2>
+            <div className="flex items-center gap-2 ml-auto">
+              <input type="month" value={payrollPeriod}
+                onChange={e => { setPayrollPeriod(e.target.value); loadPayroll(e.target.value) }}
+                className="field text-sm" />
+              <button onClick={() => loadPayroll(payrollPeriod)}
+                className="btn-secondary text-sm px-3 py-2">↻ โหลด</button>
+            </div>
+          </div>
+
+          {payrollLoading && (
+            <div className="text-center py-12 text-slate-400 text-sm">กำลังโหลด…</div>
+          )}
+
+          {!payrollLoading && payroll && (
+            <>
+              {/* Summary cards */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="card-pad text-center">
+                  <p className="text-2xl font-bold text-brand">{payroll.employees?.length || 0}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">พนักงาน</p>
+                </div>
+                <div className="card-pad text-center">
+                  <p className="text-2xl font-bold text-green-600">
+                    ฿{(payroll.employees||[]).reduce((s,e)=>s+e.grossPay,0).toLocaleString('th-TH')}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-0.5">รวมค่าแรง</p>
+                </div>
+                <div className="card-pad text-center">
+                  <p className="text-2xl font-bold text-amber-600">
+                    ฿{(payroll.employees||[]).reduce((s,e)=>s+e.advTotal,0).toLocaleString('th-TH')}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-0.5">รวมเบิก</p>
+                </div>
+              </div>
+
+              {/* Employee rows */}
+              <div className="space-y-3">
+                {(payroll.employees||[]).map(emp => (
+                  <div key={emp.id} className="card-pad space-y-3">
+                    {/* Header */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-bold text-slate-800">{emp.nickname || emp.name}</p>
+                        <p className="text-xs text-slate-400">{emp.position || 'พนักงาน'}</p>
+                      </div>
+                      {/* Edit daily rate */}
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-slate-400 whitespace-nowrap">฿/วัน</span>
+                        <input type="number" value={editRate[emp.id] ?? ''} min="0"
+                          onChange={e => setEditRate(p => ({...p, [emp.id]: e.target.value}))}
+                          onBlur={() => saveRate(emp.id)}
+                          className="field w-24 text-right text-sm font-bold" placeholder="0" />
+                      </div>
+                    </div>
+
+                    {/* Stats grid */}
+                    <div className="grid grid-cols-3 gap-2 text-center text-sm">
+                      <div className="bg-slate-50 rounded-xl py-2">
+                        <p className="font-bold text-slate-700">{emp.daysWorked}</p>
+                        <p className="text-xs text-slate-400">วันทำงาน</p>
+                      </div>
+                      <div className="bg-green-50 rounded-xl py-2">
+                        <p className="font-bold text-green-700">฿{emp.grossPay.toLocaleString('th-TH')}</p>
+                        <p className="text-xs text-slate-400">ค่าแรงรวม{emp.streakBonus > 0 ? ' +โบนัส' : ''}</p>
+                      </div>
+                      <div className={`rounded-xl py-2 ${emp.netPay > 0 ? 'bg-blue-50' : 'bg-red-50'}`}>
+                        <p className={`font-bold ${emp.netPay > 0 ? 'text-blue-700' : 'text-red-600'}`}>
+                          ฿{emp.netPay.toLocaleString('th-TH')}
+                        </p>
+                        <p className="text-xs text-slate-400">จ่ายสุทธิ</p>
+                      </div>
+                    </div>
+
+                    {/* Bonus badge */}
+                    {emp.streakBonus > 0 && (
+                      <div className="bg-yellow-50 border border-yellow-200 rounded-xl px-3 py-2 text-xs text-yellow-700 font-semibold">
+                        ⭐ โบนัสมาครบ 10 วัน +฿{emp.streakBonus.toLocaleString('th-TH')}
+                      </div>
+                    )}
+
+                    {/* Advance detail */}
+                    {emp.advTotal > 0 && (
+                      <div className="bg-amber-50 rounded-xl px-3 py-2 text-xs text-amber-700">
+                        <span className="font-semibold">เบิกล่วงหน้า ฿{emp.advTotal.toLocaleString('th-TH')}</span>
+                        {emp.overDraw > 0 && (
+                          <span className="ml-2 text-red-600 font-bold">
+                            · เบิกเกิน ฿{emp.overDraw.toLocaleString('th-TH')} (ต้องหัก {emp.daysToDeduct} วันถัดไป)
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Leave this period */}
+                    {emp.leaves?.length > 0 && (
+                      <div className="border-t border-slate-100 pt-2">
+                        <p className="text-xs font-semibold text-slate-500 mb-1.5">การลาเดือนนี้</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {emp.leaves.map((l, i) => {
+                            const from = new Date(l.date_from+'T00:00:00').toLocaleDateString('th-TH',{day:'numeric',month:'short'})
+                            const to   = l.date_to !== l.date_from
+                              ? ' – ' + new Date(l.date_to+'T00:00:00').toLocaleDateString('th-TH',{day:'numeric',month:'short'}) : ''
+                            const period = l.leave_period === 'morning' ? '(เช้า)' : l.leave_period === 'afternoon' ? '(บ่าย)' : ''
+                            const statusCls = l.status === 'approved' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                            return (
+                              <span key={i} className={`text-xs px-2 py-0.5 rounded-full font-semibold ${statusCls}`}>
+                                {from}{to} {period}
+                              </span>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* ── ตารางลาแบบปฏิทินเต็มเดือน ── */}
+              {(() => {
+                const [yr, mo] = payrollPeriod.split('-').map(Number)
+                const daysInMonth = new Date(yr, mo, 0).getDate()
+                const days = Array.from({ length: daysInMonth }, (_, i) => i + 1)
+                const employees = payroll.employees || []
+
+                function getDayInfo(emp, day) {
+                  const d = `${payrollPeriod}-${String(day).padStart(2,'0')}`
+                  const leave = (emp.leaves||[]).find(l =>
+                    l.status !== 'cancelled' && l.date_from <= d && l.date_to >= d
+                  )
+                  const att = (emp.attendance||[]).find(a => a.date === d)
+                  if (leave?.status === 'approved') return 'leave'
+                  if (leave?.status === 'pending')  return 'pending'
+                  if (att?.check_in)                return 'work'
+                  return 'none'
+                }
+
+                const dayOfWeek = d => new Date(yr, mo-1, d).getDay() // 0=Sun,6=Sat
+
+                return (
+                  <div className="card-pad">
+                    <div className="flex items-center gap-2 mb-3 flex-wrap">
+                      <h3 className="font-heading font-semibold text-slate-700 text-sm">📅 ปฏิทินการลา — {payrollPeriod}</h3>
+                      <div className="flex gap-2 text-xs ml-auto flex-wrap">
+                        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-400 inline-block"></span>มาทำงาน</span>
+                        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-400 inline-block"></span>ลา</span>
+                        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-300 inline-block"></span>รออนุมัติ</span>
+                      </div>
+                    </div>
+                    <div className="overflow-x-auto -mx-4 px-4">
+                      <table className="text-xs border-separate border-spacing-0.5" style={{minWidth: daysInMonth*28+120}}>
+                        <thead>
+                          <tr>
+                            <th className="text-left py-1 pr-2 text-slate-500 font-semibold sticky left-0 bg-white z-10 min-w-[80px]">พนักงาน</th>
+                            {days.map(d => {
+                              const dow = dayOfWeek(d)
+                              const isWeekend = dow === 0 || dow === 6
+                              return (
+                                <th key={d} className={`w-6 text-center font-semibold pb-1 ${isWeekend ? 'text-red-400' : 'text-slate-400'}`}>
+                                  {d}
+                                </th>
+                              )
+                            })}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {employees.map(emp => (
+                            <tr key={emp.id}>
+                              <td className="py-0.5 pr-2 font-semibold text-slate-700 whitespace-nowrap sticky left-0 bg-white z-10">
+                                {emp.nickname || emp.name}
+                              </td>
+                              {days.map(d => {
+                                const type = getDayInfo(emp, d)
+                                const dow  = dayOfWeek(d)
+                                const isWeekend = dow === 0 || dow === 6
+                                const cell = {
+                                  work:    { bg: 'bg-green-400',  title: 'มาทำงาน', text: '' },
+                                  leave:   { bg: 'bg-red-400',    title: 'ลา (อนุมัติ)', text: 'ล' },
+                                  pending: { bg: 'bg-amber-300',  title: 'ขอลา (รออนุมัติ)', text: '?' },
+                                  none:    { bg: isWeekend ? 'bg-slate-100' : 'bg-slate-50', title: '', text: '' },
+                                }[type]
+                                return (
+                                  <td key={d} title={cell.title}
+                                    className={`w-6 h-5 rounded text-center leading-5 font-bold text-white ${cell.bg} ${type === 'none' ? 'text-slate-300' : ''}`}>
+                                    {cell.text}
+                                  </td>
+                                )
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )
+              })()}
+            </>
+          )}
+        </div>
+      )}
+
       {/* Customer Modal */}
       {custModal && (
         <Modal title={custModal === 'add' ? 'เพิ่มลูกค้า' : 'แก้ไขลูกค้า'} onClose={() => setCustModal(null)}>
@@ -755,7 +1081,7 @@ export default function AdminPage() {
   )
 }
 
-function PrinterFields({ values, onChange, paperOptions }) {
+function PrinterFields({ values, onChange, paperOptions, showMac = false }) {
   return (
     <div className="space-y-3">
       <div>
@@ -774,6 +1100,16 @@ function PrinterFields({ values, onChange, paperOptions }) {
             className="field w-full" placeholder="9100" type="number" />
         </div>
       </div>
+      {showMac && (
+        <div>
+          <label className="text-xs font-semibold text-slate-500 block mb-1.5">
+            MAC Address <span className="font-normal text-slate-400">(สำหรับค้นหา IP อัตโนมัติ)</span>
+          </label>
+          <input value={values.mac || ''} onChange={e => onChange({ mac: e.target.value.trim() })}
+            className="field w-full font-mono text-xs" placeholder="24:4c:ab:56:b5:34" />
+          <p className="text-[10px] text-slate-400 mt-1">ดูได้จากสติ๊กเกอร์ใต้เครื่องพิมพ์</p>
+        </div>
+      )}
       <div>
         <label className="text-xs font-semibold text-slate-500 block mb-1.5">ความกว้างกระดาษ</label>
         <div className="flex gap-2">

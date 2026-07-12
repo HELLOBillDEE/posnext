@@ -2,6 +2,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { genReceiptNo } from '@/lib/utils'
+import { printViaBridge, buildReceiptESCPOS } from '@/lib/printBridge'
+import { cacheSet, cacheGet, addToQueue, genOfflineRepairNo } from '@/lib/offlineQueue'
 
 const STATUS = {
   waiting:     { label: 'รอรับงาน',    emoji: '⏳', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)',  border: 'rgba(245,158,11,0.3)'  },
@@ -36,6 +38,256 @@ function fmtDate(d) {
   return new Date(d + 'T00:00:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })
 }
 
+async function printRepairReceipt(job, settings, receiptCfg, barcodeCfg) {
+  const cfg = receiptCfg || JSON.parse(typeof localStorage !== 'undefined' ? localStorage.getItem('printer_receipt') || '{}' : '{}')
+  const dt = new Date(job.created_at)
+  const dtStr = dt.toLocaleDateString('th-TH',{day:'2-digit',month:'2-digit',year:'numeric'}) + ' ' + dt.toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})
+  const apptDate = job.appointment_date ? new Date(job.appointment_date + 'T00:00:00').toLocaleDateString('th-TH',{day:'2-digit',month:'2-digit',year:'numeric'}) : ''
+  const apptStr = apptDate ? `${apptDate}${job.appointment_time ? ' ' + job.appointment_time : ''}` : ''
+  const pm = parseInt(cfg.paper_mm) || 80
+  const w = pm >= 80 ? '72mm' : '48mm'
+
+  // ─── ใบรับเครื่อง (receipt printer) ───
+  if (cfg.ip) {
+    try {
+      const bytes = await buildRepairESCPOS(job, settings, pm, dtStr, apptStr)
+      await printViaBridge('', cfg.ip, cfg.port || 9100, bytes)
+    } catch (e) {
+      console.error('receipt print error', e)
+      alert('❌ พิมใบนัดไม่ได้: ' + (e?.message || e) + '\nตรวจสอบ IP เครื่องพิมพ์ในหน้า Admin')
+    }
+  } else {
+    const html = buildRepairHTML(job, settings, w, dtStr, apptStr)
+    // ใช้ iframe แทน window.open เพื่อหลีกเลี่ยง popup blocker
+    const blob = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }))
+    const iframe = document.createElement('iframe')
+    iframe.style.cssText = 'position:fixed;left:-9999px;width:1px;height:1px;opacity:0'
+    document.body.appendChild(iframe)
+    iframe.onload = () => {
+      try { iframe.contentWindow.focus(); iframe.contentWindow.print() } catch {}
+      setTimeout(() => { document.body.removeChild(iframe); URL.revokeObjectURL(blob) }, 2000)
+    }
+    iframe.src = blob
+  }
+
+  // ─── สติ๊กเกอร์เลขคิว (barcode printer) ───
+  const bcfg = barcodeCfg || JSON.parse(typeof localStorage !== 'undefined' ? localStorage.getItem('printer_barcode') || '{}' : '{}')
+  if (bcfg.ip) {
+    try {
+      const bytes = await buildQueueSticker(job.repair_no, bcfg)
+      await printViaBridge('', bcfg.ip, bcfg.port || 9100, bytes)
+    } catch (e) { console.error('sticker print error', e) }
+  }
+}
+
+function buildRepairHTML(job, settings, w, dtStr, apptStr) {
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Kanit',sans-serif;width:${w};padding:4px 6px;background:#fff;color:#000}
+.shop{font-size:18px;font-weight:bold;text-align:center}
+.tag{font-size:12px;text-align:center;color:#555;margin-bottom:4px}
+.dash{border:none;border-top:1px dashed #000;margin:5px 0}
+.no{font-size:30px;font-weight:bold;text-align:center;letter-spacing:1px}
+.dt{font-size:12px;text-align:center;color:#555}
+.row{display:flex;gap:6px;font-size:14px;padding:2px 0}
+.lb{color:#555;min-width:52px;font-size:12px;flex-shrink:0}
+.vl{flex:1;word-break:break-word;font-weight:500}
+.price{font-size:22px;font-weight:bold;text-align:center}
+.foot{text-align:center;font-size:12px;color:#555;margin-top:4px}
+@media print{body{margin:0}}</style></head><body>
+<p class="shop">${settings.shop_name||'ร้านค้า'}</p>
+<p class="tag">— ใบรับเครื่อง —</p>
+<hr class="dash">
+<p class="no">${job.repair_no}</p>
+<p class="dt">${dtStr}</p>
+<hr class="dash">
+<div class="row"><span class="lb">ชื่อ</span><span class="vl">${job.customer_name||''}</span></div>
+${job.phone?`<div class="row"><span class="lb">เบอร์</span><span class="vl">${job.phone}</span></div>`:''}
+<hr class="dash">
+<div class="row"><span class="lb">อุปกรณ์</span><span class="vl">${job.device}</span></div>
+${job.description?`<div class="row"><span class="lb">อาการ</span><span class="vl">${job.description}</span></div>`:''}
+${job.note?`<div class="row"><span class="lb">หมายเหตุ</span><span class="vl">${job.note}</span></div>`:''}
+${job.price?`<hr class="dash"><p class="price">฿${Number(job.price).toFixed(2)}</p>${job.deposit?`<p class="dt">มัดจำ ฿${Number(job.deposit).toFixed(2)}</p>`:''}`:''}
+${apptStr?`<hr class="dash"><div class="row"><span class="lb">📅 นัดรับ</span><span class="vl" style="font-weight:bold">${apptStr}</span></div>`:''}
+<hr class="dash">
+<p class="foot">ขอบคุณที่ใช้บริการ</p>
+${settings.shop_phone?`<p class="foot">โทร ${settings.shop_phone}</p>`:''}
+<script>window.onload=()=>{window.focus();window.print()}</script></body></html>`
+}
+
+async function buildRepairESCPOS(job, settings, paperMM, dtStr, apptStr) {
+  const pw    = paperMM >= 80 ? 576 : 384
+  const PAD   = 16
+  const INNER = pw - PAD * 2
+  const FSM   = 24, FMD = 32, FLG = 44, FXL = 60
+
+  // ─── build draw list ───
+  const dl = []
+  const add = (text, opts = {}) => dl.push({ text: String(text ?? ''), align: opts.align || 'left', size: opts.size || FSM, bold: !!opts.bold, mt: opts.mt || 0 })
+  const div = () => dl.push({ divider: true })
+  const sp  = (n = 1) => { for (let i = 0; i < n; i++) add('', { size: FSM }) }
+
+  add(settings.shop_name || 'ร้านค้า', { align: 'center', size: FMD, bold: true })
+  add('— ใบรับเครื่อง —', { align: 'center', size: FSM })
+  div()
+  add('เลขที่', { align: 'center', size: FSM })
+  add(job.repair_no, { align: 'center', size: FXL, bold: true })
+  add(dtStr, { align: 'center', size: Math.round(FSM * 0.85) })
+  div()
+  add('ชื่อลูกค้า', { size: Math.round(FSM * 0.85) })
+  add(job.customer_name || '', { size: FMD, bold: true })
+  if (job.phone) {
+    add('เบอร์โทร', { size: Math.round(FSM * 0.85), mt: 6 })
+    add(job.phone, { size: FMD, bold: true })
+  }
+  div()
+  add('อุปกรณ์', { size: Math.round(FSM * 0.85) })
+  add(job.device, { size: FMD, bold: true })
+  if (job.description) { add('อาการ', { size: Math.round(FSM * 0.85), mt: 6 }); add(job.description, { size: FSM }) }
+  if (job.note)        { add('หมายเหตุ', { size: Math.round(FSM * 0.85), mt: 6 }); add(job.note, { size: FSM }) }
+  if (job.price) {
+    div()
+    add('ราคาประเมิน', { align: 'center', size: FSM })
+    add('฿' + Number(job.price).toFixed(2), { align: 'center', size: FXL, bold: true })
+    if (job.deposit) add('มัดจำ ฿' + Number(job.deposit).toFixed(2), { align: 'center', size: FSM })
+  }
+  if (apptStr) {
+    div()
+    add('วันนัดรับ', { align: 'center', size: FSM })
+    add(apptStr, { align: 'center', size: FLG, bold: true })
+  }
+  div()
+  add('ขอบคุณที่ใช้บริการ', { align: 'center', size: FSM })
+  if (settings.shop_phone) add('โทร ' + settings.shop_phone, { align: 'center', size: FSM })
+  sp(4)
+
+  // ─── helper: wrap long text ───
+  const tmpC = document.createElement('canvas'); tmpC.width = pw; tmpC.height = 1
+  const tmpX = tmpC.getContext('2d')
+  function wrap(ctx, text, maxW, size, bold) {
+    ctx.font = `${bold ? 'bold ' : ''}${size}px Kanit,Arial,sans-serif`
+    if (!text || ctx.measureText(text).width <= maxW) return [text || '']
+    const chars = [...text]; const ls = []; let cur = ''
+    for (const ch of chars) { if (ctx.measureText(cur + ch).width > maxW) { ls.push(cur); cur = ch } else cur += ch }
+    if (cur) ls.push(cur)
+    return ls
+  }
+
+  // ─── measure total height ───
+  let totalH = 0
+  for (const d of dl) {
+    if (d.divider) { totalH += 10; continue }
+    totalH += d.mt
+    const lh = Math.round(d.size * 1.45)
+    totalH += lh * wrap(tmpX, d.text, INNER, d.size, d.bold).length
+  }
+
+  // ─── draw ───
+  const canvas = document.createElement('canvas')
+  canvas.width = pw; canvas.height = totalH + 16
+  const ctx = canvas.getContext('2d')
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, pw, canvas.height)
+  ctx.fillStyle = '#000'
+
+  let y = 8
+  for (const d of dl) {
+    if (d.divider) { ctx.fillRect(PAD, y + 4, INNER, 1); y += 10; continue }
+    y += d.mt
+    const lh = Math.round(d.size * 1.45)
+    ctx.font = `${d.bold ? 'bold ' : ''}${d.size}px Kanit,Arial,sans-serif`
+    for (const wl of wrap(ctx, d.text, INNER, d.size, d.bold)) {
+      const tw = ctx.measureText(wl).width
+      let x = PAD
+      if (d.align === 'center') x = Math.max(PAD, Math.floor((pw - tw) / 2))
+      else if (d.align === 'right') x = pw - PAD - tw
+      ctx.textAlign = 'left'
+      ctx.fillText(wl, x, y + d.size)
+      y += lh
+    }
+  }
+
+  // ─── canvas → ESC/POS GS v 0 bitmap ───
+  const imgData = ctx.getImageData(0, 0, pw, canvas.height)
+  const wBytes = Math.ceil(pw / 8)
+  const bitmap = new Uint8Array(wBytes * canvas.height)
+  for (let row = 0; row < canvas.height; row++)
+    for (let col = 0; col < pw; col++) {
+      const i = (row * pw + col) * 4
+      const lum = (imgData.data[i] * 299 + imgData.data[i+1] * 587 + imgData.data[i+2] * 114) / 1000
+      if (lum < 128) bitmap[row * wBytes + (col >> 3)] |= (0x80 >> (col & 7))
+    }
+  const GS = 0x1D, b = [0x1B, 0x40]
+  b.push(GS, 0x76, 0x30, 0x00)
+  b.push(wBytes & 0xFF, (wBytes >> 8) & 0xFF)
+  b.push(canvas.height & 0xFF, (canvas.height >> 8) & 0xFF)
+  for (const byte of bitmap) b.push(byte)
+  b.push(GS, 0x56, 0x00)
+  return new Uint8Array(b)
+}
+
+async function buildQueueSticker(repairNo, bcfg) {
+  const lang  = bcfg.lang || 'tspl'
+  const DPI   = 203
+  const mm2d  = mm => Math.round(mm * DPI / 25.4)
+  // label เดียว = 1/3 ของกระดาษ 100x25mm → ~32x25mm
+  const lw    = 32
+  const lh    = 25
+  const lwD   = mm2d(lw)
+  const lhD   = mm2d(lh)
+  const wBytes = Math.ceil(lwD / 8)
+
+  const canvas = document.createElement('canvas')
+  canvas.width = lwD; canvas.height = lhD
+  const ctx = canvas.getContext('2d')
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, lwD, lhD)
+  ctx.fillStyle = '#000'
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+
+  // หาขนาด font ที่พอดีกับ label
+  let fs = Math.round(lhD * 0.55)
+  ctx.font = `bold ${fs}px Kanit,Arial,sans-serif`
+  while (ctx.measureText(repairNo).width > lwD - 4 && fs > 10) {
+    fs -= 1
+    ctx.font = `bold ${fs}px Kanit,Arial,sans-serif`
+  }
+  ctx.fillText(repairNo, lwD / 2, lhD / 2)
+
+  const imgData = ctx.getImageData(0, 0, lwD, lhD)
+
+  if (lang === 'escpos') {
+    const bitmap = new Uint8Array(wBytes * lhD)
+    for (let y = 0; y < lhD; y++)
+      for (let x = 0; x < lwD; x++) {
+        const i = (y * lwD + x) * 4
+        const lum = (imgData.data[i]*299 + imgData.data[i+1]*587 + imgData.data[i+2]*114) / 1000
+        if (lum < 128) bitmap[y * wBytes + (x >> 3)] |= (0x80 >> (x & 7))
+      }
+    const GS = 0x1D, b = [0x1B, 0x40]
+    b.push(GS, 0x76, 0x30, 0x00, wBytes&0xFF, (wBytes>>8)&0xFF, lhD&0xFF, (lhD>>8)&0xFF)
+    for (const byte of bitmap) b.push(byte)
+    b.push(0x0A, GS, 0x56, 0x00)
+    return new Uint8Array(b)
+  } else {
+    const tsplBmp = new Uint8Array(wBytes * lhD).fill(0xFF)
+    for (let y = 0; y < lhD; y++)
+      for (let x = 0; x < lwD; x++) {
+        const i = (y * lwD + x) * 4
+        const lum = (imgData.data[i]*299 + imgData.data[i+1]*587 + imgData.data[i+2]*114) / 1000
+        if (lum < 128) tsplBmp[y * wBytes + (x >> 3)] &= ~(0x80 >> (x & 7))
+      }
+    const buf = []; const ascii = s => { for (const c of s) buf.push(c.charCodeAt(0)) }
+    const crlf = () => buf.push(0x0D, 0x0A)
+    ascii(`SIZE ${lw} mm, ${lh} mm`); crlf()
+    ascii(`GAP 2 mm, 0 mm`); crlf()
+    ascii(`DIRECTION 0`); crlf()
+    ascii(`CLS`); crlf()
+    ascii(`BITMAP 0,0,${wBytes},${lhD},0,`)
+    for (const byte of tsplBmp) buf.push(byte); crlf()
+    ascii(`PRINT 1,1`); crlf()
+    return new Uint8Array(buf)
+  }
+}
+
 export default function RepairPage() {
   const [jobs, setJobs]               = useState([])
   const [loading, setLoading]         = useState(true)
@@ -54,16 +306,49 @@ export default function RepairPage() {
   const [billing, setBilling]         = useState(false)
   const [productSearch, setProductSearch] = useState('')
   const [productResults, setProductResults] = useState([])
+  const [settings, setSettings]           = useState({})
+  const [printerCfg, setPrinterCfg]       = useState({ receipt: null, barcode: null })
 
   const load = useCallback(async () => {
     setLoading(true)
-    const { data } = await supabase.from('repair_orders')
-      .select('*').order('created_at', { ascending: false })
-    setJobs(data || [])
-    setLoading(false)
+    try {
+      const { data, error } = await supabase.from('repair_orders').select('*')
+        .order('created_at', { ascending: false }).limit(500)
+      if (error) throw error
+      setJobs(data || [])
+      cacheSet('repairs', data || [])
+    } catch {
+      const cached = cacheGet('repairs')
+      if (cached) setJobs(cached)
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => { load() }, [load])
+  useEffect(() => {
+    const onSynced = () => load()
+    window.addEventListener('offline-synced', onSynced)
+    return () => window.removeEventListener('offline-synced', onSynced)
+  }, [load])
+
+  useEffect(() => {
+    supabase.from('settings').select('key,value')
+      .in('key', ['shop_name','shop_address','shop_phone','printer_receipt','printer_barcode'])
+      .then(({ data }) => {
+        const m = {}; (data||[]).forEach(r => m[r.key]=r.value); setSettings(m)
+        const parseCfg = (val, fallbackKey) => {
+          try { if (val) return JSON.parse(val) } catch {}
+          try { const ls = localStorage.getItem(fallbackKey); if (ls) return JSON.parse(ls) } catch {}
+          return null
+        }
+        const receipt = parseCfg(m['printer_receipt'], 'printer_receipt')
+        const barcode = parseCfg(m['printer_barcode'], 'printer_barcode')
+        setPrinterCfg({ receipt, barcode })
+        if (receipt) try { localStorage.setItem('printer_receipt', JSON.stringify(receipt)) } catch {}
+        if (barcode) try { localStorage.setItem('printer_barcode', JSON.stringify(barcode)) } catch {}
+      })
+  }, [])
 
   // product search for parts
   useEffect(() => {
@@ -80,6 +365,19 @@ export default function RepairPage() {
   async function updateStatus(job, newStatus) {
     await supabase.from('repair_orders').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', job.id)
     await load()
+  }
+
+  async function reprintReceipt(job) {
+    await printRepairReceipt(job, settings, printerCfg.receipt, printerCfg.barcode)
+  }
+
+  async function reprintSticker(job) {
+    const bcfg = printerCfg.barcode || JSON.parse(localStorage.getItem('printer_barcode') || '{}')
+    if (!bcfg.ip) { alert('ยังไม่ได้ตั้งค่า IP เครื่องพิมพ์สติ๊กเกอร์\nไปที่ Admin → เครื่องพิมพ์ → Barcode Printer'); return }
+    try {
+      const bytes = await buildQueueSticker(job.repair_no, bcfg)
+      await printViaBridge('', bcfg.ip, bcfg.port || 9100, bytes)
+    } catch (e) { alert('พิมพ์ไม่ได้: ' + e.message) }
   }
 
   // ── Open billing modal ──
@@ -185,6 +483,34 @@ export default function RepairPage() {
     setSaving(true)
     try {
       if (modal === 'add') {
+        const cleanPhone = form.phone.trim().replace(/\D/g, '') || null
+
+        // ── ออฟไลน์ ──
+        if (!navigator.onLine) {
+          const repair_no = genOfflineRepairNo()
+          const formData = {
+            repair_no, customer_name: form.customer_name.trim(), phone: cleanPhone,
+            device: form.device.trim(), description: form.description.trim() || null,
+            appointment_date: form.appointment_date || null,
+            appointment_time: form.appointment_time.trim() || null,
+            price: form.price ? parseFloat(form.price) : null,
+            deposit: form.deposit ? parseFloat(form.deposit) : 0,
+            note: form.note.trim() || null, status: form.status,
+          }
+          addToQueue('repair', {
+            formData,
+            customerData: { name: form.customer_name.trim(), phone: cleanPhone },
+          })
+          window.dispatchEvent(new Event('offline-queue-changed'))
+          // แสดงในคิวแบบ local ทันที
+          setJobs(prev => [{ ...formData, id: `offline_${Date.now()}`, created_at: new Date().toISOString() }, ...prev])
+          printRepairReceipt({ ...formData, created_at: new Date().toISOString() }, settings, printerCfg.receipt, printerCfg.barcode)
+          closeModal()
+          setSaving(false)
+          return
+        }
+
+        // ── ออนไลน์ ──
         const { data: seq } = await supabase.from('doc_sequences')
           .select('last_seq').eq('prefix', 'REPW').eq('year_month', 'all').single()
         const next = (seq?.last_seq || 0) + 1
@@ -194,7 +520,7 @@ export default function RepairPage() {
         const { error } = await supabase.from('repair_orders').insert({
           repair_no,
           customer_name: form.customer_name.trim(),
-          phone: form.phone.trim() || null,
+          phone: cleanPhone,
           device: form.device.trim(),
           description: form.description.trim() || null,
           appointment_date: form.appointment_date || null,
@@ -205,6 +531,39 @@ export default function RepairPage() {
           status: form.status,
         })
         if (error) throw error
+
+        // พิมใบรับเครื่อง
+        printRepairReceipt({
+          repair_no, customer_name: form.customer_name.trim(),
+          phone: cleanPhone, device: form.device.trim(),
+          description: form.description.trim() || '',
+          price: form.price || '', deposit: form.deposit || '',
+          note: form.note.trim() || '',
+          appointment_date: form.appointment_date || '',
+          appointment_time: form.appointment_time.trim() || '',
+          created_at: new Date().toISOString(),
+        }, settings, printerCfg.receipt, printerCfg.barcode)
+
+        // Auto-upsert ลูกค้าเข้า customers table
+        const custName = form.customer_name.trim()
+        if (cleanPhone) {
+          const { data: existing } = await supabase.from('customers')
+            .select('id,name').eq('phone', cleanPhone).maybeSingle()
+          if (existing) {
+            if (existing.name === cleanPhone || existing.name === '0' + cleanPhone) {
+              await supabase.from('customers').update({ name: custName }).eq('id', existing.id)
+            }
+          } else {
+            await supabase.from('customers').insert({ name: custName, phone: cleanPhone })
+          }
+        } else if (custName) {
+          // ไม่มีเบอร์ — เช็คชื่อซ้ำก่อน แล้วค่อย insert
+          const { data: existing } = await supabase.from('customers')
+            .select('id').ilike('name', custName).maybeSingle()
+          if (!existing) {
+            await supabase.from('customers').insert({ name: custName })
+          }
+        }
       } else {
         const { error } = await supabase.from('repair_orders').update({
           customer_name: form.customer_name.trim(),
@@ -380,6 +739,22 @@ export default function RepairPage() {
                       )}
                     </div>
                     <div className="flex items-center gap-2">
+                      {/* Reprint receipt */}
+                      <button
+                        onClick={e => { e.stopPropagation(); reprintReceipt(job) }}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all active:scale-95"
+                        style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.6)' }}
+                        title="พิมพ์ใบรับเครื่องซ้ำ">
+                        🖨️ ใบนัด
+                      </button>
+                      {/* Reprint sticker */}
+                      <button
+                        onClick={e => { e.stopPropagation(); reprintSticker(job) }}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all active:scale-95"
+                        style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.6)' }}
+                        title="พิมพ์สติ๊กเกอร์เลขคิว">
+                        🏷️ สติ๊กเกอร์
+                      </button>
                       {/* Bill button — only for done + not yet billed */}
                       {job.status === 'done' && !billed && (
                         <button
