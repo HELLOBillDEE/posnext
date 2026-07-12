@@ -17,8 +17,8 @@ export async function POST(req) {
 
     /* ── บันทึก chat_id อัตโนมัติจากข้อความแรกในกลุ่ม ── */
     const msg = body.message || body.edited_message
-    if (msg?.chat?.type !== 'private') {
-      await saveChatId(msg?.chat?.id)
+    if (msg?.chat?.id && msg?.chat?.type !== 'private') {
+      await saveChatId(msg.chat.id)
     }
 
     /* ── Callback query: กดปุ่ม อนุมัติ/ปฏิเสธ ── */
