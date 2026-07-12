@@ -9,19 +9,27 @@ const supabase = createClient(
 
 export async function POST(req) {
   try {
-    const { employee_id, password, note } = await req.json()
-    if (!employee_id || !password) return Response.json({ error: 'ข้อมูลไม่ครบ' }, { status: 400 })
+    const { employee_id, password, employee_name, note } = await req.json()
+    if (!employee_id) return Response.json({ error: 'ข้อมูลไม่ครบ' }, { status: 400 })
 
-    const { data: emp } = await supabase
-      .from('employees').select('id, name, nickname')
-      .eq('id', employee_id).eq('password', password.trim()).eq('active', true).maybeSingle()
-    if (!emp) return Response.json({ error: 'ตรวจสอบสิทธิ์ไม่ผ่าน' }, { status: 401 })
-
-    const empName = emp.nickname || emp.name
+    let empName
+    if (password) {
+      // staff page: validate with password
+      const { data: emp } = await supabase
+        .from('employees').select('id, name, nickname')
+        .eq('id', employee_id).eq('password', password.trim()).eq('active', true).maybeSingle()
+      if (!emp) return Response.json({ error: 'ตรวจสอบสิทธิ์ไม่ผ่าน' }, { status: 401 })
+      empName = emp.nickname || emp.name
+    } else if (employee_name) {
+      // POS page: employee already verified via Nav PIN login, trust the name
+      empName = employee_name
+    } else {
+      return Response.json({ error: 'ข้อมูลไม่ครบ' }, { status: 400 })
+    }
 
     const { data: req_ } = await supabase
       .from('drawer_requests')
-      .insert({ employee_id: emp.id, employee_name: empName, status: 'pending', note: note || null })
+      .insert({ employee_id, employee_name: empName, status: 'pending', note: note || null })
       .select('id').single()
 
     notifyDrawerRequest({ id: req_.id, empName, note }).catch(() => {})

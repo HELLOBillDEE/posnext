@@ -1234,89 +1234,69 @@ export default function POSPage() {
 
 function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
   const isEmployee = !!empMode
-  const [pin, setPin]         = useState('')
-  const [direction, setDir]   = useState('in')  // 'in' | 'out'
+  const [direction, setDir]   = useState('in')
   const [amount, setAmount]   = useState('')
   const [noteText, setNote]   = useState('')
-  const [focus, setFocus]     = useState('amount') // 'amount' | 'pin'
-  const [step, setStep]       = useState('pin') // 'pin' | 'done'
+  const [step, setStep]       = useState('idle') // 'idle' | 'done' | 'requested'
   const [errMsg, setErrMsg]   = useState('')
   const [saving, setSaving]   = useState(false)
 
-  async function confirm() {
-    if (isEmployee) {
-      // ตรวจ PIN ของพนักงานเองจาก DB
-      const { data: empData } = await supabase
-        .from('employees').select('pin').eq('id', empMode.id).single()
-      if (empData?.pin && pin !== empData.pin) {
-        setErrMsg('PIN ไม่ถูกต้อง')
-        setPin('')
-        return
-      }
-    } else {
-      const correctPin = settings.admin_pin || ''
-      if (correctPin && pin !== correctPin) {
-        setErrMsg('PIN ไม่ถูกต้อง')
-        setPin('')
-        return
-      }
-    }
-    setErrMsg('')
-    setSaving(true)
+  const empName = currentEmp ? (currentEmp.nickname || currentEmp.name) : (empMode?.name || 'ไม่ระบุ')
 
-    // เปิดลิ้นชัก
+  async function requestDrawer() {
+    if (saving) return
+    setSaving(true); setErrMsg('')
+    try {
+      const res = await fetch('/api/request-drawer', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employee_id: empMode.id, employee_name: empName }),
+      })
+      const json = await res.json()
+      if (json.error) { setErrMsg(json.error); return }
+      setStep('requested')
+      setTimeout(onClose, 4000)
+    } catch { setErrMsg('เชื่อมต่อไม่ได้') }
+    finally { setSaving(false) }
+  }
+
+  async function confirm() {
+    setSaving(true); setErrMsg('')
     try {
       const cfg = getReceiptCfg()
       if (cfg.ip) await kickDrawerViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100)
-    } catch (e) {
-      console.warn('Drawer kick error:', e.message)
-    }
+    } catch (e) { console.warn('Drawer kick error:', e.message) }
 
-    const empName   = currentEmp ? (currentEmp.nickname || currentEmp.name) : (empMode?.name || 'ไม่ระบุ')
-    const dirLabel  = direction === 'in' ? 'รับเงินเข้า' : 'เบิกเงินออก'
-    const amtNum    = parseFloat(amount) || 0
-    const fullNote  = [dirLabel, amtNum ? `฿${amtNum.toLocaleString('th-TH')}` : null, noteText.trim()].filter(Boolean).join(' — ')
+    const dirLabel = direction === 'in' ? 'รับเงินเข้า' : 'เบิกเงินออก'
+    const amtNum   = parseFloat(amount) || 0
+    const fullNote = [dirLabel, amtNum ? `฿${amtNum.toLocaleString('th-TH')}` : null, noteText.trim()].filter(Boolean).join(' — ')
 
-    // บันทึก log
     try {
       await supabase.from('drawer_logs').insert({
-        employee_id:   currentEmp?.id || null,
-        employee_name: empName,
-        amount:        amtNum || null,
-        note:          fullNote,
+        employee_name: 'แอดมิน', amount: amtNum || null, note: fullNote,
       })
-    } catch { /* table ยังไม่มี — ข้ามได้ */ }
+    } catch {}
 
-    // แจ้ง LINE (fire-and-forget)
     fetch('/api/notify-drawer', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        employeeName: empName, note: fullNote,
+        employeeName: 'แอดมิน', note: fullNote,
         shopName: settings.shop_name || 'ร้านค้า',
         line_channel_token: settings.line_channel_token || '',
         line_group_id: settings.line_group_id || '',
       }),
     }).catch(() => {})
 
-    setSaving(false)
-    setStep('done')
+    setSaving(false); setStep('done')
     setTimeout(onClose, 1200)
   }
 
   function numKey(k) {
-    if (focus === 'amount') {
-      setAmount(p => {
-        if (k === '⌫') return p.slice(0, -1)
-        if (k === '.' && p.includes('.')) return p
-        if (p === '' && k === '.') return '0.'
-        return p + k
-      })
-    } else {
-      if (k === '⌫') { setPin(p => p.slice(0, -1)); return }
-      if (pin.length >= 6) return
-      setPin(p => p + k)
-    }
+    setAmount(p => {
+      if (k === '⌫') return p.slice(0, -1)
+      if (k === '.' && p.includes('.')) return p
+      if (p === '' && k === '.') return '0.'
+      return p + k
+    })
   }
 
   return (
@@ -1325,14 +1305,13 @@ function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
       <div className="bg-white rounded-3xl w-full max-w-xs shadow-2xl overflow-hidden fade-in"
         tabIndex={0} autoFocus
         onKeyDown={e => {
-          if (step === 'done') return
+          if (isEmployee || step !== 'idle') return
           const k = e.key
           if (k >= '0' && k <= '9') { e.preventDefault(); numKey(k) }
-          else if (k === '.' && focus === 'amount') { e.preventDefault(); numKey('.') }
+          else if (k === '.') { e.preventDefault(); numKey('.') }
           else if (k === 'Backspace') { e.preventDefault(); numKey('⌫') }
-          else if (k === 'Enter' || k === 'NumpadEnter') { e.preventDefault(); if (!saving && !(pin.length === 0 && (isEmployee || !!settings.admin_pin))) confirm() }
+          else if (k === 'Enter' || k === 'NumpadEnter') { e.preventDefault(); if (!saving) confirm() }
           else if (k === 'Escape') { e.preventDefault(); onClose() }
-          else if (k === 'Tab') { e.preventDefault(); setFocus(f => f === 'amount' ? 'pin' : 'amount') }
         }}>
         <div className="bg-[#0f1b14] text-white px-4 py-3.5 flex justify-between items-center">
           <h2 className="font-heading font-bold text-base">🔓 เปิดลิ้นชักเงิน</h2>
@@ -1344,15 +1323,27 @@ function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
             <div className="text-5xl mb-2">✅</div>
             <p className="font-bold text-emerald-600 text-lg">เปิดลิ้นชักแล้ว</p>
           </div>
-        ) : (
-          <div className="p-4 space-y-3">
-            {/* พนักงาน */}
+        ) : step === 'requested' ? (
+          <div className="p-8 text-center">
+            <div className="text-5xl mb-2">📨</div>
+            <p className="font-bold text-amber-600 text-lg">ส่งคำขอแล้ว</p>
+            <p className="text-sm text-slate-500 mt-1">รอ admin อนุมัติ ทาง Telegram</p>
+          </div>
+        ) : isEmployee ? (
+          <div className="p-6 space-y-4">
             <div className="bg-slate-50 rounded-2xl px-4 py-2.5 text-center border border-slate-100">
               <p className="text-xs text-slate-400 mb-0.5">พนักงาน</p>
-              <p className="font-bold text-slate-700">{currentEmp ? (currentEmp.nickname || currentEmp.name) : 'ไม่ระบุ'}</p>
+              <p className="font-bold text-slate-700">{empName}</p>
             </div>
-
-            {/* เข้า / ออก */}
+            <p className="text-sm text-slate-500 text-center">กดปุ่มเพื่อส่งคำขอเปิดลิ้นชักไปยัง admin ทาง Telegram</p>
+            {errMsg && <p className="text-center text-red-500 text-xs font-semibold">{errMsg}</p>}
+            <button onClick={requestDrawer} disabled={saving}
+              className="w-full bg-amber-500 text-white font-bold py-3.5 rounded-2xl text-base disabled:opacity-40 active:scale-[0.98] transition-transform shadow-lg shadow-amber-200">
+              {saving ? '⏳ กำลังส่ง...' : '🔓 ขอเปิดลิ้นชัก'}
+            </button>
+          </div>
+        ) : (
+          <div className="p-4 space-y-3">
             <div className="grid grid-cols-2 gap-2">
               <button onClick={() => setDir('in')}
                 className={`py-3 rounded-2xl text-sm font-bold border-2 transition-all
@@ -1366,46 +1357,22 @@ function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
               </button>
             </div>
 
-            {/* จำนวนเงิน — แตะเพื่อโฟกัส */}
-            <button onClick={() => setFocus('amount')}
-              className={`w-full rounded-2xl px-4 py-3 text-right border-2 transition-all
-                ${focus === 'amount' ? 'border-brand bg-brand/5' : 'border-slate-200 bg-slate-50'}`}>
+            <button onClick={() => {}}
+              className="w-full rounded-2xl px-4 py-3 text-right border-2 border-brand bg-brand/5">
               <p className="text-xs text-slate-400 text-left mb-0.5">จำนวนเงิน (บาท)</p>
               <p className={`text-2xl font-bold ${amount ? 'text-slate-800' : 'text-slate-300'}`}>
                 {amount || '0'}
               </p>
             </button>
 
-            {/* หมายเหตุ */}
             <input value={noteText} onChange={e => setNote(e.target.value)}
               placeholder="หมายเหตุ (ถ้ามี)"
               className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
 
-            {/* PIN — แตะเพื่อโฟกัส */}
-            {(isEmployee || settings.admin_pin) ? (
-              <button onClick={() => setFocus('pin')}
-                className={`w-full rounded-2xl px-4 py-2.5 border-2 transition-all
-                  ${focus === 'pin' ? 'border-brand bg-brand/5' : 'border-slate-200 bg-slate-50'}`}>
-                <p className="text-xs text-slate-400 mb-1.5">{isEmployee ? 'PIN ของคุณ' : 'PIN'}</p>
-                <div className="flex justify-center gap-2">
-                  {Array.from({ length: 4 }).map((_, i) => (
-                    <div key={i}
-                      className={`w-7 h-7 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-colors
-                        ${i < pin.length ? 'border-brand bg-brand text-white' : 'border-slate-300 bg-white'}`}>
-                      {i < pin.length ? '●' : ''}
-                    </div>
-                  ))}
-                </div>
-              </button>
-            ) : (
-              <p className="text-xs text-slate-400 text-center">ยังไม่ได้ตั้ง PIN</p>
-            )}
             {errMsg && <p className="text-center text-red-500 text-xs font-semibold">{errMsg}</p>}
 
-            {/* Numpad */}
             <div className="grid grid-cols-3 gap-2">
-              {['1','2','3','4','5','6','7','8','9',focus==='amount'?'.':'','0','⌫'].map((k, i) => (
-                k === '' ? <div key={i} /> :
+              {['1','2','3','4','5','6','7','8','9','.','0','⌫'].map((k, i) => (
                 <button key={i} onClick={() => numKey(k)}
                   className={`h-12 rounded-2xl text-xl font-semibold transition-colors active:scale-95
                     ${k === '⌫' ? 'bg-red-50 text-red-400 hover:bg-red-100' : 'bg-slate-100 text-slate-800 hover:bg-slate-200'}`}>
@@ -1414,7 +1381,7 @@ function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
               ))}
             </div>
 
-            <button onClick={confirm} disabled={saving || (pin.length === 0 && (isEmployee || !!settings.admin_pin))}
+            <button onClick={confirm} disabled={saving}
               className={`w-full text-white font-bold py-3.5 rounded-2xl text-base disabled:opacity-40 active:scale-[0.98] transition-transform shadow-lg
                 ${direction === 'out' ? 'bg-red-500 shadow-red-200' : 'bg-brand shadow-brand/30'}`}>
               {saving ? '⏳ กำลังเปิด...' : `✓ ยืนยัน${direction === 'in' ? 'รับเงินเข้า' : 'เบิกเงินออก'}`}
