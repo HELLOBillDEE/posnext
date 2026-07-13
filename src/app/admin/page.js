@@ -510,6 +510,9 @@ export default function AdminPage() {
             </div>
           ))}
 
+          {/* Telegram Webhook */}
+          <TelegramWebhookSetup />
+
           {/* LINE Bot setup guide */}
           <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-xs text-green-800 space-y-1.5">
             <p className="font-bold text-sm">📲 วิธีตั้งค่าแจ้งเตือน LINE กลุ่ม</p>
@@ -1068,6 +1071,34 @@ function ModalActions({ onCancel, onSave, saving }) {
       <button onClick={onSave} disabled={saving} className="flex-1 btn-primary">
         {saving ? 'บันทึก...' : '💾 บันทึก'}
       </button>
+    </div>
+  )
+}
+
+function TelegramWebhookSetup() {
+  const [status, setStatus] = useState(null) // null | 'loading' | 'ok' | 'error'
+  const [msg, setMsg] = useState('')
+
+  async function reregister() {
+    setStatus('loading'); setMsg('')
+    try {
+      const res = await fetch('/api/telegram-setup')
+      const json = await res.json()
+      if (json.ok) { setStatus('ok'); setMsg(json.webhook) }
+      else { setStatus('error'); setMsg(json.error || 'ไม่สำเร็จ') }
+    } catch (e) { setStatus('error'); setMsg(e.message) }
+  }
+
+  return (
+    <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-2">
+      <p className="font-bold text-sm text-blue-800">🤖 Telegram Webhook</p>
+      <p className="text-xs text-blue-700">กดเพื่อลงทะเบียน webhook ให้ Telegram ส่งข้อความมาที่ระบบนี้ (ต้องทำก่อนแจ้งเตือนจะทำงาน)</p>
+      <button onClick={reregister} disabled={status === 'loading'}
+        className="btn-secondary text-xs px-3 py-2 disabled:opacity-40">
+        {status === 'loading' ? '⏳ กำลังลงทะเบียน...' : '🔗 ลงทะเบียน Telegram Webhook'}
+      </button>
+      {status === 'ok' && <p className="text-xs text-emerald-700 font-semibold">✅ สำเร็จ: {msg}</p>}
+      {status === 'error' && <p className="text-xs text-red-600 font-semibold">❌ {msg}</p>}
     </div>
   )
 }
