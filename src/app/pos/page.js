@@ -590,6 +590,13 @@ export default function POSPage() {
         settings.shop_name || ''
       )
 
+      // แจ้งเตือน Telegram (fire-and-forget)
+      fetch('/api/notify-sale', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sale: { ...receipt, shopName: settings.shop_name || 'ร้านค้า' } }),
+      }).catch(() => {})
+
       // แจ้งเตือน LINE กลุ่ม (fire-and-forget)
       fetch('/api/notify-line', {
         method: 'POST',

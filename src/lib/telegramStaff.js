@@ -60,6 +60,21 @@ export async function getTgSettings() {
   return getTelegramSettings()
 }
 
+/* ── แจ้งเตือนเข้า/ออกงาน ── */
+export async function notifyAttendance({ empName, action, time }) {
+  const cfg = await getTelegramSettings()
+  if (!cfg) return
+
+  const timeStr = new Date(time).toLocaleTimeString('th-TH', {
+    timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit',
+  })
+  const emoji = action === 'in' ? '🟢' : '🔴'
+  const word  = action === 'in' ? 'เข้างาน' : 'ออกงาน'
+
+  await sendMessage(cfg.telegram_bot_token, cfg.telegram_chat_id,
+    `${emoji} <b>${word}</b> — ${empName}\n🕐 ${timeStr}`)
+}
+
 /* ── แจ้งเตือนคำขอลา ── */
 export async function notifyLeave({ id, empName, dateFrom, dateTo, note }) {
   const cfg = await getTelegramSettings()

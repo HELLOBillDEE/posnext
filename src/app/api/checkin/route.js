@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { notifyAttendance } from '@/lib/telegramStaff'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -65,6 +66,7 @@ export async function POST(req) {
       })
     }
 
+    notifyAttendance({ empName: emp.nickname || emp.name, action, time }).catch(() => {})
     return Response.json({ action, name: emp.nickname || emp.name, time })
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 })
