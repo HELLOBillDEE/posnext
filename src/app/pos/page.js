@@ -1612,16 +1612,68 @@ function CustomerModal({ onSelect, onClose }) {
   )
 }
 
+const DENOMS = [
+  { v: 1000, label: '1,000', type: 'note' },
+  { v: 500,  label: '500',   type: 'note' },
+  { v: 100,  label: '100',   type: 'note' },
+  { v: 50,   label: '50',    type: 'note' },
+  { v: 20,   label: '20',    type: 'note' },
+  { v: 10,   label: '10',    type: 'coin' },
+  { v: 5,    label: '5',     type: 'coin' },
+  { v: 2,    label: '2',     type: 'coin' },
+  { v: 1,    label: '1',     type: 'coin' },
+  { v: 0.5,  label: '0.50',  type: 'coin' },
+]
+
+function DenomRow({ denom, qty, onChange }) {
+  const sub = (parseFloat(qty) || 0) * denom.v
+  return (
+    <div className="flex items-center gap-2">
+      <div className={`shrink-0 w-16 text-center rounded-lg py-1 text-sm font-bold
+        ${denom.type === 'note' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>
+        ฿{denom.label}
+      </div>
+      <span className="text-slate-300 text-xs shrink-0">×</span>
+      <input
+        type="number" inputMode="numeric" min="0" value={qty}
+        onChange={e => onChange(e.target.value)}
+        placeholder="0"
+        className="flex-1 min-w-0 border border-slate-200 rounded-lg px-2 py-1.5 text-center text-sm font-semibold focus:border-brand outline-none"
+      />
+      <div className="w-20 text-right text-sm font-semibold tabular-nums shrink-0
+        text-slate-700">
+        {sub > 0 ? `฿${fmt(sub)}` : <span className="text-slate-300">—</span>}
+      </div>
+    </div>
+  )
+}
+
 function ShiftModal({ mode, currentShift, onClose, onOpened, onClosed }) {
-  const [openCash, setOpenCash]         = useState('')
-  const [closeCash, setCloseCash]       = useState('')
-  const [note, setNote]                 = useState('')
-  const [saving, setSaving]             = useState(false)
+  const initQtys = () => Object.fromEntries(DENOMS.map(d => [d.v, '']))
+  const [qtys, setQtys]               = useState(initQtys)
+  const [safeAmount, setSafeAmount]   = useState('')
+  const [note, setNote]               = useState('')
+  const [saving, setSaving]           = useState(false)
   const [shiftSummary, setShiftSummary] = useState(null)
+  const [prevShift, setPrevShift]     = useState(null)
+
+  const totalCash = DENOMS.reduce((s, d) => s + (parseFloat(qtys[d.v]) || 0) * d.v, 0)
+  const safeAmt   = parseFloat(safeAmount) || 0
+  const netInDrawer = totalCash - safeAmt
 
   useEffect(() => {
     if (mode === 'close' && currentShift) loadShiftSummary()
-  }, [mode, currentShift])
+    if (mode === 'open') loadPrevShift()
+  }, [mode, currentShift]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function loadPrevShift() {
+    const { data } = await supabase.from('shifts')
+      .select('closing_cash, safe_amount, closed_at')
+      .eq('status', 'closed')
+      .order('closed_at', { ascending: false })
+      .limit(1).maybeSingle()
+    setPrevShift(data)
+  }
 
   async function loadShiftSummary() {
     const from = currentShift.opened_at
@@ -1629,8 +1681,8 @@ function ShiftModal({ mode, currentShift, onClose, onOpened, onClosed }) {
       supabase.from('sales').select('total,payment_method,note,status').gte('created_at', from).eq('status','completed'),
       supabase.from('drawer_logs').select('amount,note').gte('opened_at', from),
     ])
-    const salesTotal = (sales || []).reduce((s,r) => s + Number(r.total), 0)
-    const cashSales = (sales || []).reduce((s, r) => {
+    const salesTotal = (sales || []).reduce((s, r) => s + Number(r.total), 0)
+    const cashSales  = (sales || []).reduce((s, r) => {
       if (r.payment_method === 'cash') return s + Number(r.total)
       if (r.payment_method === 'mixed' && r.note) {
         const m = r.note.match(/สด ฿([\d,]+(?:\.\d+)?)/)
@@ -1638,18 +1690,17 @@ function ShiftModal({ mode, currentShift, onClose, onOpened, onClosed }) {
       }
       return s
     }, 0)
-    // เงินเข้า/ออกจากลิ้นชัก
     const drawerIn  = (drawers || []).filter(d => (d.note||'').includes('รับเงินเข้า')).reduce((s,d) => s + Number(d.amount||0), 0)
     const drawerOut = (drawers || []).filter(d => (d.note||'').includes('เบิกเงินออก')).reduce((s,d) => s + Number(d.amount||0), 0)
-    const expected = Number(currentShift.opening_cash) + cashSales + drawerIn - drawerOut
+    const expected  = Number(currentShift.opening_cash) + cashSales + drawerIn - drawerOut
     setShiftSummary({ salesTotal, cashSales, drawerIn, drawerOut, expected, count: sales?.length || 0 })
   }
 
   async function openShift() {
-    if (!openCash) return alert('กรุณาใส่เงินเริ่มต้นในเก๊ะ')
+    if (totalCash === 0) return alert('กรุณากรอกจำนวนธนบัตร/เหรียญ')
     setSaving(true)
     const { data, error } = await supabase.from('shifts')
-      .insert({ opening_cash: parseFloat(openCash), note: note.trim()||null })
+      .insert({ opening_cash: totalCash, opening_breakdown: qtys, note: note.trim() || null })
       .select().single()
     setSaving(false)
     if (error) return alert('เกิดข้อผิดพลาด: ' + error.message)
@@ -1657,16 +1708,16 @@ function ShiftModal({ mode, currentShift, onClose, onOpened, onClosed }) {
   }
 
   async function closeShift() {
-    if (!closeCash) return alert('กรุณาใส่ยอดเงินที่นับได้')
+    if (totalCash === 0) return alert('กรุณากรอกจำนวนธนบัตร/เหรียญ')
     setSaving(true)
-    const closing = parseFloat(closeCash)
     const expected = shiftSummary?.expected || 0
-    const diff = closing - expected
     const { error } = await supabase.from('shifts').update({
       closed_at: new Date().toISOString(),
-      closing_cash: closing,
+      closing_cash: totalCash,
+      closing_breakdown: qtys,
+      safe_amount: safeAmt,
       expected_cash: expected,
-      difference: diff,
+      difference: totalCash - expected,
       sales_total: shiftSummary?.salesTotal || 0,
       sales_count: shiftSummary?.count || 0,
       note: note.trim() || null,
@@ -1677,73 +1728,111 @@ function ShiftModal({ mode, currentShift, onClose, onOpened, onClosed }) {
     onClosed()
   }
 
+  const diff = shiftSummary ? totalCash - shiftSummary.expected : 0
+
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-end md:items-center justify-center p-3"
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden fade-in">
-        <div className={`text-white px-4 py-3.5 flex justify-between items-center ${mode==='open' ? 'bg-emerald-700' : 'bg-red-600'}`}>
-          <h2 className="font-bold text-base">{mode==='open' ? '🟢 เปิดกะ' : '🔴 ปิดกะ'}</h2>
+      <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden fade-in flex flex-col" style={{maxHeight:'92vh'}}>
+
+        {/* Header */}
+        <div className={`text-white px-4 py-3.5 flex justify-between items-center shrink-0 ${mode==='open' ? 'bg-emerald-700' : 'bg-red-600'}`}>
+          <h2 className="font-bold text-base">{mode==='open' ? '🟢 เปิดกะ — นับเงิน' : '🔴 ปิดกะ — นับเงิน'}</h2>
           <button onClick={onClose} className="text-2xl leading-none opacity-70">×</button>
         </div>
-        <div className="p-4 space-y-3">
-          {mode === 'open' && (
+
+        <div className="overflow-y-auto flex-1 p-4 space-y-3">
+
+          {/* เปิดกะ: เปรียบเทียบกะก่อนหน้า */}
+          {mode === 'open' && prevShift && (
+            <div className="bg-blue-50 rounded-2xl p-3 border border-blue-100 text-sm space-y-1">
+              <div className="font-semibold text-blue-700 text-xs mb-1.5">📋 กะก่อนหน้า (ปิดเมื่อ {new Date(prevShift.closed_at).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})})</div>
+              <div className="flex justify-between"><span className="text-blue-600">ยอดเงินปิดกะ</span><span className="font-semibold text-blue-800">฿{fmt(prevShift.closing_cash)}</span></div>
+              {Number(prevShift.safe_amount) > 0 && (
+                <div className="flex justify-between"><span className="text-blue-600">ฝากเซฟ</span><span className="font-semibold text-blue-800">−฿{fmt(prevShift.safe_amount)}</span></div>
+              )}
+              <div className="flex justify-between font-bold border-t border-blue-200 pt-1.5 mt-0.5">
+                <span className="text-blue-700">ควรมีในลิ้นชักตอนเช้า</span>
+                <span className="text-blue-900">฿{fmt(Number(prevShift.closing_cash||0) - Number(prevShift.safe_amount||0))}</span>
+              </div>
+            </div>
+          )}
+
+          {/* ปิดกะ: สรุปกะ */}
+          {mode === 'close' && shiftSummary && (
+            <div className="bg-slate-50 rounded-2xl p-3 space-y-1.5 border border-slate-100">
+              <div className="flex justify-between text-sm"><span className="text-slate-500">ยอดขายกะนี้</span><span className="font-bold text-brand">฿{fmt(shiftSummary.salesTotal)}</span></div>
+              <div className="flex justify-between text-sm"><span className="text-slate-500">เงินสดรับ</span><span className="font-semibold text-slate-700">฿{fmt(shiftSummary.cashSales)}</span></div>
+              <div className="flex justify-between text-sm"><span className="text-slate-500">เงินเริ่มต้น</span><span className="font-semibold text-slate-700">฿{fmt(currentShift.opening_cash)}</span></div>
+              {shiftSummary.drawerIn > 0 && (
+                <div className="flex justify-between text-sm"><span className="text-slate-500">รับเงินเข้าเก๊ะ</span><span className="font-semibold text-emerald-600">+฿{fmt(shiftSummary.drawerIn)}</span></div>
+              )}
+              {shiftSummary.drawerOut > 0 && (
+                <div className="flex justify-between text-sm"><span className="text-slate-500">เบิกเงินออกเก๊ะ</span><span className="font-semibold text-red-500">−฿{fmt(shiftSummary.drawerOut)}</span></div>
+              )}
+              <div className="flex justify-between text-sm font-bold border-t border-slate-200 pt-1.5">
+                <span className="text-slate-700">ควรมีในเก๊ะ</span>
+                <span className="text-emerald-600">฿{fmt(shiftSummary.expected)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Denomination grid */}
+          <div>
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">แบงค์</p>
+            <div className="space-y-1.5 mb-3">
+              {DENOMS.filter(d => d.type === 'note').map(d => (
+                <DenomRow key={d.v} denom={d} qty={qtys[d.v]} onChange={val => setQtys(p => ({...p, [d.v]: val}))} />
+              ))}
+            </div>
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">เหรียญ</p>
+            <div className="space-y-1.5">
+              {DENOMS.filter(d => d.type === 'coin').map(d => (
+                <DenomRow key={d.v} denom={d} qty={qtys[d.v]} onChange={val => setQtys(p => ({...p, [d.v]: val}))} />
+              ))}
+            </div>
+          </div>
+
+          {/* Total */}
+          <div className="bg-slate-800 rounded-2xl px-4 py-3 flex justify-between items-center">
+            <span className="text-slate-400 text-sm">รวมทั้งหมด</span>
+            <span className="text-white text-2xl font-bold tabular-nums">฿{fmt(totalCash)}</span>
+          </div>
+
+          {/* ปิดกะ: ฝากเซฟ + ผลต่าง */}
+          {mode === 'close' && (
             <>
               <div>
-                <label className="text-xs font-semibold text-slate-500 block mb-1.5">เงินเริ่มต้นในเก๊ะ (บาท) *</label>
-                <input type="number" value={openCash} onChange={e => setOpenCash(e.target.value)} autoFocus
-                  placeholder="0.00"
-                  className="w-full border-2 border-slate-200 rounded-2xl px-4 py-3 text-2xl text-right font-bold focus:border-emerald-500 outline-none" />
+                <label className="text-xs font-semibold text-slate-500 block mb-1.5">💰 ฝากเซฟ (นำออกจากลิ้นชัก)</label>
+                <input type="number" inputMode="decimal" min="0" value={safeAmount}
+                  onChange={e => setSafeAmount(e.target.value)} placeholder="0"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-right text-lg font-bold focus:border-red-400 outline-none" />
               </div>
-              <input value={note} onChange={e => setNote(e.target.value)}
-                placeholder="หมายเหตุ (ถ้ามี)"
-                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
-              <button onClick={openShift} disabled={saving}
-                className="w-full bg-emerald-600 text-white font-bold py-3.5 rounded-2xl text-base disabled:opacity-50">
-                {saving ? '⏳...' : '✓ เปิดกะ'}
-              </button>
+              {safeAmt > 0 && (
+                <div className="flex justify-between text-sm bg-amber-50 rounded-xl px-3 py-2 border border-amber-100">
+                  <span className="text-amber-700">เหลือในลิ้นชักพรุ่งนี้</span>
+                  <span className="font-bold text-amber-800 tabular-nums">฿{fmt(netInDrawer)}</span>
+                </div>
+              )}
+              {totalCash > 0 && shiftSummary && (
+                <div className={`rounded-2xl p-3 text-center font-bold text-lg ${diff >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
+                  {diff >= 0 ? '✅ เงินเกิน' : '⚠️ เงินขาด'}&nbsp;฿{fmt(Math.abs(diff))}
+                </div>
+              )}
             </>
           )}
 
-          {mode === 'close' && (
-            <>
-              {shiftSummary && (
-                <div className="bg-slate-50 rounded-2xl p-3 space-y-1.5 border border-slate-100">
-                  <div className="flex justify-between text-sm"><span className="text-slate-500">ยอดขายกะนี้</span><span className="font-bold text-brand">฿{fmt(shiftSummary.salesTotal)}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-slate-500">เงินสดรับ</span><span className="font-semibold text-slate-700">฿{fmt(shiftSummary.cashSales)}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-slate-500">เงินเริ่มต้น</span><span className="font-semibold text-slate-700">฿{fmt(currentShift.opening_cash)}</span></div>
-                  {shiftSummary.drawerIn > 0 && (
-                    <div className="flex justify-between text-sm"><span className="text-slate-500">รับเงินเข้าเก๊ะ</span><span className="font-semibold text-emerald-600">+฿{fmt(shiftSummary.drawerIn)}</span></div>
-                  )}
-                  {shiftSummary.drawerOut > 0 && (
-                    <div className="flex justify-between text-sm"><span className="text-slate-500">เบิกเงินออกเก๊ะ</span><span className="font-semibold text-red-500">−฿{fmt(shiftSummary.drawerOut)}</span></div>
-                  )}
-                  <div className="flex justify-between text-sm font-bold border-t border-slate-200 pt-1.5 mt-1">
-                    <span className="text-slate-700">ควรมีในเก๊ะ</span>
-                    <span className="text-emerald-600">฿{fmt(shiftSummary.expected)}</span>
-                  </div>
-                </div>
-              )}
-              <div>
-                <label className="text-xs font-semibold text-slate-500 block mb-1.5">เงินที่นับได้ในเก๊ะ (บาท) *</label>
-                <input type="number" value={closeCash} onChange={e => setCloseCash(e.target.value)} autoFocus
-                  placeholder="0.00"
-                  className="w-full border-2 border-slate-200 rounded-2xl px-4 py-3 text-2xl text-right font-bold focus:border-red-400 outline-none" />
-              </div>
-              {closeCash && shiftSummary && (
-                <div className={`rounded-2xl p-3 text-center font-bold text-lg ${(parseFloat(closeCash)-shiftSummary.expected) >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
-                  {(parseFloat(closeCash)-shiftSummary.expected) >= 0 ? '✅ เงินเกิน' : '⚠️ เงินขาด'}&nbsp;
-                  ฿{fmt(Math.abs(parseFloat(closeCash)-shiftSummary.expected))}
-                </div>
-              )}
-              <input value={note} onChange={e => setNote(e.target.value)}
-                placeholder="หมายเหตุ"
-                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
-              <button onClick={closeShift} disabled={saving}
-                className="w-full bg-red-500 text-white font-bold py-3.5 rounded-2xl text-base disabled:opacity-50">
-                {saving ? '⏳...' : '✓ ปิดกะ'}
-              </button>
-            </>
-          )}
+          <input value={note} onChange={e => setNote(e.target.value)}
+            placeholder="หมายเหตุ (ถ้ามี)"
+            className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+
+          <button
+            onClick={mode === 'open' ? openShift : closeShift}
+            disabled={saving || totalCash === 0}
+            className={`w-full text-white font-bold py-3.5 rounded-2xl text-base disabled:opacity-40
+              ${mode === 'open' ? 'bg-emerald-600' : 'bg-red-500'}`}>
+            {saving ? '⏳...' : mode === 'open' ? '✓ เปิดกะ' : '✓ ปิดกะ'}
+          </button>
         </div>
       </div>
     </div>
