@@ -47,6 +47,11 @@ function loadPrinters() {
 }
 
 export default function AdminPage() {
+  const [authed, setAuthed]   = useState(() => typeof window !== 'undefined' && sessionStorage.getItem('admin_authed') === '1')
+  const [pinInput, setPinInput] = useState('')
+  const [pinError, setPinError] = useState('')
+  const [pinLoading, setPinLoading] = useState(false)
+
   const [tab, setTab]         = useState(0)
   const [settings, setSettings] = useState({})
   const [saved, setSaved]     = useState(false)
@@ -75,7 +80,31 @@ export default function AdminPage() {
   const [qrUploading, setQrUploading]         = useState(false)
   const [lineQrUploading, setLineQrUploading] = useState(false)
 
-  useEffect(() => { loadAll() }, [tab])  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (authed) loadAll() }, [tab, authed])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function verifyPin() {
+    if (!pinInput) return
+    setPinLoading(true); setPinError('')
+    try {
+      const res = await fetch('/api/admin-verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: pinInput }),
+      })
+      const json = await res.json()
+      if (json.ok) {
+        sessionStorage.setItem('admin_authed', '1')
+        setAuthed(true)
+      } else {
+        setPinError('PIN ไม่ถูกต้อง')
+        setPinInput('')
+      }
+    } catch {
+      setPinError('เกิดข้อผิดพลาด กรุณาลองใหม่')
+    } finally {
+      setPinLoading(false)
+    }
+  }
 
   async function loadAll() {
     const { data: cfg } = await supabase.from('settings').select('*')
@@ -436,6 +465,28 @@ export default function AdminPage() {
 
   const filteredCust = customers.filter(c => !search || c.name.includes(search) || (c.phone||'').includes(search))
   const filteredSupp = suppliers.filter(s => !search || s.name.includes(search) || (s.phone||'').includes(search))
+
+  if (!authed) return (
+    <div className="page flex items-center justify-center min-h-[70vh]">
+      <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-8 w-full max-w-xs text-center">
+        <div className="text-4xl mb-3">🔐</div>
+        <h2 className="font-bold text-lg text-slate-800 mb-1">หน้าแอดมิน</h2>
+        <p className="text-sm text-slate-400 mb-6">ใส่ PIN เพื่อเข้าใช้งาน</p>
+        <input
+          type="password" inputMode="numeric" pattern="[0-9]*" maxLength={8}
+          value={pinInput} onChange={e => { setPinInput(e.target.value); setPinError('') }}
+          onKeyDown={e => e.key === 'Enter' && verifyPin()}
+          placeholder="PIN" autoFocus
+          className="field text-center text-xl tracking-widest w-full mb-3"
+        />
+        {pinError && <p className="text-red-500 text-sm mb-3">{pinError}</p>}
+        <button onClick={verifyPin} disabled={pinLoading || !pinInput}
+          className="btn-primary w-full">
+          {pinLoading ? 'กำลังตรวจสอบ…' : 'เข้าสู่ระบบ'}
+        </button>
+      </div>
+    </div>
+  )
 
   return (
     <div className="page">
@@ -800,8 +851,8 @@ export default function AdminPage() {
                         <p className="text-xs text-slate-400">{emp.position || 'พนักงาน'}</p>
                         <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
                           {emp.phone && <p className="text-xs text-slate-500">📱 {emp.phone}</p>}
-                          {emp.password && <p className="text-xs text-slate-500">🔑 {emp.password}</p>}
-                          {emp.pin && <p className="text-xs text-slate-500">🔢 PIN: {emp.pin}</p>}
+                          {emp.password && <p className="text-xs text-slate-500">🔑 {'•'.repeat(emp.password.length)}</p>}
+                          {emp.pin && <p className="text-xs text-slate-500">🔢 PIN: {'•'.repeat(emp.pin.length)}</p>}
                         </div>
                       </div>
                       {/* Edit daily rate */}
