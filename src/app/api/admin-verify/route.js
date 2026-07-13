@@ -10,7 +10,8 @@ const attempts = new Map() // ip → { count, resetAt }
 
 export async function POST(req) {
   // Rate limit: max 5 attempts per IP per 5 minutes
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
+  // ใช้ x-real-ip (Vercel inject ให้, client แก้ไม่ได้) แทน x-forwarded-for
+  const ip = req.headers.get('x-real-ip') || req.headers.get('x-forwarded-for')?.split(',').pop()?.trim() || 'unknown'
   const now = Date.now()
   const rec = attempts.get(ip) || { count: 0, resetAt: now + 5 * 60 * 1000 }
   if (now > rec.resetAt) { rec.count = 0; rec.resetAt = now + 5 * 60 * 1000 }

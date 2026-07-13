@@ -13,6 +13,16 @@ const fmtDate = d => d
 
 export async function POST(req) {
   try {
+    /* ── ตรวจสอบ Telegram webhook secret ── */
+    const cfg = await getTgSettings()
+    const webhookSecret = cfg?.telegram_webhook_secret
+    if (webhookSecret) {
+      const incoming = req.headers.get('x-telegram-bot-api-secret-token')
+      if (incoming !== webhookSecret) {
+        return new Response('Unauthorized', { status: 401 })
+      }
+    }
+
     const body = await req.json()
 
     /* ── บันทึก chat_id อัตโนมัติจากข้อความแรกในกลุ่ม ── */
@@ -25,7 +35,6 @@ export async function POST(req) {
     const cb = body.callback_query
     if (!cb) return new Response('OK', { status: 200 })
 
-    const cfg = await getTgSettings()
     if (!cfg) return new Response('OK', { status: 200 })
 
     const data = cb.data || ''

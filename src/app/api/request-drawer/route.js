@@ -20,11 +20,13 @@ export async function POST(req) {
         .eq('id', employee_id).eq('password', password.trim()).eq('active', true).maybeSingle()
       if (!emp) return Response.json({ error: 'ตรวจสอบสิทธิ์ไม่ผ่าน' }, { status: 401 })
       empName = emp.nickname || emp.name
-    } else if (employee_name) {
-      // POS page: employee already verified via Nav PIN login, trust the name
-      empName = employee_name
     } else {
-      return Response.json({ error: 'ข้อมูลไม่ครบ' }, { status: 400 })
+      // POS page (empMode): ตรวจว่า employee_id มีอยู่จริงในระบบ (ไม่ trust ชื่อจาก client)
+      const { data: emp } = await supabase
+        .from('employees').select('id, name, nickname')
+        .eq('id', employee_id).eq('active', true).maybeSingle()
+      if (!emp) return Response.json({ error: 'ไม่พบพนักงาน' }, { status: 401 })
+      empName = emp.nickname || emp.name
     }
 
     const { data: req_ } = await supabase

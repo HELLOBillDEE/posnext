@@ -21,11 +21,19 @@ export async function GET(req) {
     if (!baseUrl.startsWith('https://')) {
       return Response.json({ error: 'กรุณาเปิดหน้านี้ผ่าน Vercel URL (https://pos-shop-chi.vercel.app/admin) แล้วกดปุ่มอีกครั้ง' }, { status: 400 })
     }
+    // สร้าง webhook secret (ถ้ายังไม่มี)
+    const { data: secretRow } = await supabase.from('settings').select('value').eq('key', 'telegram_webhook_secret').maybeSingle()
+    let webhookSecret = secretRow?.value
+    if (!webhookSecret) {
+      webhookSecret = crypto.randomUUID().replace(/-/g, '')
+      await supabase.from('settings').upsert({ key: 'telegram_webhook_secret', value: webhookSecret }, { onConflict: 'key' })
+    }
+
     const wh = `${baseUrl}/api/telegram-webhook`
     const res = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: wh, allowed_updates: ['message', 'callback_query'] }),
+      body: JSON.stringify({ url: wh, allowed_updates: ['message', 'callback_query'], secret_token: webhookSecret }),
     })
     const json = await res.json()
     if (!json.ok) return Response.json({ error: json.description }, { status: 400 })

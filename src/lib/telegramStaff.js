@@ -13,7 +13,7 @@ const fmtDate = d => d
 async function getTelegramSettings() {
   const { data } = await supabase.from('settings')
     .select('key, value')
-    .in('key', ['telegram_bot_token', 'telegram_chat_id'])
+    .in('key', ['telegram_bot_token', 'telegram_chat_id', 'telegram_webhook_secret'])
   if (!data) return null
   const s = Object.fromEntries(data.map(r => [r.key, r.value]))
   if (!s.telegram_bot_token || !s.telegram_chat_id) return null
@@ -50,6 +50,9 @@ export async function editMessageText(token, chatId, messageId, text) {
 }
 
 export async function saveChatId(chatId) {
+  // ไม่ overwrite ถ้ามีค่าอยู่แล้ว (ป้องกันการยึดกลุ่ม)
+  const { data } = await supabase.from('settings').select('value').eq('key', 'telegram_chat_id').maybeSingle()
+  if (data?.value && data.value !== '' && data.value !== 'undefined') return
   await supabase.from('settings').upsert(
     { key: 'telegram_chat_id', value: String(chatId) },
     { onConflict: 'key' }

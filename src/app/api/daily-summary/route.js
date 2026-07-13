@@ -13,7 +13,8 @@ const PAY_LABEL = { cash: 'เงินสด', transfer: 'โอน/QR', credit
 
 export async function GET(req) {
   const auth = req.headers.get('authorization')
-  if (process.env.CRON_SECRET && auth !== `Bearer ${process.env.CRON_SECRET}`) {
+  const secret = process.env.CRON_SECRET
+  if (!secret || auth !== `Bearer ${secret}`) {
     return new Response('Unauthorized', { status: 401 })
   }
 
