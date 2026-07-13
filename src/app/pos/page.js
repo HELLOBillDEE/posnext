@@ -77,6 +77,11 @@ export default function POSPage() {
   const [customer, setCustomer]     = useState(null)  // { id, name, phone }
   const [showCustModal, setShowCustModal] = useState(false)
   const [showDocModal, setShowDocModal] = useState(false)
+  const [heldSales, setHeldSales]       = useState(() => {
+    if (typeof window === 'undefined') return []
+    try { return JSON.parse(localStorage.getItem('held_sales') || '[]') } catch { return [] }
+  })
+  const [showHeldModal, setShowHeldModal] = useState(false)
   const [shift, setShift]           = useState(null)   // current open shift
   const [showShiftModal, setShowShiftModal] = useState(false)
   const [shiftModalMode, setShiftModalMode] = useState('open') // 'open' | 'close'
@@ -622,6 +627,41 @@ export default function POSPage() {
     }
   }
 
+  function holdSale() {
+    if (cart.length === 0) return
+    const entry = {
+      id: Date.now(),
+      savedAt: new Date().toISOString(),
+      cart, customer, billDiscount, note, priceTier,
+    }
+    const updated = [...heldSales, entry]
+    setHeldSales(updated)
+    localStorage.setItem('held_sales', JSON.stringify(updated))
+    setCart([]); setCustomer(null); setBillDiscount(''); setNote(''); setPriceTier(null)
+    setPayAmount(''); setPayMode('single'); setPayMethod('cash'); setMixAmounts({ cash:'', transfer:'', credit:'' })
+  }
+
+  function restoreHeld(id) {
+    const entry = heldSales.find(h => h.id === id)
+    if (!entry) return
+    if (cart.length > 0 && !confirm('รายการปัจจุบันจะถูกล้าง — ต้องการดึงบิลพักนี้ขึ้นมาใช่ไหม?')) return
+    setCart(entry.cart)
+    setCustomer(entry.customer || null)
+    setBillDiscount(entry.billDiscount || '')
+    setNote(entry.note || '')
+    setPriceTier(entry.priceTier || null)
+    const updated = heldSales.filter(h => h.id !== id)
+    setHeldSales(updated)
+    localStorage.setItem('held_sales', JSON.stringify(updated))
+    setShowHeldModal(false)
+  }
+
+  function deleteHeld(id) {
+    const updated = heldSales.filter(h => h.id !== id)
+    setHeldSales(updated)
+    localStorage.setItem('held_sales', JSON.stringify(updated))
+  }
+
   async function openReceipt(r) {
     const cfg = getReceiptCfg()
     if (cfg.ip) {
@@ -835,15 +875,27 @@ export default function POSPage() {
         {/* ── Cart panel ── */}
         <div className="w-[300px] md:w-[340px] flex flex-col bg-white border-l border-gray-200 flex-shrink-0 shadow-xl">
           {/* Cart header */}
-          <div className="px-4 py-3.5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-            <span className="font-bold text-base text-slate-700">
+          <div className="px-4 py-3 border-b border-gray-100 flex justify-between items-center bg-gray-50 gap-2">
+            <span className="font-bold text-base text-slate-700 shrink-0">
               รายการสั่ง
               {cart.length > 0 && <span className="ml-2 bg-brand text-white text-xs font-bold px-2 py-0.5 rounded-full">{cart.length}</span>}
             </span>
-            {cart.length > 0 && (
-              <button onClick={() => { if (confirm('ล้างรายการทั้งหมด?')) setCart([]) }}
-                className="text-xs text-red-400 px-3 py-1.5 rounded-lg hover:bg-red-50 font-medium transition-colors">ล้าง</button>
-            )}
+            <div className="flex items-center gap-1.5">
+              {heldSales.length > 0 && (
+                <button onClick={() => setShowHeldModal(true)}
+                  className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-2.5 py-1.5 rounded-lg hover:bg-amber-100 font-semibold transition-colors shrink-0">
+                  📋 พัก {heldSales.length}
+                </button>
+              )}
+              {cart.length > 0 && (<>
+                <button onClick={holdSale}
+                  className="text-xs text-indigo-600 bg-indigo-50 border border-indigo-200 px-2.5 py-1.5 rounded-lg hover:bg-indigo-100 font-semibold transition-colors shrink-0">
+                  📌 พักบิล
+                </button>
+                <button onClick={() => { if (confirm('ล้างรายการทั้งหมด?')) setCart([]) }}
+                  className="text-xs text-red-400 px-2.5 py-1.5 rounded-lg hover:bg-red-50 font-medium transition-colors shrink-0">ล้าง</button>
+              </>)}
+            </div>
           </div>
           {/* Customer row */}
           <button onClick={() => setShowCustModal(true)}
@@ -1234,6 +1286,50 @@ export default function POSPage() {
         </div>
       )}
 
+      {/* ── Held Sales Modal ── */}
+      {showHeldModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-end md:items-center justify-center p-3"
+          onClick={e => e.target === e.currentTarget && setShowHeldModal(false)}>
+          <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden fade-in">
+            <div className="bg-[#0f1b14] text-white px-4 py-3.5 flex justify-between items-center">
+              <h2 className="font-heading font-bold text-base">📋 บิลที่พักไว้ ({heldSales.length})</h2>
+              <button onClick={() => setShowHeldModal(false)} className="text-2xl leading-none opacity-70">×</button>
+            </div>
+            <div className="divide-y divide-slate-100 max-h-[70vh] overflow-y-auto">
+              {heldSales.length === 0 ? (
+                <p className="text-center text-slate-400 py-10 text-sm">ไม่มีบิลพักไว้</p>
+              ) : heldSales.map(h => {
+                const t = h.cart.reduce((s, i) => s + i.price * i.qty - (i.disc || 0), 0)
+                const timeStr = new Date(h.savedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
+                return (
+                  <div key={h.id} className="px-4 py-3 flex items-start gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-slate-400 mb-0.5">⏱ {timeStr}</p>
+                      <p className="text-sm font-semibold text-slate-700 truncate">
+                        {h.customer ? `👤 ${h.customer.name} · ` : ''}{h.cart.length} รายการ
+                      </p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {h.cart.slice(0, 2).map(i => i.name).join(', ')}{h.cart.length > 2 ? ` +${h.cart.length - 2} รายการ` : ''}
+                      </p>
+                      <p className="text-brand font-bold text-sm mt-1">฿{fmt(t)}</p>
+                    </div>
+                    <div className="flex flex-col gap-1.5 shrink-0">
+                      <button onClick={() => restoreHeld(h.id)}
+                        className="bg-brand text-white text-xs font-bold px-3 py-1.5 rounded-xl active:scale-95 transition-transform">
+                        ดึงขึ้น
+                      </button>
+                      <button onClick={() => { if (confirm('ลบบิลพักนี้?')) deleteHeld(h.id) }}
+                        className="text-xs text-red-400 border border-red-100 px-3 py-1.5 rounded-xl hover:bg-red-50 transition-colors">
+                        ลบ
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   )
