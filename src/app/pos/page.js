@@ -1254,9 +1254,35 @@ function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
       const json = await res.json()
       if (json.error) { setErrMsg(json.error); return }
       setStep('requested')
-      setTimeout(onClose, 4000)
+      pollApproval(json.request_id)
     } catch { setErrMsg('เชื่อมต่อไม่ได้') }
     finally { setSaving(false) }
+  }
+
+  function pollApproval(requestId) {
+    let attempts = 0
+    const iv = setInterval(async () => {
+      attempts++
+      if (attempts > 60) { clearInterval(iv); return } // หยุดหลัง 5 นาที
+      try {
+        const r = await fetch(`/api/request-drawer?id=${requestId}`)
+        const j = await r.json()
+        if (j.status === 'approved') {
+          clearInterval(iv)
+          setStep('opening')
+          try {
+            const cfg = getReceiptCfg()
+            if (cfg.ip) await kickDrawerViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100)
+          } catch (e) { console.warn('Drawer kick error:', e.message) }
+          setStep('done')
+          setTimeout(onClose, 1500)
+        } else if (j.status === 'rejected') {
+          clearInterval(iv)
+          setStep('rejected')
+          setTimeout(onClose, 3000)
+        }
+      } catch {}
+    }, 5000)
   }
 
   async function confirm() {
@@ -1323,11 +1349,22 @@ function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
             <div className="text-5xl mb-2">✅</div>
             <p className="font-bold text-emerald-600 text-lg">เปิดลิ้นชักแล้ว</p>
           </div>
+        ) : step === 'opening' ? (
+          <div className="p-8 text-center">
+            <div className="text-5xl mb-2">⏳</div>
+            <p className="font-bold text-brand text-lg">กำลังเปิดลิ้นชัก...</p>
+          </div>
+        ) : step === 'rejected' ? (
+          <div className="p-8 text-center">
+            <div className="text-5xl mb-2">❌</div>
+            <p className="font-bold text-red-500 text-lg">ไม่อนุมัติ</p>
+            <p className="text-sm text-slate-500 mt-1">admin ปฏิเสธคำขอเปิดลิ้นชัก</p>
+          </div>
         ) : step === 'requested' ? (
           <div className="p-8 text-center">
             <div className="text-5xl mb-2">📨</div>
             <p className="font-bold text-amber-600 text-lg">ส่งคำขอแล้ว</p>
-            <p className="text-sm text-slate-500 mt-1">รอ admin อนุมัติ ทาง Telegram</p>
+            <p className="text-sm text-slate-500 mt-1">รอ admin อนุมัติ ทาง Telegram…</p>
           </div>
         ) : isEmployee ? (
           <div className="p-6 space-y-4">
