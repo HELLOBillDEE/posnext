@@ -19,6 +19,7 @@ const SETTING_FIELDS = [
   { key:'admin_pin',            label:'PIN เข้าโหมดแอดมิน (4 หลัก)',     placeholder:'ตัวเลข 4 หลัก เช่น 1234' },
   { key:'line_channel_token',   label:'LINE Channel Access Token',         placeholder:'วาง Long-lived token จาก LINE Developers' },
   { key:'line_group_id',        label:'LINE Group ID (บันทึกอัตโนมัติ)',   placeholder:'C... (ระบบกรอกให้เองเมื่อเพิ่ม Bot เข้ากลุ่ม)' },
+  { key:'telegram_chat_id',     label:'Telegram Chat ID (กลุ่ม)',          placeholder:'-1001234567890 (ดูจาก @getidsbot)' },
 ]
 
 const TABS = ['ตั้งค่าร้าน', 'เครื่องพิมพ์', 'ซัพพลายเออร์', 'ประวัติสต็อก', '🔓 ลิ้นชัก', '💰 พนักงาน']
