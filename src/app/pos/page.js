@@ -1210,7 +1210,8 @@ export default function POSPage() {
         <ShiftModal
           mode={shiftModalMode}
           currentShift={shift}
-          salesTotal={total}
+          empMode={empMode}
+          settings={settings}
           onClose={() => setShowShiftModal(false)}
           onOpened={s => { setShift(s); setShowShiftModal(false) }}
           onClosed={() => { setShift(null); setShowShiftModal(false) }}
@@ -1648,18 +1649,29 @@ function DenomRow({ denom, qty, onChange }) {
   )
 }
 
-function ShiftModal({ mode, currentShift, onClose, onOpened, onClosed }) {
+function ShiftModal({ mode, currentShift, empMode, settings, onClose, onOpened, onClosed }) {
   const initQtys = () => Object.fromEntries(DENOMS.map(d => [d.v, '']))
   const [qtys, setQtys]               = useState(initQtys)
-  const [safeAmount, setSafeAmount]   = useState('')
   const [note, setNote]               = useState('')
   const [saving, setSaving]           = useState(false)
   const [shiftSummary, setShiftSummary] = useState(null)
   const [prevShift, setPrevShift]     = useState(null)
+  // โซนเงินออก
+  const [expSafe, setExpSafe]         = useState('')
+  const [expWages, setExpWages]       = useState('')
+  const [expAdvance, setExpAdvance]   = useState('')
+  const [expOther, setExpOther]       = useState([]) // [{label, amount}]
+  // ขอเปิดลิ้นชัก
+  const [drawerReq, setDrawerReq]     = useState(null) // null|'sending'|'sent'|'error'
 
-  const totalCash = DENOMS.reduce((s, d) => s + (parseFloat(qtys[d.v]) || 0) * d.v, 0)
-  const safeAmt   = parseFloat(safeAmount) || 0
-  const netInDrawer = totalCash - safeAmt
+  const totalCash    = DENOMS.reduce((s, d) => s + (parseFloat(qtys[d.v]) || 0) * d.v, 0)
+  const expSafeN     = parseFloat(expSafe)    || 0
+  const expWagesN    = parseFloat(expWages)   || 0
+  const expAdvanceN  = parseFloat(expAdvance) || 0
+  const expOtherN    = expOther.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
+  const totalExp     = expSafeN + expWagesN + expAdvanceN + expOtherN
+  const cashRemaining = totalCash - totalExp
+  const diff         = shiftSummary ? totalCash - shiftSummary.expected : 0
 
   useEffect(() => {
     if (mode === 'close' && currentShift) loadShiftSummary()
@@ -1668,7 +1680,7 @@ function ShiftModal({ mode, currentShift, onClose, onOpened, onClosed }) {
 
   async function loadPrevShift() {
     const { data } = await supabase.from('shifts')
-      .select('closing_cash, safe_amount, closed_at')
+      .select('cash_remaining, closing_cash, closed_at')
       .eq('status', 'closed')
       .order('closed_at', { ascending: false })
       .limit(1).maybeSingle()
@@ -1696,6 +1708,31 @@ function ShiftModal({ mode, currentShift, onClose, onOpened, onClosed }) {
     setShiftSummary({ salesTotal, cashSales, drawerIn, drawerOut, expected, count: sales?.length || 0 })
   }
 
+  async function requestDrawerOpen() {
+    const cfg = getReceiptCfg()
+    if (!empMode && cfg.ip) {
+      // admin — เปิดตรง
+      setDrawerReq('sending')
+      try {
+        await kickDrawerViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100)
+        setDrawerReq('sent')
+      } catch { setDrawerReq('error') }
+      return
+    }
+    // employee — ส่ง request
+    if (!empMode) { setDrawerReq('error'); return }
+    setDrawerReq('sending')
+    try {
+      const res = await fetch('/api/request-drawer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employee_id: empMode.id, employee_name: empMode.name, note: `${mode === 'open' ? 'เปิดกะ' : 'ปิดกะ'} — นับเงิน` }),
+      })
+      const j = await res.json()
+      setDrawerReq(j.error ? 'error' : 'sent')
+    } catch { setDrawerReq('error') }
+  }
+
   async function openShift() {
     if (totalCash === 0) return alert('กรุณากรอกจำนวนธนบัตร/เหรียญ')
     setSaving(true)
@@ -1715,27 +1752,55 @@ function ShiftModal({ mode, currentShift, onClose, onOpened, onClosed }) {
       closed_at: new Date().toISOString(),
       closing_cash: totalCash,
       closing_breakdown: qtys,
-      safe_amount: safeAmt,
+      safe_amount: expSafeN,
+      expense_wages: expWagesN,
+      expense_advance: expAdvanceN,
+      expense_other: expOther.filter(e => parseFloat(e.amount) > 0),
+      cash_remaining: cashRemaining,
       expected_cash: expected,
-      difference: totalCash - expected,
+      difference: diff,
       sales_total: shiftSummary?.salesTotal || 0,
       sales_count: shiftSummary?.count || 0,
       note: note.trim() || null,
       status: 'closed',
     }).eq('id', currentShift.id)
+    if (!error) {
+      fetch('/api/notify-shift-close', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cashierName: currentShift.cashier_name || (empMode?.name) || '',
+          shopName: settings?.shop_name || 'ร้านค้า',
+          openedAt: currentShift.opened_at,
+          salesTotal: shiftSummary?.salesTotal || 0,
+          salesCount: shiftSummary?.count || 0,
+          cashSales: shiftSummary?.cashSales || 0,
+          closingCash: totalCash,
+          expected,
+          diff,
+          expSafe: expSafeN,
+          expWages: expWagesN,
+          expAdvance: expAdvanceN,
+          expOther: expOther.filter(e => parseFloat(e.amount) > 0),
+          cashRemaining,
+        }),
+      }).catch(() => {})
+    }
     setSaving(false)
     if (error) return alert('เกิดข้อผิดพลาด: ' + error.message)
     onClosed()
   }
 
-  const diff = shiftSummary ? totalCash - shiftSummary.expected : 0
+  const drawerBtnLabel = drawerReq === 'sending' ? '⏳...'
+    : drawerReq === 'sent' ? (empMode ? '📨 ส่งคำขอแล้ว' : '✅ เปิดแล้ว')
+    : drawerReq === 'error' ? '❌ ล้มเหลว'
+    : '🔓 เปิดลิ้นชักนับเงิน'
 
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-end md:items-center justify-center p-3"
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden fade-in flex flex-col" style={{maxHeight:'92vh'}}>
 
-        {/* Header */}
         <div className={`text-white px-4 py-3.5 flex justify-between items-center shrink-0 ${mode==='open' ? 'bg-emerald-700' : 'bg-red-600'}`}>
           <h2 className="font-bold text-base">{mode==='open' ? '🟢 เปิดกะ — นับเงิน' : '🔴 ปิดกะ — นับเงิน'}</h2>
           <button onClick={onClose} className="text-2xl leading-none opacity-70">×</button>
@@ -1743,17 +1808,19 @@ function ShiftModal({ mode, currentShift, onClose, onOpened, onClosed }) {
 
         <div className="overflow-y-auto flex-1 p-4 space-y-3">
 
-          {/* เปิดกะ: เปรียบเทียบกะก่อนหน้า */}
+          {/* ปุ่มขอเปิดลิ้นชัก */}
+          <button onClick={requestDrawerOpen} disabled={drawerReq === 'sending'}
+            className="w-full border-2 border-dashed border-slate-300 rounded-2xl py-2.5 text-sm font-semibold text-slate-500 hover:border-brand hover:text-brand transition-colors disabled:opacity-50">
+            {drawerBtnLabel}
+          </button>
+
+          {/* เปิดกะ: เงินคงเหลือจากกะก่อน */}
           {mode === 'open' && prevShift && (
             <div className="bg-blue-50 rounded-2xl p-3 border border-blue-100 text-sm space-y-1">
-              <div className="font-semibold text-blue-700 text-xs mb-1.5">📋 กะก่อนหน้า (ปิดเมื่อ {new Date(prevShift.closed_at).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})})</div>
-              <div className="flex justify-between"><span className="text-blue-600">ยอดเงินปิดกะ</span><span className="font-semibold text-blue-800">฿{fmt(prevShift.closing_cash)}</span></div>
-              {Number(prevShift.safe_amount) > 0 && (
-                <div className="flex justify-between"><span className="text-blue-600">ฝากเซฟ</span><span className="font-semibold text-blue-800">−฿{fmt(prevShift.safe_amount)}</span></div>
-              )}
-              <div className="flex justify-between font-bold border-t border-blue-200 pt-1.5 mt-0.5">
-                <span className="text-blue-700">ควรมีในลิ้นชักตอนเช้า</span>
-                <span className="text-blue-900">฿{fmt(Number(prevShift.closing_cash||0) - Number(prevShift.safe_amount||0))}</span>
+              <div className="font-semibold text-blue-700 text-xs mb-1">📋 กะก่อนหน้า (ปิด {new Date(prevShift.closed_at).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})})</div>
+              <div className="flex justify-between font-bold">
+                <span className="text-blue-700">เงินคงเหลือในลิ้นชัก</span>
+                <span className="text-blue-900 tabular-nums">฿{fmt(prevShift.cash_remaining ?? prevShift.closing_cash)}</span>
               </div>
             </div>
           )}
@@ -1764,12 +1831,8 @@ function ShiftModal({ mode, currentShift, onClose, onOpened, onClosed }) {
               <div className="flex justify-between text-sm"><span className="text-slate-500">ยอดขายกะนี้</span><span className="font-bold text-brand">฿{fmt(shiftSummary.salesTotal)}</span></div>
               <div className="flex justify-between text-sm"><span className="text-slate-500">เงินสดรับ</span><span className="font-semibold text-slate-700">฿{fmt(shiftSummary.cashSales)}</span></div>
               <div className="flex justify-between text-sm"><span className="text-slate-500">เงินเริ่มต้น</span><span className="font-semibold text-slate-700">฿{fmt(currentShift.opening_cash)}</span></div>
-              {shiftSummary.drawerIn > 0 && (
-                <div className="flex justify-between text-sm"><span className="text-slate-500">รับเงินเข้าเก๊ะ</span><span className="font-semibold text-emerald-600">+฿{fmt(shiftSummary.drawerIn)}</span></div>
-              )}
-              {shiftSummary.drawerOut > 0 && (
-                <div className="flex justify-between text-sm"><span className="text-slate-500">เบิกเงินออกเก๊ะ</span><span className="font-semibold text-red-500">−฿{fmt(shiftSummary.drawerOut)}</span></div>
-              )}
+              {shiftSummary.drawerIn > 0 && <div className="flex justify-between text-sm"><span className="text-slate-500">รับเงินเข้าเก๊ะ</span><span className="font-semibold text-emerald-600">+฿{fmt(shiftSummary.drawerIn)}</span></div>}
+              {shiftSummary.drawerOut > 0 && <div className="flex justify-between text-sm"><span className="text-slate-500">เบิกเงินออกเก๊ะ</span><span className="font-semibold text-red-500">−฿{fmt(shiftSummary.drawerOut)}</span></div>}
               <div className="flex justify-between text-sm font-bold border-t border-slate-200 pt-1.5">
                 <span className="text-slate-700">ควรมีในเก๊ะ</span>
                 <span className="text-emerald-600">฿{fmt(shiftSummary.expected)}</span>
@@ -1795,25 +1858,55 @@ function ShiftModal({ mode, currentShift, onClose, onOpened, onClosed }) {
 
           {/* Total */}
           <div className="bg-slate-800 rounded-2xl px-4 py-3 flex justify-between items-center">
-            <span className="text-slate-400 text-sm">รวมทั้งหมด</span>
+            <span className="text-slate-400 text-sm font-medium">รวมทั้งหมด</span>
             <span className="text-white text-2xl font-bold tabular-nums">฿{fmt(totalCash)}</span>
           </div>
 
-          {/* ปิดกะ: ฝากเซฟ + ผลต่าง */}
+          {/* ปิดกะ: โซนเงินออก */}
           {mode === 'close' && (
             <>
-              <div>
-                <label className="text-xs font-semibold text-slate-500 block mb-1.5">💰 ฝากเซฟ (นำออกจากลิ้นชัก)</label>
-                <input type="number" inputMode="decimal" min="0" value={safeAmount}
-                  onChange={e => setSafeAmount(e.target.value)} placeholder="0"
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-right text-lg font-bold focus:border-red-400 outline-none" />
-              </div>
-              {safeAmt > 0 && (
-                <div className="flex justify-between text-sm bg-amber-50 rounded-xl px-3 py-2 border border-amber-100">
-                  <span className="text-amber-700">เหลือในลิ้นชักพรุ่งนี้</span>
-                  <span className="font-bold text-amber-800 tabular-nums">฿{fmt(netInDrawer)}</span>
+              <div className="rounded-2xl border border-slate-200 overflow-hidden">
+                <div className="bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500 uppercase tracking-wider">💸 โซนเงินออก</div>
+                <div className="p-3 space-y-2">
+                  {[
+                    { label: 'ฝากเซฟ', val: expSafe, set: setExpSafe },
+                    { label: 'ค่าแรงพนักงาน', val: expWages, set: setExpWages },
+                    { label: 'เงินเบิกล่วงหน้า', val: expAdvance, set: setExpAdvance },
+                  ].map(({ label, val, set }) => (
+                    <div key={label} className="flex items-center gap-2">
+                      <span className="text-sm text-slate-600 w-32 shrink-0">{label}</span>
+                      <input type="number" inputMode="decimal" min="0" value={val}
+                        onChange={e => set(e.target.value)} placeholder="0"
+                        className="flex-1 border border-slate-200 rounded-lg px-2 py-1.5 text-right text-sm font-semibold focus:border-red-400 outline-none tabular-nums" />
+                    </div>
+                  ))}
+                  {/* ค่าใช้จ่ายอื่นๆ */}
+                  {expOther.map((e, i) => (
+                    <div key={i} className="flex items-center gap-1.5">
+                      <input value={e.label} onChange={ev => setExpOther(p => p.map((x,j) => j===i ? {...x, label: ev.target.value} : x))}
+                        placeholder="รายการ..." className="flex-1 border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:border-red-400 outline-none" />
+                      <input type="number" inputMode="decimal" min="0" value={e.amount}
+                        onChange={ev => setExpOther(p => p.map((x,j) => j===i ? {...x, amount: ev.target.value} : x))}
+                        placeholder="0" className="w-24 border border-slate-200 rounded-lg px-2 py-1.5 text-right text-sm font-semibold focus:border-red-400 outline-none tabular-nums" />
+                      <button onClick={() => setExpOther(p => p.filter((_,j) => j!==i))} className="text-slate-300 hover:text-red-400 font-bold text-lg leading-none px-1">×</button>
+                    </div>
+                  ))}
+                  <button onClick={() => setExpOther(p => [...p, { label: '', amount: '' }])}
+                    className="text-xs text-brand font-semibold mt-1">+ ค่าใช้จ่ายอื่นๆ</button>
                 </div>
-              )}
+                <div className="border-t border-slate-200 px-3 py-2 flex justify-between text-sm">
+                  <span className="text-slate-500">รวมเงินออก</span>
+                  <span className="font-bold text-red-500 tabular-nums">−฿{fmt(totalExp)}</span>
+                </div>
+              </div>
+
+              {/* เงินคงเหลือ */}
+              <div className="bg-emerald-700 rounded-2xl px-4 py-3 flex justify-between items-center">
+                <span className="text-emerald-100 text-sm font-medium">💰 เงินคงเหลือ (เปิดกะพรุ่งนี้)</span>
+                <span className="text-white text-xl font-bold tabular-nums">฿{fmt(cashRemaining)}</span>
+              </div>
+
+              {/* ผลต่าง */}
               {totalCash > 0 && shiftSummary && (
                 <div className={`rounded-2xl p-3 text-center font-bold text-lg ${diff >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
                   {diff >= 0 ? '✅ เงินเกิน' : '⚠️ เงินขาด'}&nbsp;฿{fmt(Math.abs(diff))}

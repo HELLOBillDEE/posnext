@@ -177,6 +177,54 @@ export async function notifyDrawerRequest({ id, empName, note }) {
   })
 }
 
+/* ── แจ้งเตือนปิดกะ ── */
+export async function notifyShiftClose({ cashierName, shopName, openedAt, salesTotal, salesCount, cashSales, closingCash, expected, diff, expSafe, expWages, expAdvance, expOther, cashRemaining }) {
+  const cfg = await getTelegramSettings()
+  if (!cfg) return
+
+  const f = n => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+  const timeStr = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
+  const openStr = openedAt ? new Date(openedAt).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' }) : '-'
+
+  const expSafeN    = Number(expSafe    || 0)
+  const expWagesN   = Number(expWages   || 0)
+  const expAdvanceN = Number(expAdvance || 0)
+  const expOtherArr = Array.isArray(expOther) ? expOther : []
+  const expOtherN   = expOtherArr.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
+  const totalExp    = expSafeN + expWagesN + expAdvanceN + expOtherN
+
+  const diffSign = Number(diff) >= 0 ? `✅ เกิน +฿${f(Math.abs(diff))}` : `⚠️ ขาด −฿${f(Math.abs(diff))}`
+
+  const lines = [
+    `🔴 <b>ปิดกะ</b>${cashierName ? ` — ${cashierName}` : ''}`,
+    `🏪 ${shopName || 'ร้านค้า'}  |  🕐 ${openStr} – ${timeStr}`,
+    ``,
+    `🧾 ยอดขาย: <b>฿${f(salesTotal)}</b> (${salesCount} บิล)`,
+    `💵 เงินสดรับ: ฿${f(cashSales)}`,
+    ``,
+    `📦 เงินนับได้: ฿${f(closingCash)}`,
+    `   ตามระบบ: ฿${f(expected)}`,
+    `   ${diffSign}`,
+  ]
+
+  if (totalExp > 0) {
+    lines.push(``)
+    lines.push(`💸 <b>เงินออก</b>`)
+    if (expSafeN   > 0) lines.push(`   ฝากเซฟ: ฿${f(expSafeN)}`)
+    if (expWagesN  > 0) lines.push(`   ค่าแรง: ฿${f(expWagesN)}`)
+    if (expAdvanceN> 0) lines.push(`   เบิกล่วงหน้า: ฿${f(expAdvanceN)}`)
+    for (const e of expOtherArr) {
+      if (parseFloat(e.amount) > 0) lines.push(`   ${e.label || 'อื่นๆ'}: ฿${f(e.amount)}`)
+    }
+    lines.push(`   รวมออก: ฿${f(totalExp)}`)
+  }
+
+  lines.push(``)
+  lines.push(`💰 <b>เงินคงเหลือ (เปิดกะพรุ่งนี้): ฿${f(cashRemaining)}</b>`)
+
+  await sendMessage(cfg.telegram_bot_token, cfg.telegram_chat_id, lines.join('\n'))
+}
+
 /* ── แจ้งเตือนคำขอเบิก ── */
 export async function notifyAdvance({ id, empName, amount }) {
   const cfg = await getTelegramSettings()
