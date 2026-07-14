@@ -228,6 +228,38 @@ export async function notifyShiftClose({ cashierName, shopName, openedAt, salesT
   await sendMessage(cfg.telegram_bot_token, cfg.telegram_chat_id, lines.join('\n'))
 }
 
+/* ── แจ้งเตือนพนักงานให้ส่วนลด/แก้ราคา ── */
+export async function notifyDiscount({ empName, receiptNo, discItems, billDisc, tierName, tierDisc, totalDisc, total, shopName }) {
+  const cfg = await getTelegramSettings()
+  if (!cfg) return
+
+  const f = n => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+
+  const lines = [
+    `⚠️ <b>พนักงานให้ส่วนลด</b>`,
+    `🏪 ${shopName || 'ร้านค้า'}  |  👤 ${empName || '?'}`,
+    `📄 ${receiptNo}`,
+    ``,
+  ]
+
+  for (const i of (discItems || [])) {
+    if (i.origPrice !== undefined && i.price !== i.origPrice) {
+      const diff = (i.origPrice - i.price) * i.qty
+      lines.push(`  • ${i.name} ×${i.qty}  ฿${f(i.origPrice)} → ฿${f(i.price)}  (ลด ฿${f(diff)})`)
+    } else if (i.disc > 0) {
+      lines.push(`  • ${i.name} ×${i.qty}  ส่วนลด −฿${f(i.disc)}`)
+    }
+  }
+
+  if (tierName && tierDisc > 0) lines.push(`  ${tierName}: −฿${f(tierDisc)}`)
+  if (billDisc > 0) lines.push(`  ส่วนลดบิล: −฿${f(billDisc)}`)
+
+  lines.push(``)
+  lines.push(`รวมลด: −฿${f(totalDisc)}  |  ยอดสุทธิ: ฿${f(total)}`)
+
+  await sendMessage(cfg.telegram_bot_token, cfg.telegram_chat_id, lines.join('\n'))
+}
+
 /* ── แจ้งเตือนคำขอเบิก ── */
 export async function notifyAdvance({ id, empName, amount }) {
   const cfg = await getTelegramSettings()

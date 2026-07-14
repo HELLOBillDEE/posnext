@@ -147,6 +147,13 @@ export default function POSPage() {
   }, [numpad])
   useEffect(() => { setVisibleCount(40) }, [search, activeCat])
 
+  // ถ้า login เป็นพนักงาน (empMode) แต่ยังไม่ได้เลือก currentEmp → auto-select จาก employees list
+  useEffect(() => {
+    if (!empMode || currentEmp) return
+    const match = employees.find(e => e.id === empMode.id)
+    if (match) setCurrentEmp(match)
+  }, [employees, empMode])
+
   // Cleanup HID on unmount
   useEffect(() => () => { if (hidDevice?.opened) hidDevice.close() }, [hidDevice])
 
@@ -312,7 +319,7 @@ export default function POSPage() {
         const updated = { ...prev[idx], qty: prev[idx].qty + qty }
         return [updated, ...prev.filter((_, i) => i !== idx)]
       }
-      return [{ pid: prod.id, name: prod.name, barcode: prod.barcode, unit: prod.unit, price: prod.price, cost: prod.cost || 0, qty, disc: 0, note: '' }, ...prev]
+      return [{ pid: prod.id, name: prod.name, barcode: prod.barcode, unit: prod.unit, price: prod.price, origPrice: prod.price, cost: prod.cost || 0, qty, disc: 0, note: '' }, ...prev]
     })
   }
 
@@ -448,6 +455,7 @@ export default function POSPage() {
   }
 
   async function completeSale() {
+    if (!shift) return alert('กรุณาเปิดกะก่อนทำการขาย')
     if (cart.length === 0) return alert('กรุณาเพิ่มสินค้า')
     if (payMode === 'single') {
       if (payMethod === 'cash' && parseFloat(payAmount || 0) < total) return alert('จำนวนเงินที่รับไม่เพียงพอ')
@@ -487,6 +495,7 @@ export default function POSPage() {
         payment_method: saveMethod, payment_amount: saveAmount,
         change_amount: saveChange, note: saveNote,
         customer_id: customer?.id || null,
+        employee_id: currentEmp?.id || null,
       }
       const saleItems = cart.map(i => ({
         product_id: i.pid, product_name: i.name,
@@ -601,6 +610,26 @@ export default function POSPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sale: { ...receipt, shopName: settings.shop_name || 'ร้านค้า' } }),
       }).catch(() => {})
+
+      // แจ้งเตือนส่วนลด (เฉพาะพนักงาน + มีส่วนลดจริง)
+      if (empMode && (totalDisc > 0 || cart.some(i => i.origPrice !== undefined && i.price !== i.origPrice))) {
+        const discItems = cart.filter(i => (i.origPrice !== undefined && i.price !== i.origPrice) || i.disc > 0)
+        fetch('/api/notify-discount', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            empName: currentEmp ? (currentEmp.nickname || currentEmp.name) : (empMode.name || ''),
+            receiptNo,
+            discItems: discItems.map(i => ({ name: i.name, qty: i.qty, origPrice: i.origPrice, price: i.price, disc: i.disc })),
+            billDisc,
+            tierName: PRICE_TIERS.find(t => t.id === priceTier)?.label || null,
+            tierDisc,
+            totalDisc,
+            total,
+            shopName: settings.shop_name || 'ร้านค้า',
+          }),
+        }).catch(() => {})
+      }
 
       // แจ้งเตือน LINE กลุ่ม (fire-and-forget)
       fetch('/api/notify-line', {
