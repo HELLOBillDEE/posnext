@@ -1456,6 +1456,11 @@ function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
             const cfg = getReceiptCfg()
             if (cfg.ip) await kickDrawerViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100)
           } catch (e) { console.warn('Drawer kick error:', e.message) }
+          const timeStr = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
+          fetch('/api/camera-snapshot', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ caption: `🔓 เปิดลิ้นชัก — ${empName}  🕐 ${timeStr}` }),
+          }).catch(() => {})
           setStep('done')
           setTimeout(onClose, 1500)
         } else if (j.status === 'rejected') {

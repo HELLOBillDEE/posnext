@@ -63,6 +63,7 @@ export default function AdminPage() {
   const [custForm, setCustForm] = useState({ code:'', name:'', phone:'', address:'', tax_id:'', credit_limit:'0' })
   const [suppForm, setSuppForm] = useState({ code:'', name:'', phone:'', address:'', tax_id:'' })
   const [saving, setSaving]   = useState(false)
+  const [camTestMsg, setCamTestMsg] = useState('')
   const [search, setSearch]   = useState('')
   const [printers, setPrinters] = useState(loadPrinters)
   const [printerSaved, setPrinterSaved] = useState(false)
@@ -578,6 +579,53 @@ export default function AdminPage() {
             <p>5. ส่งข้อความใดก็ได้ในกลุ่ม → ระบบจะดึง Group ID ให้อัตโนมัติ → บันทึกการตั้งค่า</p>
             {settings.line_group_id && <p className="text-green-700 font-semibold">✅ Group ID: {settings.line_group_id}</p>}
             {settings.line_channel_token && !settings.line_group_id && <p className="text-amber-600">⏳ รอ Group ID — เพิ่ม Bot เข้ากลุ่มก่อน</p>}
+          </div>
+
+          {/* Camera settings */}
+          <div className="rounded-xl p-4 space-y-3" style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+            <p className="font-bold text-sm text-slate-700">📷 กล้องวงจรปิด (Dahua IP Camera)</p>
+            <p className="text-xs text-slate-500">ระบบจะถ่ายภาพจากกล้องอัตโนมัติทุกครั้งที่เปิดลิ้นชัก แล้วส่งรูปไป Telegram</p>
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block">IP กล้อง</label>
+              <input value={settings.camera_ip || ''} onChange={e => setSettings(p => ({ ...p, camera_ip: e.target.value }))}
+                placeholder="192.168.x.x" className="field w-full" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-slate-500 mb-1 block">Username</label>
+                <input value={settings.camera_username || ''} onChange={e => setSettings(p => ({ ...p, camera_username: e.target.value }))}
+                  placeholder="admin" className="field w-full" />
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 mb-1 block">Password</label>
+                <input type="password" value={settings.camera_password || ''} onChange={e => setSettings(p => ({ ...p, camera_password: e.target.value }))}
+                  placeholder="รหัสผ่านกล้อง" className="field w-full" />
+              </div>
+            </div>
+            {settings.camera_ip && (
+              <p className="text-xs font-mono text-slate-400 break-all">
+                http://{settings.camera_ip}/cgi-bin/snapshot.cgi
+              </p>
+            )}
+            <button
+              onClick={async () => {
+                setCamTestMsg('กำลังทดสอบ...')
+                try {
+                  const r = await fetch('/api/camera-snapshot', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ caption: '🧪 ทดสอบกล้อง — ถ้าเห็นภาพนี้แปลว่าตั้งค่าถูกต้อง' }),
+                  })
+                  const j = await r.json()
+                  setCamTestMsg(j.ok ? '✅ ส่งรูปไป Telegram แล้ว' : `❌ ${j.reason || j.error}`)
+                } catch (e) { setCamTestMsg('❌ ' + e.message) }
+                setTimeout(() => setCamTestMsg(''), 5000)
+              }}
+              disabled={!settings.camera_ip}
+              className="px-4 py-2 rounded-xl text-sm font-semibold transition-all active:scale-95 disabled:opacity-40"
+              style={{ background: 'linear-gradient(135deg,#1d4ed8,#60a5fa)', color: '#fff' }}>
+              🧪 ทดสอบถ่ายภาพ
+            </button>
+            {camTestMsg && <p className="text-xs font-semibold text-slate-600">{camTestMsg}</p>}
           </div>
 
           <button onClick={saveSettings} disabled={saving}
