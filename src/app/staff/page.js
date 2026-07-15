@@ -65,6 +65,16 @@ export default function StaffPage() {
   /* drawer request */
   const [drawerLoad, setDrawerLoad] = useState(false)
   const [drawerMsg,  setDrawerMsg]  = useState(null)
+  /* profile edit */
+  const [profName,   setProfName]   = useState('')
+  const [profNick,   setProfNick]   = useState('')
+  const [profPhone,  setProfPhone]  = useState('')
+  const [profPw,     setProfPw]     = useState('')
+  const [profPw2,    setProfPw2]    = useState('')
+  const [profPin,    setProfPin]    = useState('')
+  const [profPin2,   setProfPin2]   = useState('')
+  const [profLoad,   setProfLoad]   = useState(false)
+  const [profMsg,    setProfMsg]    = useState(null)
   /* self-registration */
   const [regName,    setRegName]    = useState('')
   const [regNick,    setRegNick]    = useState('')
@@ -134,6 +144,47 @@ export default function StaffPage() {
     })
     const json = await res.json()
     if (!json.error) setData(json)
+  }
+
+  function openProfileTab(emp) {
+    setProfName(emp?.name || '')
+    setProfNick(emp?.nickname || '')
+    setProfPhone(emp?.phone || '')
+    setProfPw(''); setProfPw2(''); setProfPin(''); setProfPin2('')
+    setProfMsg(null)
+    setTab('profile')
+  }
+
+  async function saveProfile() {
+    if (!profName.trim()) return setProfMsg({ ok: false, text: 'กรุณากรอกชื่อ' })
+    if (profPw && profPw !== profPw2) return setProfMsg({ ok: false, text: 'รหัสผ่านใหม่ไม่ตรงกัน' })
+    if (profPin && profPin !== profPin2) return setProfMsg({ ok: false, text: 'PIN ใหม่ไม่ตรงกัน' })
+    if (profPin && profPin.length < 4) return setProfMsg({ ok: false, text: 'PIN ต้องมีอย่างน้อย 4 หลัก' })
+    setProfLoad(true); setProfMsg(null)
+    try {
+      const body = {
+        employee_id: session.employee_id, password: session.password,
+        name: profName, nickname: profNick, phone: profPhone,
+      }
+      if (profPw) body.new_password = profPw
+      if (profPin) body.new_pin = profPin
+      const res  = await fetch('/api/update-profile', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const json = await res.json()
+      if (json.error) return setProfMsg({ ok: false, text: json.error })
+      // update local session if password changed
+      if (profPw) {
+        const newSess = { ...session, password: profPw }
+        setSession(newSess)
+        try { localStorage.setItem('staff_session', JSON.stringify(newSess)) } catch {}
+      }
+      setProfPw(''); setProfPw2(''); setProfPin(''); setProfPin2('')
+      setProfMsg({ ok: true, text: 'บันทึกข้อมูลเรียบร้อยแล้ว' })
+      await refreshData()
+    } catch { setProfMsg({ ok: false, text: 'เชื่อมต่อไม่ได้' }) }
+    finally { setProfLoad(false) }
   }
 
   /* check-in / check-out */
@@ -460,14 +511,16 @@ export default function StaffPage() {
         </div>
 
         {/* Tabs */}
-        <div className="grid grid-cols-4 gap-1.5 mb-4">
+        <div className="grid grid-cols-5 gap-1 mb-4">
           {[
             { id:'home',    label:'หน้าหลัก' },
             { id:'leave',   label:`ลา${pendLeave ? ` (${pendLeave})` : ''}` },
             { id:'advance', label:`เบิก${pendAdv ? ` (${pendAdv})` : ''}` },
             { id:'history', label:'ประวัติ' },
+            { id:'profile', label:'โปรไฟล์' },
           ].map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)}
+            <button key={t.id}
+              onClick={() => t.id === 'profile' ? openProfileTab(emp) : setTab(t.id)}
               className={`py-2 rounded-xl text-xs font-semibold transition-all ${tab===t.id ? 'bg-brand text-white shadow-sm' : 'bg-white text-slate-500 border border-slate-200'}`}>
               {t.label}
             </button>
@@ -667,6 +720,93 @@ export default function StaffPage() {
               )
               return null
             })}
+          </div>
+        )}
+
+        {/* Tab: โปรไฟล์ */}
+        {tab==='profile' && (
+          <div className="space-y-4">
+            {/* ชื่อเล่น banner */}
+            <div className="rounded-2xl p-4 flex items-center gap-3"
+              style={{ background: 'linear-gradient(135deg,#C72C41,#a02235)' }}>
+              <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center text-white text-xl font-bold shrink-0">
+                {(profNick || profName).charAt(0)}
+              </div>
+              <div>
+                <p className="text-white font-bold text-lg leading-tight">{profNick || profName || '—'}</p>
+                <p className="text-white/70 text-xs">ชื่อเล่นนี้จะแสดงใน แท็กช่างซ่อม ของ POS</p>
+              </div>
+            </div>
+
+            {/* ข้อมูลส่วนตัว */}
+            <div className="bg-white rounded-2xl border border-slate-100 p-4 space-y-3">
+              <p className="text-sm font-bold text-slate-700">ข้อมูลส่วนตัว</p>
+              <div>
+                <label className="text-xs font-semibold text-slate-400 block mb-1">ชื่อ-นามสกุล *</label>
+                <input value={profName} onChange={e => setProfName(e.target.value)}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-brand" />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-400 block mb-1">ชื่อเล่น <span className="text-violet-500">(ใช้แท็กช่างซ่อมใน POS)</span></label>
+                <input value={profNick} onChange={e => setProfNick(e.target.value)}
+                  placeholder="เช่น เอิน, ศรี"
+                  className="w-full border border-violet-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-violet-400" />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-400 block mb-1">เบอร์โทรศัพท์</label>
+                <input value={profPhone} onChange={e => setProfPhone(e.target.value)}
+                  type="tel" inputMode="tel"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-brand" />
+              </div>
+            </div>
+
+            {/* เปลี่ยนรหัสผ่าน */}
+            <div className="bg-white rounded-2xl border border-slate-100 p-4 space-y-3">
+              <p className="text-sm font-bold text-slate-700">เปลี่ยนรหัสผ่าน <span className="text-xs font-normal text-slate-400">(เว้นว่างถ้าไม่เปลี่ยน)</span></p>
+              <div>
+                <label className="text-xs font-semibold text-slate-400 block mb-1">รหัสผ่านใหม่</label>
+                <input value={profPw} onChange={e => setProfPw(e.target.value)}
+                  type="password" placeholder="รหัสผ่านใหม่"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-brand" />
+              </div>
+              {profPw && (
+                <div>
+                  <label className="text-xs font-semibold text-slate-400 block mb-1">ยืนยันรหัสผ่านใหม่</label>
+                  <input value={profPw2} onChange={e => setProfPw2(e.target.value)}
+                    type="password" placeholder="พิมอีกครั้ง"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-brand" />
+                </div>
+              )}
+            </div>
+
+            {/* เปลี่ยน PIN */}
+            <div className="bg-white rounded-2xl border border-slate-100 p-4 space-y-3">
+              <p className="text-sm font-bold text-slate-700">เปลี่ยน PIN <span className="text-xs font-normal text-slate-400">(เว้นว่างถ้าไม่เปลี่ยน)</span></p>
+              <div>
+                <label className="text-xs font-semibold text-slate-400 block mb-1">PIN ใหม่ (4-6 หลัก)</label>
+                <input value={profPin} onChange={e => setProfPin(e.target.value.replace(/\D/g,'').slice(0,6))}
+                  type="password" inputMode="numeric" placeholder="••••"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-brand tracking-widest" />
+              </div>
+              {profPin && (
+                <div>
+                  <label className="text-xs font-semibold text-slate-400 block mb-1">ยืนยัน PIN ใหม่</label>
+                  <input value={profPin2} onChange={e => setProfPin2(e.target.value.replace(/\D/g,'').slice(0,6))}
+                    type="password" inputMode="numeric" placeholder="••••"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-brand tracking-widest" />
+                </div>
+              )}
+            </div>
+
+            {profMsg && (
+              <p className={`text-sm font-semibold text-center py-2 ${profMsg.ok ? 'text-green-600' : 'text-red-500'}`}>
+                {profMsg.ok ? '✅' : '❌'} {profMsg.text}
+              </p>
+            )}
+            <button onClick={saveProfile} disabled={profLoad}
+              className="w-full py-3.5 rounded-2xl bg-brand text-white font-bold text-sm shadow active:scale-95 transition-all disabled:opacity-40">
+              {profLoad ? 'กำลังบันทึก…' : '💾 บันทึกข้อมูล'}
+            </button>
           </div>
         )}
       </div>

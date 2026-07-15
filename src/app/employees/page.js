@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { fmt, fmtDate, MONTHS_TH } from '@/lib/utils'
 
 const now = new Date()
-const EMPTY_EMP = { code:'', name:'', nickname:'', position:'', salary:'', ot_rate:'', social_security:'750', bank_account:'', bank_name:'', start_date:'', pin:'', can_login:true, active:true }
+const EMPTY_EMP = { code:'', name:'', nickname:'', position:'', salary:'', ot_rate:'', social_security:'750', bank_account:'', bank_name:'', start_date:'', pin:'', can_login:true, active:true, repair_commission_pct:'0' }
 const EMPTY_SLIP = { ot_hours:'0', ot_rate:'', bonus:'0', allowance:'0', absent_days:'0', other_deduct:'0', note:'' }
 
 export default function EmployeesPage() {
@@ -35,7 +35,7 @@ export default function EmployeesPage() {
   }
 
   function openAdd() { setForm(EMPTY_EMP); setModal('add') }
-  function openEdit(e) { setForm({ ...e, salary: String(e.salary||''), ot_rate: String(e.ot_rate||''), social_security: String(e.social_security||750) }); setModal({ type:'edit', id: e.id }) }
+  function openEdit(e) { setForm({ ...e, salary: String(e.salary||''), ot_rate: String(e.ot_rate||''), social_security: String(e.social_security||750), repair_commission_pct: String(e.repair_commission_pct||'0') }); setModal({ type:'edit', id: e.id }) }
 
   async function saveEmployee() {
     if (!form.name) return alert('กรุณากรอกชื่อพนักงาน')
@@ -48,6 +48,7 @@ export default function EmployeesPage() {
       bank_account: form.bank_account, bank_name: form.bank_name,
       pin: form.pin || null, can_login: form.can_login !== false,
       start_date: form.start_date || null, active: form.active,
+      repair_commission_pct: parseFloat(form.repair_commission_pct) || 0,
     }
     try {
       if (modal === 'add') {
@@ -169,6 +170,10 @@ export default function EmployeesPage() {
               <div className="grid grid-cols-2 gap-3">
                 <EmpField label="เงินเดือน (บาท)" k="salary" form={form} setForm={setForm} type="number" placeholder="15000" />
                 <EmpField label="ค่า OT/ชม. (บาท)" k="ot_rate" form={form} setForm={setForm} type="number" placeholder="75" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <EmpField label="🔧 คอมค่าซ่อม (%)" k="repair_commission_pct" form={form} setForm={setForm} type="number" placeholder="0" />
+                <div className="flex items-end pb-1"><p className="text-xs text-gray-400">% ของค่าแรงซ่อมในแต่ละงาน<br/>คำนวณรายเดือนที่หน้า คอมช่าง</p></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <EmpField label="ประกันสังคม/เดือน" k="social_security" form={form} setForm={setForm} type="number" placeholder="750" />

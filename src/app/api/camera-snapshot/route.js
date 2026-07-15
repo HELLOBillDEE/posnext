@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { createHash } from 'crypto'
 import { spawn } from 'child_process'
-import { readFile, unlink } from 'fs/promises'
+import { readFile, unlink, writeFile, stat } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -16,6 +16,55 @@ const supabaseStorage = createClient(
 )
 
 const FFMPEG = '/opt/homebrew/bin/ffmpeg'
+
+// ── Circular pre-roll buffer (module-level, persistent ใน PM2) ──
+let _cbProc = null
+let _cbUrl  = null
+const CB_SEGS = 5   // 5 segments × 2 วิ = บัฟเฟอร์ 10 วินาที
+const CB_DUR  = 2
+const cbPath  = i => join(tmpdir(), `cam_cb_${i}.ts`)
+
+function ensureCB(rtspUrl) {
+  if (_cbProc?.exitCode === null && _cbUrl === rtspUrl) return
+  if (_cbProc) { try { _cbProc.kill() } catch {} _cbProc = null }
+  _cbUrl = rtspUrl
+  _cbProc = spawn(FFMPEG, [
+    '-rtsp_transport', 'tcp', '-i', rtspUrl,
+    '-f', 'segment', '-segment_time', String(CB_DUR),
+    '-segment_wrap', String(CB_SEGS), '-reset_timestamps', '1',
+    '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28',
+    '-c:a', 'aac', '-y',
+    join(tmpdir(), 'cam_cb_%d.ts'),
+  ])
+  _cbProc.stderr.on('data', () => {})
+  _cbProc.on('close', () => { _cbProc = null })
+  _cbProc.on('error', () => { _cbProc = null })
+}
+
+async function getPreRoll(targetSec = 5) {
+  const now = Date.now()
+  let best = null, bestDiff = Infinity
+  for (let i = 0; i < CB_SEGS; i++) {
+    const p = cbPath(i)
+    try {
+      const s = await stat(p)
+      const age = (now - s.mtimeMs) / 1000
+      if (age < CB_DUR) continue  // ยังกำลังเขียนอยู่
+      const diff = Math.abs(age - targetSec)
+      if (diff < bestDiff) { best = p; bestDiff = diff }
+    } catch {}
+  }
+  return bestDiff < CB_DUR * 3 ? best : null
+}
+
+function concatFfmpeg(listPath, outPath) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(FFMPEG, ['-f','concat','-safe','0','-i',listPath,'-c','copy','-y',outPath])
+    proc.stderr.on('data', () => {})
+    proc.on('close', code => code === 0 ? resolve() : reject(new Error(`concat exit ${code}`)))
+    proc.on('error', reject)
+  })
+}
 
 // ── Digest Auth สำหรับ HTTP snapshot ──
 async function fetchWithDigestAuth(url, username, password) {
@@ -98,24 +147,46 @@ async function sendToTelegram(token, chatId, buffer, contentType, filename, capt
   if (!json.ok) console.error(`[camera] Telegram ${method} error:`, json.description)
 }
 
-// ── Background: บันทึก + อัปโหลด + Telegram (ไม่ block response) ──
+// ── Background: บันทึก + pre-roll + อัปโหลด + Telegram ──
 async function recordAndNotify(s, caption) {
-  const ts      = Date.now()
-  const outPath = join(tmpdir(), `drawer-${ts}.mp4`)
-  const rtspUrl = `rtsp://${encodeURIComponent(s.camera_username || 'admin')}:${encodeURIComponent(s.camera_password || '')}@${s.camera_ip}:554/cam/realmonitor?channel=1&subtype=1`
+  const ts       = Date.now()
+  const clipPath = join(tmpdir(), `drawer-${ts}.mp4`)
+  const rtspUrl  = `rtsp://${encodeURIComponent(s.camera_username || 'admin')}:${encodeURIComponent(s.camera_password || '')}@${s.camera_ip}:554/cam/realmonitor?channel=1&subtype=1`
+
+  ensureCB(rtspUrl)  // ให้ buffer วิ่งต่อเนื่องสำหรับครั้งถัดไป
 
   try {
-    await recordRTSP(rtspUrl, 15, outPath)
-    const buf = await readFile(outPath)
-    await unlink(outPath).catch(() => {})
+    await recordRTSP(rtspUrl, 15, clipPath)
 
-    const filename = `${ts}.mp4`
-    const publicUrl = await uploadToStorage(buf, filename, 'video/mp4')
+    // หา pre-roll segment ที่อายุ ~5 วิ
+    const preRoll = await getPreRoll(5)
+    let finalBuf
+
+    if (preRoll) {
+      const listPath   = join(tmpdir(), `cat-${ts}.txt`)
+      const mergedPath = join(tmpdir(), `merged-${ts}.mp4`)
+      await writeFile(listPath, `file '${preRoll}'\nfile '${clipPath}'\n`)
+      try {
+        await concatFfmpeg(listPath, mergedPath)
+        finalBuf = await readFile(mergedPath)
+        await unlink(mergedPath).catch(() => {})
+      } catch {
+        finalBuf = await readFile(clipPath)  // fallback ถ้า concat ไม่ได้
+      }
+      await unlink(listPath).catch(() => {})
+    } else {
+      finalBuf = await readFile(clipPath)  // buffer ยังไม่พร้อม (ครั้งแรก)
+    }
+
+    await unlink(clipPath).catch(() => {})
+
+    const filename  = `${ts}.mp4`
+    const publicUrl = await uploadToStorage(finalBuf, filename, 'video/mp4')
     await saveToDrawerLog('video_url', publicUrl)
-    await sendToTelegram(s.telegram_bot_token, s.telegram_chat_id, buf, 'video/mp4', filename, caption, true)
+    await sendToTelegram(s.telegram_bot_token, s.telegram_chat_id, finalBuf, 'video/mp4', filename, caption, true)
   } catch (e) {
     console.error('[camera] recordAndNotify error:', e.message)
-    await unlink(outPath).catch(() => {})
+    await unlink(clipPath).catch(() => {})
   }
 }
 
@@ -133,6 +204,10 @@ export async function POST(req) {
     if (!s.camera_ip)          return Response.json({ ok: false, reason: 'camera not configured' })
     if (!s.telegram_bot_token) return Response.json({ ok: false, reason: 'no telegram token' })
     if (!s.telegram_chat_id)   return Response.json({ ok: false, reason: 'no telegram chat_id' })
+
+    // เริ่ม circular buffer ไว้ล่วงหน้า (ถ้ายังไม่ได้รัน)
+    const rtspForCB = `rtsp://${encodeURIComponent(s.camera_username||'admin')}:${encodeURIComponent(s.camera_password||'')}@${s.camera_ip}:554/cam/realmonitor?channel=1&subtype=1`
+    ensureCB(rtspForCB)
 
     if (mode === 'snapshot') {
       // ── Snapshot (ปุ่มทดสอบ) ──

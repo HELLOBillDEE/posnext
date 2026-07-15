@@ -12,7 +12,7 @@ export async function POST(req) {
     if (!employee_id || (!pin && !password)) return Response.json({ error: 'ข้อมูลไม่ครบ' }, { status: 400 })
 
     let q = supabase.from('employees')
-      .select('id, name, nickname, position, salary, start_date')
+      .select('id, name, nickname, position, salary, start_date, phone')
       .eq('id', employee_id).eq('active', true)
     if (password) q = q.eq('password', password.trim())
     else q = q.eq('pin', pin.trim())

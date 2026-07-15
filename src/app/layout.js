@@ -2,6 +2,7 @@ import './globals.css'
 import { Kanit } from 'next/font/google'
 import Nav from '@/components/Nav'
 import AuthProvider from '@/components/AuthProvider'
+import StaffGuard from '@/components/StaffGuard'
 
 const kanit = Kanit({
   subsets: ['thai', 'latin'],
@@ -58,6 +59,7 @@ export default function RootLayout({ children }) {
     <html lang="th" className={kanit.variable}>
       <body className="bg-slate-50 min-h-screen" style={{ fontFamily: 'var(--font-kanit), sans-serif' }}>
         <AuthProvider>
+          <StaffGuard />
           <div className="flex min-h-screen">
             <Nav />
             <main className="flex-1 nav-main min-h-screen pb-[72px] md:pb-0">

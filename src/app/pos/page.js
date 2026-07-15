@@ -89,6 +89,8 @@ export default function POSPage() {
   const [showShiftModal, setShowShiftModal] = useState(false)
   const [shiftModalMode, setShiftModalMode] = useState('open') // 'open' | 'close'
   const [showDrawerModal, setShowDrawerModal] = useState(false)
+  const [showCancelModal, setShowCancelModal] = useState(false)
+  const [showHistPanel, setShowHistPanel]     = useState(false)
   const [changeDisplay, setChangeDisplay]     = useState(null) // { change, total, payAmount }
   const [priceTier, setPriceTier]             = useState(null) // null | 'wholesale' | 'mechanic'
   // Web HID scanner
@@ -149,6 +151,12 @@ export default function POSPage() {
     return () => window.removeEventListener('keydown', onNumKey)
   }, [numpad])
   useEffect(() => { setVisibleCount(40) }, [search, activeCat])
+
+  // โหลด employees ตั้งแต่ต้นสำหรับ tech-tag ใน cart
+  useEffect(() => {
+    supabase.from('employees').select('id,name,nickname').eq('active', true).order('name')
+      .then(({ data }) => { if (data?.length) setEmployees(data) })
+  }, [])
 
   // ถ้า login เป็นพนักงาน (empMode) แต่ยังไม่ได้เลือก currentEmp → auto-select จาก employees list
   useEffect(() => {
@@ -349,6 +357,10 @@ export default function POSPage() {
     setCart(p => { const n=[...p]; n[idx]={...n[idx],note}; return n })
   }
 
+  function setItemTech(idx, techName) {
+    setCart(p => { const n=[...p]; n[idx]={...n[idx],tech_name:techName||''}; return n })
+  }
+
   function openNumpad(idx, field) {
     const val = field === 'qty' ? String(cart[idx].qty) : field === 'price' ? String(cart[idx].price) : String(cart[idx].disc || '')
     setNumpad({ idx, field, value: val })
@@ -507,6 +519,7 @@ export default function POSPage() {
         barcode: i.barcode, unit: i.unit, qty: i.qty,
         price: i.price, cost: i.cost, discount: i.disc,
         subtotal: i.price * i.qty - i.disc, note: i.note || null,
+        technician_name: i.tech_name || null,
       }))
 
       // ── ออฟไลน์: เพิ่มเข้า queue ──
@@ -580,6 +593,14 @@ export default function POSPage() {
             combined.set(kick, 0)
             combined.set(bytes, kick.length)
             await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, combined)
+            // บันทึก drawer_log + ถ่ายวิดีโอกล้อง
+            const empCam = currentEmp ? (currentEmp.nickname || currentEmp.name) : 'POS'
+            const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
+            supabase.from('drawer_logs').insert({ employee_name: empCam, note: `ขาย ${receiptNo}` }).catch(() => {})
+            fetch('/api/camera-snapshot', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ caption: `💳 บิลขาย — ${empCam}  🕐 ${timeCam}` }),
+            }).catch(() => {})
           } else {
             await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
           }
@@ -719,6 +740,13 @@ export default function POSPage() {
     setShowPendingQuotes(false)
   }
 
+  function handleEditBill(cartItems, cust, billDisc) {
+    setCart(cartItems)
+    setCustomer(cust)
+    setBillDiscount(billDisc > 0 ? String(billDisc) : '')
+    setShowHistPanel(false)
+  }
+
   async function cancelQuote(id) {
     await supabase.from('quotations').update({ status: 'cancelled' }).eq('id', id)
     setPendingQuotes(p => p.filter(q => q.id !== id))
@@ -831,6 +859,8 @@ export default function POSPage() {
         <div className="bg-emerald-700 text-white px-4 py-2 flex items-center justify-between text-xs shrink-0 gap-2">
           <span className="font-semibold">🟢 กะเปิดอยู่ · เงินเริ่มต้น ฿{fmt(shift.opening_cash)} · เปิดเมื่อ {new Date(shift.opened_at).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})}</span>
           <div className="flex items-center gap-2 shrink-0">
+            <button onClick={() => setShowHistPanel(true)}
+              className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg font-semibold transition-colors">📋 ประวัติ</button>
             <button onClick={async () => {
                 const { data } = await supabase.from('employees').select('id,name,nickname').eq('active', true).order('name')
                 if (data) setEmployees(data)
@@ -849,6 +879,8 @@ export default function POSPage() {
         <div className="bg-slate-700 text-white px-4 py-2 flex items-center justify-between text-xs shrink-0">
           <span className="opacity-60">ยังไม่ได้เปิดกะ</span>
           <div className="flex items-center gap-2">
+            <button onClick={() => setShowHistPanel(true)}
+              className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg font-semibold transition-colors">📋 ประวัติ</button>
             <button onClick={() => setShowDrawerModal(true)}
               className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg font-semibold transition-colors">🔓 ลิ้นชัก</button>
             <button onClick={() => { setShiftModalMode('open'); setShowShiftModal(true) }}
@@ -1019,6 +1051,21 @@ export default function POSPage() {
                     <input value={item.note || ''} onChange={e => setItemNote(idx, e.target.value)}
                       placeholder="📝 โน๊ต..."
                       className="mt-1.5 w-full text-xs border-0 border-b border-dashed border-slate-200 bg-transparent py-0.5 text-slate-500 placeholder-slate-300 focus:outline-none focus:border-brand" />
+                    {employees.length > 0 && item.name?.includes('ค่าซ่อม') && (
+                      <div className="mt-1 flex items-center gap-1.5">
+                        <select value={item.tech_name || ''} onChange={e => setItemTech(idx, e.target.value)}
+                          className="flex-1 text-xs border-0 border-b border-dashed border-slate-200 bg-transparent py-0.5 focus:outline-none focus:border-violet-400"
+                          style={{ color: item.tech_name ? '#7c3aed' : '#cbd5e1' }}>
+                          <option value="">🔧 แท็กช่างซ่อม (ถ้ามี)</option>
+                          {employees.map(emp => (
+                            <option key={emp.id} value={emp.nickname || emp.name}>{emp.nickname || emp.name}</option>
+                          ))}
+                        </select>
+                        {item.tech_name && (
+                          <button onClick={() => setItemTech(idx, '')} className="text-xs text-slate-300 hover:text-red-400 shrink-0">✕</button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1044,8 +1091,14 @@ export default function POSPage() {
               📄 ออกเอกสาร (ใบเสนอราคา / ใบแจ้งหนี้ / ใบส่งของ)
             </button>
             {lastDone && (
-              <button onClick={() => openReceipt(lastDone)}
-                className="w-full text-xs text-slate-400 hover:text-slate-600 underline py-1 transition-colors">พิมพ์ใบเสร็จล่าสุด</button>
+              <div className="flex gap-2">
+                <button onClick={() => openReceipt(lastDone)}
+                  className="flex-1 text-xs text-slate-400 hover:text-slate-600 underline py-1 transition-colors">พิมพ์ใบเสร็จล่าสุด</button>
+                {lastDone.id && (
+                  <button onClick={() => setShowCancelModal(true)}
+                    className="flex-1 text-xs text-red-400 hover:text-red-600 underline py-1 transition-colors">ยกเลิกบิล</button>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -1273,6 +1326,30 @@ export default function POSPage() {
         />
       )}
 
+      {/* ── Cancel Bill Modal ── */}
+      {showCancelModal && lastDone?.id && (
+        <CancelBillModal
+          sale={lastDone}
+          settings={settings}
+          currentEmp={currentEmp}
+          empMode={empMode}
+          onClose={() => setShowCancelModal(false)}
+          onVoided={() => { setShowCancelModal(false); setLastDone(null) }}
+        />
+      )}
+
+      {/* ── Sales History Panel ── */}
+      {showHistPanel && (
+        <SalesHistoryPanel
+          settings={settings}
+          currentEmp={currentEmp}
+          empMode={empMode}
+          onClose={() => setShowHistPanel(false)}
+          onReprint={openReceipt}
+          onEditBill={handleEditBill}
+        />
+      )}
+
       {/* ── Shift Modal ── */}
       {showShiftModal && (
         <ShiftModal
@@ -1414,6 +1491,381 @@ export default function POSPage() {
   )
 }
 
+function SalesHistoryPanel({ settings, currentEmp, empMode, onClose, onReprint, onEditBill }) {
+  const [search, setSearch]           = useState('')
+  const [sales, setSales]             = useState([])
+  const [loading, setLoading]         = useState(false)
+  const [selected, setSelected]       = useState(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [page, setPage]               = useState('list') // 'list' | 'detail'
+  const [voidSale, setVoidSale]       = useState(null)
+
+  useEffect(() => {
+    const t = setTimeout(loadSales, search ? 300 : 0)
+    return () => clearTimeout(t)
+  }, [search])
+
+  async function loadSales() {
+    setLoading(true)
+    try {
+      let q = supabase.from('sales')
+        .select('id,receipt_no,created_at,total,payment_method,status,note,void_reason,payment_amount,discount,customer_id')
+        .order('created_at', { ascending: false }).limit(60)
+      if (search.trim()) q = q.ilike('receipt_no', `%${search.trim()}%`)
+      const { data } = await q
+      setSales(data || [])
+    } finally { setLoading(false) }
+  }
+
+  async function openDetail(sale) {
+    setDetailLoading(true)
+    const { data: items } = await supabase.from('sale_items').select('*').eq('sale_id', sale.id).order('id')
+    setSelected({ ...sale, items: items || [] })
+    setPage('detail')
+    setDetailLoading(false)
+  }
+
+  function buildReceipt(sale) {
+    return {
+      ...sale,
+      items: (sale.items || []).map(i => ({ ...i, name: i.product_name, disc: i.discount || 0 })),
+      shopName: settings.shop_name || '', shopAddress: settings.shop_address || '',
+      shopPhone: settings.shop_phone || '', footer: settings.receipt_footer || '',
+      cashier: currentEmp ? (currentEmp.nickname || currentEmp.name) : '',
+      change: Math.max(0, (sale.payment_amount || 0) - sale.total),
+      vatRate: 0, customerName: '', customerPhone: '',
+    }
+  }
+
+  function handleVoided() {
+    setVoidSale(null)
+    const updated = { ...selected, status: 'voided' }
+    setSelected(updated)
+    setSales(prev => prev.map(s => s.id === updated.id ? { ...s, status: 'voided' } : s))
+  }
+
+  async function doEditBill() {
+    if (!confirm(`ยกเลิกบิล ${selected.receipt_no} และโหลดรายการกลับเข้าตะกร้าเพื่อแก้ไข?`)) return
+    await supabase.from('sales').update({
+      status: 'voided', void_reason: 'แก้ไขบิล', voided_at: new Date().toISOString(),
+    }).eq('id', selected.id)
+    const cartItems = (selected.items || []).map(si => ({
+      id: si.product_id, name: si.product_name, sku: si.sku || '',
+      price: si.price, origPrice: si.price, cost: 0,
+      qty: si.qty, disc: si.discount || 0,
+      note: si.note || '', tech_name: si.technician_name || '',
+    }))
+    let cust = null
+    if (selected.customer_id) {
+      const { data: c } = await supabase.from('customers').select('id,name,phone').eq('id', selected.customer_id).maybeSingle()
+      if (c) cust = { id: c.id, name: c.name, phone: c.phone || '' }
+    }
+    onEditBill(cartItems, cust, selected.discount || 0)
+  }
+
+  const payLabel = m => m === 'cash' ? 'เงินสด' : m === 'transfer' ? 'โอน/QR' : m === 'credit' ? 'เชื่อ' : m || '—'
+
+  return (
+    <div className="fixed inset-0 z-50 flex">
+      <div className="flex-1 bg-black/40" onClick={onClose} />
+      <div className="w-full max-w-sm bg-white h-full flex flex-col shadow-2xl">
+
+        {/* Header */}
+        <div className="bg-[#0f1b14] text-white px-4 py-3.5 flex items-center gap-3 shrink-0">
+          {page === 'detail' ? (
+            <button onClick={() => { setPage('list'); setSelected(null) }} className="text-xl opacity-60 hover:opacity-100">←</button>
+          ) : (
+            <button onClick={onClose} className="text-2xl leading-none opacity-60 hover:opacity-100">×</button>
+          )}
+          <h2 className="font-heading font-bold flex-1 text-base">
+            {page === 'detail' ? `📄 ${selected?.receipt_no}` : '📋 ประวัติบิล'}
+          </h2>
+          {page === 'detail' && (
+            <button onClick={onClose} className="text-2xl leading-none opacity-60 hover:opacity-100">×</button>
+          )}
+        </div>
+
+        {page === 'list' ? (
+          <>
+            <div className="px-3 py-2.5 border-b border-gray-100 shrink-0">
+              <input value={search} onChange={e => setSearch(e.target.value)}
+                placeholder="🔍 ค้นหาเลขบิล..."
+                className="w-full border border-gray-200 rounded-2xl px-4 py-2 text-sm focus:border-brand outline-none bg-gray-50" />
+            </div>
+            <div className="flex-1 overflow-y-auto divide-y divide-gray-50">
+              {loading ? (
+                <div className="p-10 text-center text-slate-400 text-sm">กำลังโหลด...</div>
+              ) : sales.length === 0 ? (
+                <div className="p-10 text-center text-slate-400 text-sm">ไม่พบบิล</div>
+              ) : sales.map(sale => (
+                <button key={sale.id} onClick={() => openDetail(sale)}
+                  className="w-full px-4 py-3 text-left hover:bg-gray-50 transition-colors flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <p className="font-bold text-slate-800 text-sm">{sale.receipt_no}</p>
+                      {sale.status === 'voided' && (
+                        <span className="text-[10px] bg-red-100 text-red-500 px-1.5 py-0.5 rounded font-semibold">ยกเลิก</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      {new Date(sale.created_at).toLocaleString('th-TH', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                      {' · '}{payLabel(sale.payment_method)}
+                    </p>
+                    {sale.note && <p className="text-xs text-slate-300 truncate mt-0.5">{sale.note}</p>}
+                  </div>
+                  <span className={`font-bold text-base shrink-0 ${sale.status === 'voided' ? 'text-slate-300 line-through' : 'text-brand'}`}>
+                    ฿{fmt(sale.total)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </>
+        ) : detailLoading ? (
+          <div className="flex-1 flex items-center justify-center text-slate-400">กำลังโหลด...</div>
+        ) : selected ? (
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {/* Sale meta */}
+            <div className="px-4 py-3 bg-slate-50 border-b border-gray-100 shrink-0">
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="text-xs text-slate-400">{new Date(selected.created_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}</p>
+                  <p className="text-sm font-semibold text-slate-700 mt-0.5">{payLabel(selected.payment_method)} · ฿{fmt(selected.total)}</p>
+                  {selected.note && <p className="text-xs text-slate-400 mt-0.5">{selected.note}</p>}
+                </div>
+                {selected.status === 'voided' && (
+                  <span className="text-xs bg-red-100 text-red-500 px-2 py-1 rounded-lg font-semibold shrink-0">ยกเลิกแล้ว</span>
+                )}
+              </div>
+              {selected.void_reason && (
+                <p className="text-xs text-red-400 mt-1.5 bg-red-50 px-2 py-1 rounded-lg">เหตุ: {selected.void_reason}</p>
+              )}
+            </div>
+
+            {/* Items */}
+            <div className="flex-1 overflow-y-auto divide-y divide-gray-50">
+              {selected.items.map((item, i) => (
+                <div key={i} className="px-4 py-2.5 flex items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-slate-800">{item.product_name}</p>
+                    {item.technician_name && (
+                      <p className="text-xs mt-0.5" style={{ color: '#7c3aed' }}>🔧 {item.technician_name}</p>
+                    )}
+                    {item.note && <p className="text-xs text-slate-400">{item.note}</p>}
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-sm font-bold text-brand">฿{fmt(item.subtotal)}</p>
+                    <p className="text-xs text-slate-400">{item.qty} × {fmt(item.price)}</p>
+                    {item.discount > 0 && <p className="text-xs text-red-400">ลด ฿{fmt(item.discount)}</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Summary */}
+            <div className="px-4 py-3 bg-slate-50 border-t border-gray-100 shrink-0 space-y-1">
+              {selected.discount > 0 && (
+                <div className="flex justify-between text-xs text-slate-500">
+                  <span>ส่วนลดบิล</span><span className="text-red-400">−฿{fmt(selected.discount)}</span>
+                </div>
+              )}
+              <div className="flex justify-between font-bold text-base">
+                <span className="text-slate-700">ยอดสุทธิ</span>
+                <span className={selected.status === 'voided' ? 'text-slate-400 line-through' : 'text-brand'}>฿{fmt(selected.total)}</span>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="px-4 py-3 border-t border-gray-100 space-y-2 shrink-0">
+              <button onClick={() => onReprint(buildReceipt(selected))}
+                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-3 rounded-2xl text-sm transition-colors active:scale-[0.98]">
+                🖨️ พิมพ์ใบเสร็จ
+              </button>
+              {selected.status !== 'voided' && (
+                <button onClick={doEditBill}
+                  className="w-full font-bold py-3 rounded-2xl text-sm transition-colors active:scale-[0.98]"
+                  style={{ background: 'rgba(124,58,237,0.08)', color: '#7c3aed' }}>
+                  ✏️ แก้ไขบิล (โหลดเข้าตะกร้า)
+                </button>
+              )}
+              {selected.status !== 'voided' && (
+                <button onClick={() => setVoidSale(selected)}
+                  className="w-full bg-red-50 hover:bg-red-100 text-red-500 font-bold py-3 rounded-2xl text-sm transition-colors active:scale-[0.98]">
+                  🚫 ยกเลิกบิล
+                </button>
+              )}
+            </div>
+          </div>
+        ) : null}
+
+        {/* Void overlay */}
+        {voidSale && (
+          <CancelBillModal
+            sale={voidSale}
+            settings={settings}
+            currentEmp={currentEmp}
+            empMode={empMode}
+            onClose={() => setVoidSale(null)}
+            onVoided={handleVoided}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+function CancelBillModal({ sale, settings, currentEmp, empMode, onClose, onVoided }) {
+  const [reason, setReason]   = useState('')
+  const [cashRefund, setCash] = useState(sale.payment_method === 'cash')
+  const [step, setStep]       = useState('idle') // 'idle'|'saving'|'requesting'|'done'|'rejected'
+  const [errMsg, setErr]      = useState('')
+
+  const isCash   = sale.payment_method === 'cash'
+  const empName  = currentEmp ? (currentEmp.nickname || currentEmp.name) : (empMode?.name || 'ไม่ระบุ')
+  const refundAmt = Number(sale.total) || 0
+
+  async function confirmCancel() {
+    if (step !== 'idle') return
+    const voidNote = `คืนเงิน ฿${refundAmt.toLocaleString('th-TH')} — ${sale.receipt_no}${reason.trim() ? ' — ' + reason.trim() : ''}`
+
+    try {
+      // 1. void the sale
+      await supabase.from('sales').update({
+        status: 'voided',
+        void_reason: reason.trim() || null,
+        voided_at: new Date().toISOString(),
+      }).eq('id', sale.id)
+
+      // 2. cash refund → open drawer
+      if (isCash && cashRefund) {
+        if (empMode) {
+          // employee → request approval
+          setStep('requesting')
+          const res = await fetch('/api/request-drawer', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ employee_id: empMode.id, employee_name: empName, note: voidNote }),
+          })
+          const json = await res.json()
+          if (json.error) { setErr(json.error); return }
+          pollCancelApproval(json.request_id, { amount: refundAmt, note: voidNote })
+          return
+        } else {
+          // admin → open directly
+          setStep('saving')
+          try {
+            const cfg = getReceiptCfg()
+            if (cfg.ip) await kickDrawerViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100)
+          } catch {}
+          await supabase.from('drawer_logs').insert({
+            employee_name: 'แอดมิน', amount: refundAmt, note: `เบิกเงินออก — ${voidNote}`,
+          }).catch(() => {})
+          const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
+          fetch('/api/camera-snapshot', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ caption: `💸 คืนเงิน — ${sale.receipt_no}  🕐 ${timeCam}` }),
+          }).catch(() => {})
+        }
+      }
+
+      setStep('done')
+      setTimeout(onVoided, 1200)
+    } catch (e) { setErr(e.message); setStep('idle') }
+  }
+
+  function pollCancelApproval(requestId, drawerData) {
+    let attempts = 0
+    const iv = setInterval(async () => {
+      attempts++
+      if (attempts > 60) { clearInterval(iv); return }
+      try {
+        const r = await fetch(`/api/request-drawer?id=${requestId}`)
+        const j = await r.json()
+        if (j.status === 'approved') {
+          clearInterval(iv)
+          try {
+            const cfg = getReceiptCfg()
+            if (cfg.ip) await kickDrawerViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100)
+          } catch {}
+          await supabase.from('drawer_logs').insert({
+            employee_name: empName, amount: drawerData.amount,
+            note: `เบิกเงินออก — ${drawerData.note}`,
+          }).catch(() => {})
+          const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
+          fetch('/api/camera-snapshot', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ caption: `💸 คืนเงิน — ${sale.receipt_no}  🕐 ${timeCam}` }),
+          }).catch(() => {})
+          setStep('done')
+          setTimeout(onVoided, 1200)
+        } else if (j.status === 'rejected') {
+          clearInterval(iv)
+          setStep('rejected')
+        }
+      } catch {}
+    }, 5000)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/70 z-50 flex items-end md:items-center justify-center p-3"
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-3xl w-full max-w-xs shadow-2xl overflow-hidden fade-in">
+        <div className="bg-red-600 text-white px-4 py-3.5 flex justify-between items-center">
+          <h2 className="font-heading font-bold text-base">🚫 ยกเลิกบิล</h2>
+          <button onClick={onClose} className="text-2xl leading-none opacity-70">×</button>
+        </div>
+
+        {step === 'done' ? (
+          <div className="p-8 text-center">
+            <div className="text-5xl mb-2">✅</div>
+            <p className="font-bold text-emerald-600 text-lg">ยกเลิกบิลแล้ว</p>
+          </div>
+        ) : step === 'rejected' ? (
+          <div className="p-8 text-center">
+            <div className="text-5xl mb-2">❌</div>
+            <p className="font-bold text-red-500 text-lg">admin ไม่อนุมัติ</p>
+            <button onClick={onClose} className="mt-4 text-sm text-slate-500 underline">ปิด</button>
+          </div>
+        ) : step === 'requesting' ? (
+          <div className="p-8 text-center">
+            <div className="text-5xl mb-2">📨</div>
+            <p className="font-bold text-amber-600 text-lg">ส่งคำขอแล้ว</p>
+            <p className="text-sm text-slate-500 mt-1">รอ admin อนุมัติคืนเงินทาง Telegram…</p>
+          </div>
+        ) : (
+          <div className="p-4 space-y-3">
+            <div className="bg-red-50 rounded-2xl px-4 py-3 border border-red-100">
+              <p className="text-xs text-slate-400 mb-0.5">บิล</p>
+              <p className="font-bold text-slate-800">{sale.receipt_no}</p>
+              <p className="text-sm text-slate-500">฿{Number(sale.total).toLocaleString('th-TH')} · {sale.payment_method === 'cash' ? 'เงินสด' : sale.payment_method === 'transfer' ? 'โอน/QR' : 'เชื่อ'}</p>
+            </div>
+
+            <input value={reason} onChange={e => setReason(e.target.value)}
+              placeholder="เหตุผลยกเลิก (บังคับ)"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-red-400 outline-none" />
+
+            {isCash && (
+              <label className="flex items-center gap-3 bg-amber-50 rounded-2xl px-4 py-3 border border-amber-200 cursor-pointer">
+                <input type="checkbox" checked={cashRefund} onChange={e => setCash(e.target.checked)}
+                  className="w-5 h-5 accent-amber-500" />
+                <div>
+                  <p className="font-bold text-amber-700 text-sm">💸 คืนเงินสด ฿{refundAmt.toLocaleString('th-TH')}</p>
+                  <p className="text-xs text-amber-600">เปิดลิ้นชักผ่านการอนุมัติ</p>
+                </div>
+              </label>
+            )}
+
+            {errMsg && <p className="text-center text-red-500 text-xs font-semibold">{errMsg}</p>}
+
+            <button onClick={confirmCancel} disabled={!reason.trim() || step === 'saving'}
+              className="w-full bg-red-500 text-white font-bold py-3.5 rounded-2xl text-base disabled:opacity-40 active:scale-[0.98] transition-transform shadow-lg shadow-red-200">
+              {step === 'saving' ? '⏳ กำลังดำเนินการ...' : '✓ ยืนยันยกเลิกบิล'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
   const isEmployee = !!empMode
   const [direction, setDir]   = useState('in')
@@ -1428,20 +1880,23 @@ function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
   async function requestDrawer() {
     if (saving) return
     setSaving(true); setErrMsg('')
+    const dirLabel = direction === 'in' ? 'รับเงินเข้า' : 'เบิกเงินออก'
+    const amtNum   = parseFloat(amount) || 0
+    const fullNote = [dirLabel, amtNum ? `฿${amtNum.toLocaleString('th-TH')}` : null, noteText.trim()].filter(Boolean).join(' — ')
     try {
       const res = await fetch('/api/request-drawer', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employee_id: empMode.id, employee_name: empName }),
+        body: JSON.stringify({ employee_id: empMode.id, employee_name: empName, note: fullNote }),
       })
       const json = await res.json()
       if (json.error) { setErrMsg(json.error); return }
       setStep('requested')
-      pollApproval(json.request_id)
+      pollApproval(json.request_id, { amount: amtNum, note: fullNote })
     } catch { setErrMsg('เชื่อมต่อไม่ได้') }
     finally { setSaving(false) }
   }
 
-  function pollApproval(requestId) {
+  function pollApproval(requestId, drawerData = {}) {
     let attempts = 0
     const iv = setInterval(async () => {
       attempts++
@@ -1456,6 +1911,11 @@ function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
             const cfg = getReceiptCfg()
             if (cfg.ip) await kickDrawerViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100)
           } catch (e) { console.warn('Drawer kick error:', e.message) }
+          supabase.from('drawer_logs').insert({
+            employee_name: empName,
+            amount: drawerData.amount || null,
+            note: drawerData.note || null,
+          }).catch(() => {})
           const timeStr = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
           fetch('/api/camera-snapshot', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1499,6 +1959,13 @@ function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
       }),
     }).catch(() => {})
 
+    // ถ่ายวิดีโอกล้อง (direct — ไม่ผ่าน relay เพื่อให้ URL ถูกต้องเสมอ)
+    const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
+    fetch('/api/camera-snapshot', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ caption: `🔓 เปิดลิ้นชัก — แอดมิน  🕐 ${timeCam}` }),
+    }).catch(() => {})
+
     setSaving(false); setStep('done')
     setTimeout(onClose, 1200)
   }
@@ -1518,7 +1985,8 @@ function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
       <div className="bg-white rounded-3xl w-full max-w-xs shadow-2xl overflow-hidden fade-in"
         tabIndex={0} autoFocus
         onKeyDown={e => {
-          if (isEmployee || step !== 'idle') return
+          if (step !== 'idle') return
+          if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
           const k = e.key
           if (k >= '0' && k <= '9') { e.preventDefault(); numKey(k) }
           else if (k === '.') { e.preventDefault(); numKey('.') }
@@ -1554,16 +2022,43 @@ function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
             <p className="text-sm text-slate-500 mt-1">รอ admin อนุมัติ ทาง Telegram…</p>
           </div>
         ) : isEmployee ? (
-          <div className="p-6 space-y-4">
+          <div className="p-4 space-y-3">
             <div className="bg-slate-50 rounded-2xl px-4 py-2.5 text-center border border-slate-100">
               <p className="text-xs text-slate-400 mb-0.5">พนักงาน</p>
               <p className="font-bold text-slate-700">{empName}</p>
             </div>
-            <p className="text-sm text-slate-500 text-center">กดปุ่มเพื่อส่งคำขอเปิดลิ้นชักไปยัง admin ทาง Telegram</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setDir('in')}
+                className={`py-3 rounded-2xl text-sm font-bold border-2 transition-all
+                  ${direction === 'in' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-200 text-slate-400'}`}>
+                💵 รับเงินเข้า
+              </button>
+              <button onClick={() => setDir('out')}
+                className={`py-3 rounded-2xl text-sm font-bold border-2 transition-all
+                  ${direction === 'out' ? 'border-red-400 bg-red-50 text-red-600' : 'border-slate-200 text-slate-400'}`}>
+                💸 เบิกเงินออก
+              </button>
+            </div>
+            <button className="w-full rounded-2xl px-4 py-3 text-right border-2 border-amber-400 bg-amber-50">
+              <p className="text-xs text-slate-400 text-left mb-0.5">จำนวนเงิน (บาท)</p>
+              <p className={`text-2xl font-bold ${amount ? 'text-slate-800' : 'text-slate-300'}`}>{amount || '0'}</p>
+            </button>
+            <input value={noteText} onChange={e => setNote(e.target.value)}
+              placeholder="หมายเหตุ (ถ้ามี)"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-amber-400 outline-none" />
             {errMsg && <p className="text-center text-red-500 text-xs font-semibold">{errMsg}</p>}
+            <div className="grid grid-cols-3 gap-2">
+              {['1','2','3','4','5','6','7','8','9','.','0','⌫'].map((k, i) => (
+                <button key={i} onClick={() => numKey(k)}
+                  className={`h-12 rounded-2xl text-xl font-semibold transition-colors active:scale-95
+                    ${k === '⌫' ? 'bg-red-50 text-red-400 hover:bg-red-100' : 'bg-slate-100 text-slate-800 hover:bg-slate-200'}`}>
+                  {k}
+                </button>
+              ))}
+            </div>
             <button onClick={requestDrawer} disabled={saving}
               className="w-full bg-amber-500 text-white font-bold py-3.5 rounded-2xl text-base disabled:opacity-40 active:scale-[0.98] transition-transform shadow-lg shadow-amber-200">
-              {saving ? '⏳ กำลังส่ง...' : '🔓 ขอเปิดลิ้นชัก'}
+              {saving ? '⏳ กำลังส่ง...' : `📨 ขอเปิดลิ้นชัก${amount ? ` ฿${parseFloat(amount).toLocaleString('th-TH')}` : ''}`}
             </button>
           </div>
         ) : (
