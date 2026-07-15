@@ -175,7 +175,7 @@ export default function Nav() {
   }
 
   function handleAdminPinDigit(d) {
-    if (adminPin.length >= 4) return
+    if (adminPin.length >= 8) return
     const next = adminPin + d
     setAdminPin(next)
     if (next.length === 4) {
@@ -420,13 +420,13 @@ export default function Nav() {
               <button onClick={() => setShowAdminPin(false)} className="text-white/40 hover:text-white text-xl leading-none">✕</button>
             </div>
             <div className="px-5 pb-6">
-              <div className="flex justify-center gap-4 mb-2 mt-2">
-                {[0,1,2,3].map(i => (
-                  <div key={i} className={`w-4 h-4 rounded-full transition-all ${i < adminPin.length ? 'bg-red-400 scale-110' : 'bg-white/20'}`} />
+              <div className="flex justify-center gap-2.5 mb-2 mt-2">
+                {[0,1,2,3,4,5,6,7].map(i => (
+                  <div key={i} className={`w-3 h-3 rounded-full transition-all ${i < adminPin.length ? 'bg-red-400 scale-110' : 'bg-white/20'}`} />
                 ))}
               </div>
               <p className="text-center text-white/40 text-xs mb-3">
-                {storedAdminPin ? 'กรอก PIN แอดมิน 4 หลัก' : 'ยังไม่มี PIN — กด ✓ เพื่อเข้าได้เลย'}
+                {storedAdminPin ? 'กรอก PIN แอดมิน 8 หลัก' : 'ยังไม่มี PIN — กด ✓ เพื่อเข้าได้เลย'}
               </p>
               {adminPinError && <p className="text-center text-red-400 text-xs mb-2">{adminPinError}</p>}
               <div className="grid grid-cols-3 gap-2">

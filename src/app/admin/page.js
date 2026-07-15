@@ -16,7 +16,7 @@ const SETTING_FIELDS = [
   { key:'ot_rate',         label:'อัตรา OT/ชม. (บาท)',               placeholder:'75' },
   { key:'receipt_footer',  label:'ข้อความท้ายใบเสร็จ',               placeholder:'ขอบคุณที่ใช้บริการ' },
   { key:'min_margin',           label:'กำไรขั้นต้ำ (%)',                   placeholder:'30 (ราคาขาย = ทุน × 1.3 อย่างน้อย)' },
-  { key:'admin_pin',            label:'PIN เข้าโหมดแอดมิน (4 หลัก)',     placeholder:'ตัวเลข 4 หลัก เช่น 1234' },
+  { key:'admin_pin',            label:'PIN เข้าโหมดแอดมิน (8 หลัก)',     placeholder:'ตัวเลข 8 หลัก' },
   { key:'line_channel_token',   label:'LINE Channel Access Token',         placeholder:'วาง Long-lived token จาก LINE Developers' },
   { key:'line_group_id',        label:'LINE Group ID (บันทึกอัตโนมัติ)',   placeholder:'C... (ระบบกรอกให้เองเมื่อเพิ่ม Bot เข้ากลุ่ม)' },
   { key:'telegram_chat_id',     label:'Telegram Chat ID (กลุ่ม)',          placeholder:'-1001234567890 (ดูจาก @getidsbot)' },
