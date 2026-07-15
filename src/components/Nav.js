@@ -178,7 +178,8 @@ export default function Nav() {
     if (adminPin.length >= 8) return
     const next = adminPin + d
     setAdminPin(next)
-    if (next.length === 4) {
+    const pinLen = storedAdminPin ? storedAdminPin.length : 8
+    if (next.length === pinLen) {
       if (!storedAdminPin || next === storedAdminPin) {
         auth.empLogout()
         setShowAdminPin(false)
