@@ -805,6 +805,7 @@ export default function AdminPage() {
                     <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500">พนักงาน</th>
                     <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500">จำนวน</th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500">หมายเหตุ</th>
+                    <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500">📷</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
@@ -825,6 +826,14 @@ export default function AdminPage() {
                           ) : <span className="text-slate-300">—</span>}
                         </td>
                         <td className="px-4 py-3 text-slate-400 text-xs">{log.note || '—'}</td>
+                        <td className="px-4 py-3 text-center">
+                          {log.snapshot_url ? (
+                            <a href={log.snapshot_url} target="_blank" rel="noreferrer">
+                              <img src={log.snapshot_url} alt="snapshot"
+                                className="w-16 h-10 object-cover rounded-lg border border-slate-200 hover:scale-105 transition-transform cursor-zoom-in inline-block" />
+                            </a>
+                          ) : <span className="text-slate-200 text-lg">—</span>}
+                        </td>
                       </tr>
                     )
                   })}

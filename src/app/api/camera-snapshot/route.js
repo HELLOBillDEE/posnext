@@ -7,6 +7,12 @@ const supabase = createClient(
   { db: { schema: 'pos' } }
 )
 
+// Supabase client ที่ชี้ไป storage schema (default public)
+const supabaseStorage = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+)
+
 async function fetchWithDigestAuth(url, username, password) {
   const opts = { signal: AbortSignal.timeout(8000) }
 
@@ -57,22 +63,52 @@ export async function POST(req) {
     if (!data) return Response.json({ ok: false, reason: 'no settings' })
     const s = Object.fromEntries(data.map(r => [r.key, r.value]))
 
-    if (!s.camera_ip)             return Response.json({ ok: false, reason: 'camera not configured' })
-    if (!s.telegram_bot_token)    return Response.json({ ok: false, reason: 'no telegram token' })
-    if (!s.telegram_chat_id)      return Response.json({ ok: false, reason: 'no telegram chat_id' })
+    if (!s.camera_ip)          return Response.json({ ok: false, reason: 'camera not configured' })
+    if (!s.telegram_bot_token) return Response.json({ ok: false, reason: 'no telegram token' })
+    if (!s.telegram_chat_id)   return Response.json({ ok: false, reason: 'no telegram chat_id' })
 
     const snapshotUrl = `http://${s.camera_ip}/cgi-bin/snapshot.cgi?channel=1`
-    const imgRes = await fetchWithDigestAuth(
-      snapshotUrl,
-      s.camera_username || 'admin',
-      s.camera_password || ''
-    )
+    const imgRes = await fetchWithDigestAuth(snapshotUrl, s.camera_username || 'admin', s.camera_password || '')
 
     if (!imgRes.ok) return Response.json({ ok: false, reason: `camera returned ${imgRes.status}` })
 
     const imgBuffer   = await imgRes.arrayBuffer()
     const contentType = imgRes.headers.get('content-type') || 'image/jpeg'
 
+    // ── 1. อัปโหลดรูปไป Supabase Storage ──
+    const filename  = `${Date.now()}.jpg`
+    const { error: uploadErr } = await supabaseStorage.storage
+      .from('drawer-snapshots')
+      .upload(filename, imgBuffer, { contentType, upsert: false })
+
+    let snapshotPublicUrl = null
+    if (!uploadErr) {
+      const { data: urlData } = supabaseStorage.storage
+        .from('drawer-snapshots')
+        .getPublicUrl(filename)
+      snapshotPublicUrl = urlData?.publicUrl || null
+    } else {
+      console.error('[camera-snapshot] storage upload error:', uploadErr.message)
+    }
+
+    // ── 2. บันทึก URL ลง drawer_logs ล่าสุด ──
+    if (snapshotPublicUrl) {
+      const { data: latestLog } = await supabase
+        .from('drawer_logs')
+        .select('id')
+        .order('opened_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (latestLog) {
+        await supabase
+          .from('drawer_logs')
+          .update({ snapshot_url: snapshotPublicUrl })
+          .eq('id', latestLog.id)
+      }
+    }
+
+    // ── 3. ส่งรูปไป Telegram ──
     const form = new FormData()
     form.append('chat_id', s.telegram_chat_id)
     form.append('photo', new Blob([imgBuffer], { type: contentType }), 'drawer.jpg')
@@ -84,7 +120,7 @@ export async function POST(req) {
     const tgJson = await tgRes.json()
     if (!tgJson.ok) console.error('[camera-snapshot] Telegram error:', tgJson.description)
 
-    return Response.json({ ok: true })
+    return Response.json({ ok: true, snapshot_url: snapshotPublicUrl })
   } catch (e) {
     console.error('[camera-snapshot]', e.message)
     return Response.json({ error: e.message }, { status: 500 })
