@@ -77,6 +77,9 @@ export default function POSPage() {
   const [customer, setCustomer]     = useState(null)  // { id, name, phone }
   const [showCustModal, setShowCustModal] = useState(false)
   const [showDocModal, setShowDocModal] = useState(false)
+  const [pendingQuotes, setPendingQuotes]   = useState([])
+  const [showPendingQuotes, setShowPendingQuotes] = useState(false)
+  const [currentQuoteId, setCurrentQuoteId]     = useState(null)
   const [heldSales, setHeldSales]       = useState(() => {
     if (typeof window === 'undefined') return []
     try { return JSON.parse(localStorage.getItem('held_sales') || '[]') } catch { return [] }
@@ -184,6 +187,8 @@ export default function POSPage() {
     }
     const { data: openShift } = await supabase.from('shifts').select('*').eq('status','open').order('opened_at',{ascending:false}).limit(1).maybeSingle()
     setShift(openShift || null)
+    const { data: quotes } = await supabase.from('quotations').select('*').eq('status','pending').order('created_at',{ascending:false})
+    setPendingQuotes(quotes || [])
   }
 
   // ── Web HID Scanner ──
@@ -642,6 +647,15 @@ export default function POSPage() {
         }),
       }).catch(() => {})
 
+      if (currentQuoteId) {
+        const paidQuote = pendingQuotes.find(q => q.id === currentQuoteId)
+        supabase.from('quotations').update({ status: 'paid' }).eq('id', currentQuoteId).then(() => {})
+        if (paidQuote?.repair_order_id) {
+          supabase.from('repair_orders').update({ status: 'picked_up', sale_id: sale.id, updated_at: new Date().toISOString() }).eq('id', paidQuote.repair_order_id).then(() => {})
+        }
+        setPendingQuotes(p => p.filter(q => q.id !== currentQuoteId))
+        setCurrentQuoteId(null)
+      }
       setCart([]); setBillDiscount(''); setPayAmount(''); setNote(''); setCustomer(null); setPriceTier(null)
       setPayMode('single'); setPayMethod('cash'); setMixAmounts({ cash:'', transfer:'', credit:'' })
       setShowPay(false)
@@ -689,6 +703,25 @@ export default function POSPage() {
     const updated = heldSales.filter(h => h.id !== id)
     setHeldSales(updated)
     localStorage.setItem('held_sales', JSON.stringify(updated))
+  }
+
+  function loadQuote(q) {
+    if (cart.length > 0 && !confirm('รายการปัจจุบันจะถูกล้าง — ต้องการโหลดบิลนี้ใช่ไหม?')) return
+    const cartItems = (q.items || []).map(i => ({
+      pid: i.pid || null, name: i.name, barcode: i.barcode || '',
+      unit: i.unit || '', price: i.price, origPrice: i.price,
+      cost: i.cost || 0, qty: i.qty, disc: i.disc || 0, note: i.note || '',
+    }))
+    setCart(cartItems)
+    if (q.customer_name) setCustomer({ id: q.customer_id || null, name: q.customer_name, phone: q.customer_phone || '' })
+    setBillDiscount(q.discount > 0 ? String(q.discount) : '')
+    setCurrentQuoteId(q.id)
+    setShowPendingQuotes(false)
+  }
+
+  async function cancelQuote(id) {
+    await supabase.from('quotations').update({ status: 'cancelled' }).eq('id', id)
+    setPendingQuotes(p => p.filter(q => q.id !== id))
   }
 
   async function openReceipt(r) {
@@ -910,7 +943,13 @@ export default function POSPage() {
               {cart.length > 0 && <span className="ml-2 bg-brand text-white text-xs font-bold px-2 py-0.5 rounded-full">{cart.length}</span>}
             </span>
             <div className="flex items-center gap-1.5">
-              {heldSales.length > 0 && (
+              {pendingQuotes.length > 0 && (
+                <button onClick={() => setShowPendingQuotes(true)}
+                  className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1.5 rounded-lg hover:bg-emerald-100 font-semibold transition-colors shrink-0">
+                  💳 รอชำระ {pendingQuotes.length}
+                </button>
+              )}
+            {heldSales.length > 0 && (
                 <button onClick={() => setShowHeldModal(true)}
                   className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-2.5 py-1.5 rounded-lg hover:bg-amber-100 font-semibold transition-colors shrink-0">
                   📋 พัก {heldSales.length}
@@ -1275,6 +1314,15 @@ export default function POSPage() {
       )}
 
       {/* ── Doc Modal ── */}
+      {showPendingQuotes && (
+        <PendingQuotesModal
+          quotes={pendingQuotes}
+          onLoad={loadQuote}
+          onCancel={cancelQuote}
+          onClose={() => setShowPendingQuotes(false)}
+        />
+      )}
+
       {showDocModal && (
         <CartDocModal
           cart={cart}
@@ -1282,6 +1330,7 @@ export default function POSPage() {
           customer={customer}
           settings={settings}
           onClose={() => setShowDocModal(false)}
+          onSaved={q => setPendingQuotes(p => [q, ...p])}
         />
       )}
 
@@ -2028,7 +2077,7 @@ const CART_DOC_TYPES = [
   { value: 'receipt',          label: '🧾 ใบเสร็จรับเงิน' },
 ]
 
-function CartDocModal({ cart, totals, customer, settings, onClose }) {
+function CartDocModal({ cart, totals, customer, settings, onClose, onSaved }) {
   const [docType, setDocType] = useState('quotation')
   const [custName, setCustName]   = useState(customer?.name || '')
   const [custAddr, setCustAddr]   = useState(customer?.address || '')
@@ -2045,25 +2094,35 @@ function CartDocModal({ cart, totals, customer, settings, onClose }) {
   async function generate() {
     const win = window.open('', '_blank')
     const finalDocNo = await commitNextDocNo(docType)
-    const items = cart.map(i => ({
-      name: i.name, qty: i.qty, unit: i.unit || '',
-      price: i.price, disc: i.disc || 0,
-      subtotal: i.price * i.qty - (i.disc || 0), note: i.note,
+    const docItems = cart.map(i => ({
+      pid: i.pid || null, name: i.name, barcode: i.barcode || '',
+      unit: i.unit || '', price: i.price, cost: i.cost || 0,
+      qty: i.qty, disc: i.disc || 0, note: i.note || null,
+      subtotal: i.price * i.qty - (i.disc || 0),
     }))
     const html = buildFormalDocHTML(
-      docType, items, totals,
+      docType, docItems, totals,
       { name: custName, address: custAddr, phone: custPhone, tax_id: custTaxId },
       settings,
       { doc_no: finalDocNo, date: docDate, valid_until: validUntil || undefined }
     )
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
     const url = URL.createObjectURL(blob)
-    if (win) {
-      win.location.href = url
-    } else {
-      window.open(url, '_blank')
-    }
+    if (win) { win.location.href = url } else { window.open(url, '_blank') }
     setTimeout(() => URL.revokeObjectURL(url), 60000)
+
+    // บันทึกลง DB เป็น pending quotation
+    const { data: saved } = await supabase.from('quotations').insert({
+      doc_no: finalDocNo, doc_type: docType,
+      customer_name: custName || null, customer_phone: custPhone || null,
+      customer_address: custAddr || null, customer_tax_id: custTaxId || null,
+      items: docItems,
+      subtotal: totals.subtotal, discount: totals.discount,
+      vat: totals.vat, total: totals.total,
+      status: 'pending',
+    }).select().single()
+    if (saved && onSaved) onSaved(saved)
+
     onClose()
   }
 
@@ -2129,8 +2188,53 @@ function CartDocModal({ cart, totals, customer, settings, onClose }) {
 
           <button onClick={generate}
             className="w-full bg-slate-800 text-white font-bold py-3.5 rounded-2xl text-base active:scale-[0.98] transition-transform shadow-lg">
-            🖨️ สร้างเอกสาร
+            🖨️ สร้างเอกสาร + บันทึก
           </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const fmtQ = n => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+
+function PendingQuotesModal({ quotes, onLoad, onCancel, onClose }) {
+  const DOC_LABEL = { quotation: 'ใบเสนอราคา', delivery_invoice: 'ใบแจ้งหนี้', invoice: 'ใบแจ้งหนี้', delivery: 'ใบส่งของ' }
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-end md:items-center justify-center p-3"
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden fade-in flex flex-col" style={{maxHeight:'88vh'}}>
+        <div className="bg-emerald-700 text-white px-4 py-3.5 flex justify-between items-center shrink-0">
+          <h2 className="font-bold text-base">💳 บิลรอชำระ</h2>
+          <button onClick={onClose} className="text-2xl leading-none opacity-70">×</button>
+        </div>
+        <div className="overflow-y-auto flex-1 divide-y divide-slate-100">
+          {quotes.length === 0 && (
+            <div className="py-16 text-center text-slate-400 text-sm">ไม่มีบิลรอชำระ</div>
+          )}
+          {quotes.map(q => (
+            <div key={q.id} className="p-4 space-y-2">
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="font-bold text-slate-800 text-sm">{q.doc_no}</p>
+                  <p className="text-xs text-slate-400">{DOC_LABEL[q.doc_type] || q.doc_type} · {new Date(q.created_at).toLocaleString('th-TH',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</p>
+                  {q.customer_name && <p className="text-xs text-slate-500 mt-0.5">👤 {q.customer_name}{q.customer_phone ? ` · ${q.customer_phone}` : ''}</p>}
+                </div>
+                <span className="font-bold text-brand text-base shrink-0 ml-2">฿{fmtQ(q.total)}</span>
+              </div>
+              <p className="text-xs text-slate-400">{(q.items||[]).length} รายการ: {(q.items||[]).slice(0,3).map(i=>`${i.name} ×${i.qty}`).join(', ')}{(q.items||[]).length > 3 ? '...' : ''}</p>
+              <div className="flex gap-2">
+                <button onClick={() => onLoad(q)}
+                  className="flex-1 bg-emerald-600 text-white font-bold py-2 rounded-xl text-sm active:scale-95 transition-transform">
+                  รับชำระ →
+                </button>
+                <button onClick={() => { if (confirm('ยกเลิกบิลนี้?')) onCancel(q.id) }}
+                  className="px-3 py-2 rounded-xl border border-slate-200 text-slate-400 text-sm hover:bg-red-50 hover:text-red-400 transition-colors">
+                  ยกเลิก
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>

@@ -308,6 +308,7 @@ export default function RepairPage() {
   const [productResults, setProductResults] = useState([])
   const [settings, setSettings]           = useState({})
   const [printerCfg, setPrinterCfg]       = useState({ receipt: null, barcode: null })
+  const [sentToPosIds, setSentToPosIds]   = useState(new Set())
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -397,6 +398,43 @@ export default function RepairPage() {
   }
 
   function closeBill() { setBillJob(null); setBillItems([]) }
+
+  async function sendToPOS(job) {
+    if (!confirm(`ส่ง "${job.customer_name} – ${job.device}" ไปหน้า POS เพื่อรับชำระ?`)) return
+    try {
+      let customerId = null
+      if (job.phone) {
+        const { data: cust } = await supabase.from('customers').select('id').eq('phone', job.phone).single()
+        customerId = cust?.id || null
+      }
+      const price   = parseFloat(job.price) || 0
+      const deposit = parseFloat(job.deposit) || 0
+      const items   = [{
+        pid: null, barcode: '', unit: 'งาน', cost: 0, disc: 0, qty: 1, price,
+        name: `ค่าซ่อม: ${job.device}${job.description ? ` (${job.description})` : ''}`,
+        note: `[ซ่อม:${job.repair_no}]`,
+      }]
+      const { error } = await supabase.from('quotations').insert({
+        doc_no:          `RP${Date.now()}`,
+        doc_type:        'repair',
+        customer_id:     customerId,
+        customer_name:   job.customer_name,
+        customer_phone:  job.phone || null,
+        items,
+        subtotal:        price,
+        discount:        deposit,
+        vat:             0,
+        total:           Math.max(0, price - deposit),
+        note:            `[ซ่อม:${job.repair_no}]`,
+        status:          'pending',
+        repair_order_id: job.id,
+      })
+      if (error) throw error
+      setSentToPosIds(prev => new Set([...prev, job.id]))
+    } catch (e) {
+      alert('เกิดข้อผิดพลาด: ' + e.message)
+    }
+  }
 
   function addPart(p) {
     setBillItems(prev => [...prev, { product_id: p.id, product_name: p.name, qty: 1, price: p.price, cost: p.cost || 0, unit: p.unit || 'ชิ้น' }])
@@ -755,14 +793,23 @@ export default function RepairPage() {
                         title="พิมพ์สติ๊กเกอร์เลขคิว">
                         🏷️ สติ๊กเกอร์
                       </button>
-                      {/* Bill button — only for done + not yet billed */}
+                      {/* Bill / send-to-POS buttons — only for done + not yet billed */}
                       {job.status === 'done' && !billed && (
-                        <button
-                          onClick={e => { e.stopPropagation(); openBill(job) }}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95"
-                          style={{ background: 'linear-gradient(135deg,#059669,#34d399)', color: '#fff', boxShadow: '0 2px 8px rgba(5,150,105,0.4)' }}>
-                          💰 คิดเงิน / รับเครื่อง
-                        </button>
+                        <>
+                          <button
+                            onClick={e => { e.stopPropagation(); sendToPOS(job) }}
+                            disabled={sentToPosIds.has(job.id)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95 disabled:opacity-50"
+                            style={{ background: sentToPosIds.has(job.id) ? 'rgba(255,255,255,0.1)' : 'linear-gradient(135deg,#1d4ed8,#60a5fa)', color: '#fff', boxShadow: sentToPosIds.has(job.id) ? 'none' : '0 2px 8px rgba(29,78,216,0.4)' }}>
+                            {sentToPosIds.has(job.id) ? '✅ ส่ง POS แล้ว' : '💳 ส่ง POS'}
+                          </button>
+                          <button
+                            onClick={e => { e.stopPropagation(); openBill(job) }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95"
+                            style={{ background: 'linear-gradient(135deg,#059669,#34d399)', color: '#fff', boxShadow: '0 2px 8px rgba(5,150,105,0.4)' }}>
+                            💰 คิดเงิน
+                          </button>
+                        </>
                       )}
                       {/* Next status button — skip 'done→picked_up' (use billing instead) */}
                       {nextSt && nextSts !== 'picked_up' && (
