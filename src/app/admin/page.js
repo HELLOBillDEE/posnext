@@ -613,7 +613,7 @@ export default function AdminPage() {
                 try {
                   const r = await fetch('/api/camera-snapshot', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ caption: '🧪 ทดสอบกล้อง — ถ้าเห็นภาพนี้แปลว่าตั้งค่าถูกต้อง' }),
+                    body: JSON.stringify({ caption: '🧪 ทดสอบกล้อง — ถ้าเห็นภาพนี้แปลว่าตั้งค่าถูกต้อง', mode: 'snapshot' }),
                   })
                   const j = await r.json()
                   setCamTestMsg(j.ok ? '✅ ส่งรูปไป Telegram แล้ว' : `❌ ${j.reason || j.error}`)
@@ -827,7 +827,13 @@ export default function AdminPage() {
                         </td>
                         <td className="px-4 py-3 text-slate-400 text-xs">{log.note || '—'}</td>
                         <td className="px-4 py-3 text-center">
-                          {log.snapshot_url ? (
+                          {log.video_url ? (
+                            <a href={log.video_url} target="_blank" rel="noreferrer"
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-white hover:opacity-80 transition-opacity"
+                              style={{ background: 'linear-gradient(135deg,#7c3aed,#a78bfa)' }}>
+                              🎥 ดูวิดีโอ
+                            </a>
+                          ) : log.snapshot_url ? (
                             <a href={log.snapshot_url} target="_blank" rel="noreferrer">
                               <img src={log.snapshot_url} alt="snapshot"
                                 className="w-16 h-10 object-cover rounded-lg border border-slate-200 hover:scale-105 transition-transform cursor-zoom-in inline-block" />
