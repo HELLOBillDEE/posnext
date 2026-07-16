@@ -1,5 +1,11 @@
 import { createClient } from '@supabase/supabase-js'
-import { notifyDrawerRequest } from '@/lib/lineStaff'
+import { notifyDrawerRequest as notifyDrawerReqLine, getLineSettings } from '@/lib/lineStaff'
+import { notifyDrawerRequest as notifyDrawerReqTg } from '@/lib/telegramStaff'
+async function notifyDrawerRequest(p) {
+  const lineCfg = await getLineSettings()
+  if (lineCfg) await notifyDrawerReqLine(p).catch(() => {})
+  else await notifyDrawerReqTg(p).catch(() => {})
+}
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,

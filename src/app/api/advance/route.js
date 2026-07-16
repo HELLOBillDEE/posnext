@@ -1,5 +1,11 @@
 import { createClient } from '@supabase/supabase-js'
-import { notifyAdvance } from '@/lib/lineStaff'
+import { notifyAdvance as notifyAdvanceLine, getLineSettings } from '@/lib/lineStaff'
+import { notifyAdvance as notifyAdvanceTg } from '@/lib/telegramStaff'
+async function notifyAdvance(p) {
+  const lineCfg = await getLineSettings()
+  if (lineCfg) await notifyAdvanceLine(p).catch(() => {})
+  else await notifyAdvanceTg(p).catch(() => {})
+}
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
