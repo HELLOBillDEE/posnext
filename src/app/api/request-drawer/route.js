@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { notifyDrawerRequest } from '@/lib/telegramStaff'
+import { notifyDrawerRequest } from '@/lib/lineStaff'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,

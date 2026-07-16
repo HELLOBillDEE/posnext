@@ -128,4 +128,47 @@ export async function notifyAdvance({ id, empName, amount }) {
   await pushFlex(cfg.line_channel_token, cfg.line_group_id, `คำขอเบิก - ${empName}`, bubble)
 }
 
+/* ── แจ้งเตือนคำขอเปิดลิ้นชัก ── */
+export async function notifyDrawerRequest({ id, empName, note }) {
+  const cfg = await getLineSettings()
+  if (!cfg) return
+
+  const now = new Date().toLocaleTimeString('th-TH', {
+    timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit',
+  })
+
+  const bubble = {
+    type: 'bubble',
+    size: 'kilo',
+    header: {
+      type: 'box', layout: 'vertical',
+      backgroundColor: '#7c3aed', paddingAll: '14px',
+      contents: [{ type: 'text', text: '🔓  คำขอเปิดลิ้นชัก', color: '#ffffff', weight: 'bold', size: 'md' }],
+    },
+    body: {
+      type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '14px',
+      contents: [
+        { type: 'text', text: empName, weight: 'bold', size: 'lg', color: '#1e293b' },
+        { type: 'text', text: `🕐 ${now}`, size: 'sm', color: '#475569' },
+        ...(note ? [{ type: 'text', text: note, size: 'sm', color: '#94a3b8', wrap: true }] : []),
+      ],
+    },
+    footer: {
+      type: 'box', layout: 'horizontal', spacing: 'sm', paddingAll: '12px',
+      contents: [
+        {
+          type: 'button', style: 'primary', color: '#22c55e', height: 'sm',
+          action: { type: 'postback', label: '✅ อนุมัติ', data: `approve_drawer:${id}`, displayText: `อนุมัติเปิดลิ้นชัก - ${empName}` },
+        },
+        {
+          type: 'button', style: 'primary', color: '#ef4444', height: 'sm',
+          action: { type: 'postback', label: '❌ ปฏิเสธ', data: `reject_drawer:${id}`, displayText: `ไม่อนุมัติเปิดลิ้นชัก - ${empName}` },
+        },
+      ],
+    },
+  }
+
+  await pushFlex(cfg.line_channel_token, cfg.line_group_id, `คำขอเปิดลิ้นชัก - ${empName}`, bubble)
+}
+
 export { getLineSettings }

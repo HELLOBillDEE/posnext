@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { notifyAdvance } from '@/lib/telegramStaff'
+import { notifyAdvance } from '@/lib/lineStaff'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,

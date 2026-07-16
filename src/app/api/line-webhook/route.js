@@ -74,6 +74,16 @@ export async function POST(req) {
             await replyText(replyToken, token, `${emoji} การเบิก ${amtStr} ของ ${empName}\n${word}`)
           }
         }
+
+        if (action === 'approve_drawer' || action === 'reject_drawer') {
+          const status = action === 'approve_drawer' ? 'approved' : 'rejected'
+          await supabase.from('drawer_requests').update({ status }).eq('id', id)
+          if (token && replyToken) {
+            const emoji = status === 'approved' ? '✅' : '❌'
+            const word  = status === 'approved' ? 'อนุมัติเปิดลิ้นชักแล้ว' : 'ไม่อนุมัติ'
+            await replyText(replyToken, token, `${emoji} ${word}`)
+          }
+        }
       }
     }
 
