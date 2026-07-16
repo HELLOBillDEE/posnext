@@ -96,15 +96,19 @@ export default function StaffPage() {
 
   async function loadDashboard(sess) {
     setStep('loading')
+    const ctrl = new AbortController()
+    const tid  = setTimeout(() => ctrl.abort(), 10000)
     try {
       const res  = await fetch('/api/my', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ employee_id: sess.employee_id, password: sess.password }),
+        signal: ctrl.signal,
       })
+      clearTimeout(tid)
       const json = await res.json()
       if (json.error) { localStorage.removeItem('staff_session'); setStep('login'); return }
       setSession(sess); setData(json); setStep('dashboard')
-    } catch { setStep('login') }
+    } catch { clearTimeout(tid); setStep('login') }
   }
 
   async function doLogin() {
