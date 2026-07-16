@@ -3,8 +3,10 @@ import { notifyLeave as notifyLeaveLine, getLineSettings } from '@/lib/lineStaff
 import { notifyLeave as notifyLeaveTg } from '@/lib/telegramStaff'
 async function notifyLeave(p) {
   const lineCfg = await getLineSettings()
-  if (lineCfg) await notifyLeaveLine(p).catch(() => {})
-  else await notifyLeaveTg(p).catch(() => {})
+  if (lineCfg) {
+    try { await notifyLeaveLine(p); return } catch {}
+  }
+  await notifyLeaveTg(p).catch(() => {})
 }
 
 const supabase = createClient(

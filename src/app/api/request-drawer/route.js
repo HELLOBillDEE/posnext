@@ -3,8 +3,10 @@ import { notifyDrawerRequest as notifyDrawerReqLine, getLineSettings } from '@/l
 import { notifyDrawerRequest as notifyDrawerReqTg } from '@/lib/telegramStaff'
 async function notifyDrawerRequest(p) {
   const lineCfg = await getLineSettings()
-  if (lineCfg) await notifyDrawerReqLine(p).catch(() => {})
-  else await notifyDrawerReqTg(p).catch(() => {})
+  if (lineCfg) {
+    try { await notifyDrawerReqLine(p); return } catch {}
+  }
+  await notifyDrawerReqTg(p).catch(() => {})
 }
 
 const supabase = createClient(

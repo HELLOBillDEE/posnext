@@ -3,8 +3,10 @@ import { notifyAdvance as notifyAdvanceLine, getLineSettings } from '@/lib/lineS
 import { notifyAdvance as notifyAdvanceTg } from '@/lib/telegramStaff'
 async function notifyAdvance(p) {
   const lineCfg = await getLineSettings()
-  if (lineCfg) await notifyAdvanceLine(p).catch(() => {})
-  else await notifyAdvanceTg(p).catch(() => {})
+  if (lineCfg) {
+    try { await notifyAdvanceLine(p); return } catch {}
+  }
+  await notifyAdvanceTg(p).catch(() => {})
 }
 
 const supabase = createClient(
