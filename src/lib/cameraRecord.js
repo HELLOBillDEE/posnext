@@ -14,7 +14,7 @@ const supabaseStorage = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
 
-const FFMPEG = '/opt/homebrew/bin/ffmpeg'
+const FFMPEG = process.env.FFMPEG_PATH || '/opt/homebrew/bin/ffmpeg'
 
 // ── Circular pre-roll buffer (module-level, persistent ใน PM2) ──
 let _cbProc = null
