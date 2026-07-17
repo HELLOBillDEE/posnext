@@ -277,12 +277,12 @@ export async function notifyDiscount({ empName, receiptNo, discItems, billDisc, 
 }
 
 /* ── แจ้งเตือนคำขอเบิก ── */
-export async function notifyAdvance({ id, empName, amount, note }) {
+export async function notifyAdvance({ id, empName, amount, note, autoApproved }) {
   const cfg = await getTelegramSettings()
   if (!cfg) return
 
   const lines = [
-    `💵 <b>คำขอเบิก</b>`,
+    `💵 <b>${autoApproved ? 'เบิกค่าแรง ✅ อนุมัติอัตโนมัติ' : 'คำขอเบิก ⏳ รออนุมัติ'}</b>`,
     `──────────────`,
     `👤 พนักงาน: <b>${empName}</b>`,
     `💰 ยอดเบิก: <b>฿${Number(amount).toLocaleString('th-TH')}</b>`,
@@ -290,7 +290,7 @@ export async function notifyAdvance({ id, empName, amount, note }) {
   ]
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || ''
-  await sendMessage(cfg.telegram_bot_token, cfg.telegram_chat_id, lines.join('\n'), {
+  const markup = autoApproved ? undefined : {
     inline_keyboard: [
       [
         { text: '✅ อนุมัติ', callback_data: `approve_advance:${id}` },
@@ -298,5 +298,6 @@ export async function notifyAdvance({ id, empName, amount, note }) {
       ],
       ...(appUrl ? [[{ text: '🔗 เปิดหน้าอนุมัติ', url: `${appUrl}/approve?type=advance&id=${id}` }]] : []),
     ],
-  })
+  }
+  await sendMessage(cfg.telegram_bot_token, cfg.telegram_chat_id, lines.join('\n'), markup)
 }

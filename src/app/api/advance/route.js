@@ -64,21 +64,22 @@ export async function POST(req) {
       approved_by: autoApprove ? 'auto' : null,
     }).select('id').single()
 
-    // แจ้งเตือน admin เฉพาะกรณีต้องอนุมัติ
-    if (!autoApprove && inserted?.id) {
+    if (inserted?.id) {
       const empName = emp.nickname || emp.name
-      notifyAdvance({ id: inserted.id, empName, amount: Number(amount), note: note || null })
+      notifyAdvance({ id: inserted.id, empName, amount: Number(amount), note: note || null, autoApproved: autoApprove })
         .catch(e => console.error('[advance notify]', e?.message))
-      sendPushToAll({
-        title: '💵 คำขอเบิก',
-        body: `${empName} — ฿${Number(amount).toLocaleString('th-TH')}`,
-        tag: `advance-${inserted.id}`,
-        actions: [
-          { action: 'approve', title: '✅ อนุมัติ' },
-          { action: 'reject',  title: '❌ ปฏิเสธ' },
-        ],
-        meta: { type: 'advance', id: inserted.id },
-      }).catch(() => {})
+      if (!autoApprove) {
+        sendPushToAll({
+          title: '💵 คำขอเบิก',
+          body: `${empName} — ฿${Number(amount).toLocaleString('th-TH')}`,
+          tag: `advance-${inserted.id}`,
+          actions: [
+            { action: 'approve', title: '✅ อนุมัติ' },
+            { action: 'reject',  title: '❌ ปฏิเสธ' },
+          ],
+          meta: { type: 'advance', id: inserted.id },
+        }).catch(() => {})
+      }
     }
 
     return Response.json({
