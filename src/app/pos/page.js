@@ -110,6 +110,26 @@ export default function POSPage() {
   useEffect(() => { showPayRef.current  = showPay  }, [showPay])
 
   useEffect(() => { loadData() }, [])
+
+  // Realtime: ถ้า drawer_request ถูกอนุมัติ → ให้ POS local trigger กล้อง (Vercel ทำไม่ได้)
+  useEffect(() => {
+    const channel = supabase
+      .channel('pos-drawer-approved')
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'pos', table: 'drawer_requests',
+        filter: 'status=eq.approved',
+      }, payload => {
+        const dr = payload.new
+        const now = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
+        fetch('/api/camera-snapshot', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ caption: `🔓 อนุมัติเปิดลิ้นชัก — ${dr.employee_name || '?'}  🕐 ${now}` }),
+        }).catch(() => {})
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [])
+
   // Focus กลับไปที่ช่อง scan เฉพาะตอนปิด payment modal (true→false) ไม่ใช่ตอน mount
   useEffect(() => {
     if (!showPay && wasPaying.current) setTimeout(() => inputRef.current?.focus(), 100)
