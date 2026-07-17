@@ -39,6 +39,7 @@ export async function POST(req) {
       note: note || null,
       settled_at: new Date().toISOString(),
       settled_by: settled_by || 'admin',
+      installment_updates: installment_updates || [],
     }, { onConflict: 'employee_id,period' })
 
     if (settleErr) throw settleErr
@@ -64,6 +65,43 @@ export async function POST(req) {
     }
 
     return Response.json({ ok: true, carry_forward_out })
+  } catch (e) {
+    return Response.json({ error: e.message }, { status: 500 })
+  }
+}
+
+// DELETE /api/payroll/settle?employee_id=X&period=YYYY-MM — ยกเลิกปิดบัญชี
+export async function DELETE(req) {
+  try {
+    const { searchParams } = new URL(req.url)
+    const employee_id = searchParams.get('employee_id')
+    const period      = searchParams.get('period')
+    if (!employee_id || !period) return Response.json({ error: 'ข้อมูลไม่ครบ' }, { status: 400 })
+
+    // ดึง installment_updates ที่เก็บไว้ตอน settle
+    const { data: settlement } = await supabase.from('payroll_settlements')
+      .select('installment_updates').eq('employee_id', employee_id).eq('period', period).maybeSingle()
+
+    // ลบ settlement
+    const { error } = await supabase.from('payroll_settlements')
+      .delete().eq('employee_id', employee_id).eq('period', period)
+    if (error) throw error
+
+    // คืน paid_days ให้ installments (reverse)
+    const updates = settlement?.installment_updates || []
+    for (const upd of updates) {
+      if (!upd.id || !upd.days_to_add) continue
+      const { data: inst } = await supabase.from('employee_installments')
+        .select('paid_days, total_days').eq('id', upd.id).single()
+      if (inst) {
+        const newPaid = Math.max(0, inst.paid_days - upd.days_to_add)
+        await supabase.from('employee_installments')
+          .update({ paid_days: newPaid, active: true })
+          .eq('id', upd.id)
+      }
+    }
+
+    return Response.json({ ok: true, reversed: updates.length })
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 })
   }

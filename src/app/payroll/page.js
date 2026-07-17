@@ -207,10 +207,11 @@ function BonusModal({ empId, empName, period, onClose, onSaved }) {
 
 // ---- Employee Payroll Card ----
 function EmpCard({ emp, period, onSettled }) {
-  const [settling, setSettling]   = useState(false)
-  const [showInst, setShowInst]   = useState(false)
-  const [showBonus, setShowBonus] = useState(false)
-  const [expanded, setExpanded]   = useState(false)
+  const [settling, setSettling]     = useState(false)
+  const [unsettling, setUnsettling] = useState(false)
+  const [showInst, setShowInst]     = useState(false)
+  const [showBonus, setShowBonus]   = useState(false)
+  const [expanded, setExpanded]     = useState(false)
   const [editRate, setEditRate]   = useState(false)
   const [rateVal, setRateVal]     = useState(String(emp.daily_rate || ''))
   const isSettled = !!emp.settled
@@ -223,6 +224,14 @@ function EmpCard({ emp, period, onSettled }) {
       body: JSON.stringify({ employee_id: emp.id, daily_rate: rate }),
     })
     setEditRate(false)
+    onSettled()
+  }
+
+  async function unsettle() {
+    if (!confirm(`ยกเลิกปิดบัญชีของ ${emp.nickname || emp.name}?\nรายการผ่อนจะถูกคืนกลับด้วย`)) return
+    setUnsettling(true)
+    await fetch(`/api/payroll/settle?employee_id=${emp.id}&period=${period}`, { method: 'DELETE' })
+    setUnsettling(false)
     onSettled()
   }
 
@@ -442,9 +451,10 @@ ${emp.carryForwardIn>0?`<div class="row"><span>ทบจากเดือนก
                 {settling ? '...' : '✅ ปิดบัญชี'}
               </button>
             ) : (
-              <div className="flex-1 py-2 text-center text-xs text-slate-400">
-                ปิด {fmtDate(emp.settled.settled_at)}
-              </div>
+              <button onClick={unsettle} disabled={unsettling}
+                className="flex-1 py-2 border border-red-200 text-red-500 rounded-xl text-sm font-medium hover:bg-red-50 transition-colors disabled:opacity-40">
+                {unsettling ? '...' : '↩ ยกเลิกปิด'}
+              </button>
             )}
           </div>
         </div>
