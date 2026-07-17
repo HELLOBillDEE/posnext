@@ -163,7 +163,7 @@ export async function notifyDrawer({ employeeName, shopName, note }) {
 }
 
 /* ── แจ้งเตือนคำขอเปิดลิ้นชัก ── */
-export async function notifyDrawerRequest({ id, empName, note }) {
+export async function notifyDrawerRequest({ id, empName, note, amount }) {
   const cfg = await getTelegramSettings()
   if (!cfg) return
 
@@ -176,6 +176,7 @@ export async function notifyDrawerRequest({ id, empName, note }) {
     `👤 พนักงาน: <b>${empName}</b>`,
     `📅 วันที่: ${today}`,
     `🕐 เวลา: ${now}`,
+    ...(amount ? [`💰 จำนวน: <b>฿${Number(amount).toLocaleString('th-TH')}</b>`] : []),
     ...(note ? [`📝 หมายเหตุ: ${note}`] : []),
   ]
 

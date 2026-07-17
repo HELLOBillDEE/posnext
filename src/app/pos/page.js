@@ -332,7 +332,7 @@ export default function POSPage() {
         const updated = { ...prev[idx], qty: prev[idx].qty + qty }
         return [updated, ...prev.filter((_, i) => i !== idx)]
       }
-      return [{ pid: prod.id, name: prod.name, barcode: prod.barcode, unit: prod.unit, price: prod.price, origPrice: prod.price, cost: prod.cost || 0, qty, disc: 0, note: '' }, ...prev]
+      return [{ pid: prod.id, name: prod.name, barcode: prod.barcode, unit: prod.unit, price: prod.price, origPrice: prod.price, cost: prod.cost || 0, qty, disc: 0, note: '', category_name: prod.categories?.name || '' }, ...prev]
     })
   }
 
@@ -588,27 +588,27 @@ export default function POSPage() {
         setPrintStatus('printing')
         buildReceiptESCPOS(receipt, parseInt(cfg.paper_width) || 80).then(async bytes => {
           if (needDrawer) {
+            const empCam = currentEmp ? (currentEmp.nickname || currentEmp.name) : 'POS'
+            const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
+            // บันทึก drawer_log + กล้องก่อน print (แยกออกจาก print error)
+            supabase.from('drawer_logs').insert({ employee_name: empCam, note: `ขาย ${receiptNo}` }).then(null, () => {})
+            fetch('/api/camera-snapshot', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ caption: `💳 บิลขาย — ${empCam}  🕐 ${timeCam}` }),
+            }).catch(() => {})
             const kick = buildDrawerKickESCPOS()
             const combined = new Uint8Array(kick.length + bytes.length)
             combined.set(kick, 0)
             combined.set(bytes, kick.length)
             await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, combined)
-            // บันทึก drawer_log + ถ่ายวิดีโอกล้อง
-            const empCam = currentEmp ? (currentEmp.nickname || currentEmp.name) : 'POS'
-            const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
-            supabase.from('drawer_logs').insert({ employee_name: empCam, note: `ขาย ${receiptNo}` }).catch(() => {})
-            fetch('/api/camera-snapshot', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ caption: `💳 บิลขาย — ${empCam}  🕐 ${timeCam}` }),
-            }).catch(() => {})
           } else {
             await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
           }
           setPrintStatus('ok')
         }).catch(e => {
-          console.warn('Print/Drawer error:', e.message)
+          console.error('Print error:', e)
           setPrintStatus('fail')
-          alert('❌ พิมใบเสร็จไม่ได้: ' + e.message + '\nตรวจสอบ IP เครื่องพิมพ์ในหน้า Admin')
+          alert('❌ พิมใบเสร็จไม่ได้: ' + (e?.message || String(e)) + '\nตรวจสอบ IP เครื่องพิมพ์ในหน้า Admin')
         })
       } else {
         const html = buildReceiptHTML(receipt)
@@ -759,7 +759,8 @@ export default function POSPage() {
         const bytes = await buildReceiptESCPOS(r, parseInt(cfg.paper_width) || 80)
         await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
       } catch (e) {
-        alert('❌ พิมใบเสร็จไม่ได้: ' + e.message + '\nตรวจสอบ IP เครื่องพิมพ์ในหน้า Admin')
+        console.error('Reprint error:', e)
+        alert('❌ พิมใบเสร็จไม่ได้: ' + (e?.message || String(e)) + '\nตรวจสอบ IP เครื่องพิมพ์ในหน้า Admin')
       }
       return
     }
@@ -1051,19 +1052,22 @@ export default function POSPage() {
                     <input value={item.note || ''} onChange={e => setItemNote(idx, e.target.value)}
                       placeholder="📝 โน๊ต..."
                       className="mt-1.5 w-full text-xs border-0 border-b border-dashed border-slate-200 bg-transparent py-0.5 text-slate-500 placeholder-slate-300 focus:outline-none focus:border-brand" />
-                    {employees.length > 0 && item.name?.includes('ค่าซ่อม') && (
-                      <div className="mt-1 flex items-center gap-1.5">
-                        <select value={item.tech_name || ''} onChange={e => setItemTech(idx, e.target.value)}
-                          className="flex-1 text-xs border-0 border-b border-dashed border-slate-200 bg-transparent py-0.5 focus:outline-none focus:border-violet-400"
-                          style={{ color: item.tech_name ? '#7c3aed' : '#cbd5e1' }}>
-                          <option value="">🔧 แท็กช่างซ่อม (ถ้ามี)</option>
-                          {employees.map(emp => (
-                            <option key={emp.id} value={emp.nickname || emp.name}>{emp.nickname || emp.name}</option>
-                          ))}
-                        </select>
-                        {item.tech_name && (
-                          <button onClick={() => setItemTech(idx, '')} className="text-xs text-slate-300 hover:text-red-400 shrink-0">✕</button>
-                        )}
+                    {employees.length > 0 && (item.name?.includes('ซ่อม') || item.category_name?.includes('ซ่อม') || item.category_name?.includes('บริการ')) && (
+                      <div className="mt-1.5">
+                        <p className="text-[10px] text-slate-400 mb-1">🔧 ช่างซ่อม</p>
+                        <div className="flex flex-wrap gap-1">
+                          {employees.map(emp => {
+                            const name = emp.nickname || emp.name
+                            const selected = item.tech_name === name
+                            return (
+                              <button key={emp.id}
+                                onPointerDown={e => { e.stopPropagation(); setItemTech(idx, selected ? '' : name) }}
+                                className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${selected ? 'bg-violet-500 text-white border-violet-500' : 'bg-white text-slate-500 border-slate-200 active:bg-violet-50 active:border-violet-300'}`}>
+                                {name}
+                              </button>
+                            )
+                          })}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1757,7 +1761,7 @@ function CancelBillModal({ sale, settings, currentEmp, empMode, onClose, onVoide
           } catch {}
           await supabase.from('drawer_logs').insert({
             employee_name: 'แอดมิน', amount: refundAmt, note: `เบิกเงินออก — ${voidNote}`,
-          }).catch(() => {})
+          }).then(null, () => {})
           const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
           fetch('/api/camera-snapshot', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1788,7 +1792,7 @@ function CancelBillModal({ sale, settings, currentEmp, empMode, onClose, onVoide
           await supabase.from('drawer_logs').insert({
             employee_name: empName, amount: drawerData.amount,
             note: `เบิกเงินออก — ${drawerData.note}`,
-          }).catch(() => {})
+          }).then(null, () => {})
           const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
           fetch('/api/camera-snapshot', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1882,11 +1886,11 @@ function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
     setSaving(true); setErrMsg('')
     const dirLabel = direction === 'in' ? 'รับเงินเข้า' : 'เบิกเงินออก'
     const amtNum   = parseFloat(amount) || 0
-    const fullNote = [dirLabel, amtNum ? `฿${amtNum.toLocaleString('th-TH')}` : null, noteText.trim()].filter(Boolean).join(' — ')
+    const fullNote = [dirLabel, noteText.trim()].filter(Boolean).join(' — ')
     try {
       const res = await fetch('/api/request-drawer', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employee_id: empMode.id, employee_name: empName, note: fullNote }),
+        body: JSON.stringify({ employee_id: empMode.id, employee_name: empName, note: fullNote, amount: amtNum || null }),
       })
       const json = await res.json()
       if (json.error) { setErrMsg(json.error); return }
@@ -1915,7 +1919,7 @@ function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
             employee_name: empName,
             amount: drawerData.amount || null,
             note: drawerData.note || null,
-          }).catch(() => {})
+          }).then(null, () => {})
           const timeStr = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
           fetch('/api/camera-snapshot', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2293,6 +2297,11 @@ function ShiftModal({ mode, currentShift, empMode, settings, onClose, onOpened, 
       setDrawerReq('sending')
       try {
         await kickDrawerViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100)
+        const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
+        fetch('/api/camera-snapshot', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ caption: `🔓 เปิดลิ้นชัก — ${mode === 'open' ? 'เปิดกะ' : 'ปิดกะ'}  🕐 ${timeCam}` }),
+        }).catch(() => {})
         setDrawerReq('sent')
       } catch { setDrawerReq('error') }
       return
@@ -2362,6 +2371,11 @@ function ShiftModal({ mode, currentShift, empMode, settings, onClose, onOpened, 
           expOther: expOther.filter(e => parseFloat(e.amount) > 0),
           cashRemaining,
         }),
+      }).catch(() => {})
+      const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
+      fetch('/api/camera-snapshot', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ caption: `🔴 ปิดกะ — ${currentShift.cashier_name || empMode?.name || ''}  🕐 ${timeCam}` }),
       }).catch(() => {})
     }
     setSaving(false)

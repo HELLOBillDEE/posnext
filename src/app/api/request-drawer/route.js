@@ -10,7 +10,7 @@ const supabase = createClient(
 
 export async function POST(req) {
   try {
-    const { employee_id, password, employee_name, note } = await req.json()
+    const { employee_id, password, employee_name, note, amount } = await req.json()
     if (!employee_id) return Response.json({ error: 'ข้อมูลไม่ครบ' }, { status: 400 })
 
     let empName
@@ -32,10 +32,10 @@ export async function POST(req) {
 
     const { data: req_ } = await supabase
       .from('drawer_requests')
-      .insert({ employee_id, employee_name: empName, status: 'pending', note: note || null })
+      .insert({ employee_id, employee_name: empName, status: 'pending', note: note || null, amount: amount ? Number(amount) : null })
       .select('id').single()
 
-    notifyDrawerRequest({ id: req_.id, empName, note }).catch(() => {})
+    notifyDrawerRequest({ id: req_.id, empName, note, amount: amount ? Number(amount) : null }).catch(() => {})
     sendPushToAll({
       title: '🔓 คำขอเปิดลิ้นชัก',
       body: empName + (note ? ` — ${note}` : ''),
