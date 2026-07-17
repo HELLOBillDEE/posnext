@@ -116,6 +116,7 @@ export default function StaffPage() {
       if (json.error) { localStorage.removeItem('staff_session'); setStep('login'); return }
       setSession(sess); setData(json); setStep('dashboard')
       fetch('/api/announcements').then(r => r.json()).then(list => { if (Array.isArray(list)) setAnnouncements(list) }).catch(() => {})
+      loadSalary(new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 7))
     } catch { clearTimeout(tid); setStep('login') }
   }
 
@@ -635,6 +636,24 @@ ${sd.carryForwardIn > 0 ? `<div class="row"><span>ทบจากเดือน
                 </div>
               </div>
             ))}
+
+            {/* ── ยอดคงเหลือเดือนนี้ ── */}
+            {salaryData && (
+              <button onClick={() => openSalaryTab()}
+                className="w-full bg-white rounded-2xl border border-slate-200 p-4 flex items-center justify-between active:bg-slate-50 transition-all">
+                <div className="text-left">
+                  <p className="text-xs text-slate-400 font-semibold">คงเหลือจ่าย {salaryData.monthLabel}</p>
+                  <p className={`text-2xl font-bold mt-0.5 ${salaryData.netPayDue >= 0 ? 'text-blue-600' : 'text-orange-500'}`}>
+                    {salaryData.netPayDue < 0 ? '−' : ''}฿{fmtMoney(Math.abs(salaryData.netPayDue))}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-0.5">{salaryData.daysWorked} วัน · เบิกไปแล้ว ฿{fmtMoney(salaryData.totalWithdrawn)}</p>
+                </div>
+                <span className="text-slate-300 text-xl">›</span>
+              </button>
+            )}
+            {salaryLoad && !salaryData && (
+              <div className="bg-white rounded-2xl border border-slate-200 p-4 text-center text-slate-300 text-sm">⏳ โหลดยอดเดือนนี้...</div>
+            )}
 
             {/* ── Advance section ── */}
             {session && (
