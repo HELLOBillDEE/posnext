@@ -60,18 +60,29 @@ function separator() {
   return { type: 'separator', margin: 'sm', color: '#e2e8f0' }
 }
 
-function approveFooter(approveData, rejectData, approveText, rejectText) {
+function approveFooter(approveData, rejectData, approveText, rejectText, webUrl) {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || ''
+  const buttons = [
+    {
+      type: 'button', style: 'primary', color: '#16a34a', height: 'sm',
+      action: { type: 'postback', label: '✅ อนุมัติ', data: approveData, displayText: approveText },
+    },
+    {
+      type: 'button', style: 'secondary', height: 'sm',
+      action: { type: 'postback', label: '✗ ปฏิเสธ', data: rejectData, displayText: rejectText },
+    },
+  ]
+  if (appUrl && webUrl) {
+    buttons.push({
+      type: 'button', style: 'secondary', height: 'sm',
+      action: { type: 'uri', label: '🔗 เปิดหน้าเว็บ', uri: `${appUrl}${webUrl}` },
+    })
+  }
   return {
-    type: 'box', layout: 'horizontal', spacing: 'sm', paddingAll: '12px',
+    type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '12px',
     contents: [
-      {
-        type: 'button', style: 'primary', color: '#16a34a', height: 'sm',
-        action: { type: 'postback', label: '✅ อนุมัติ', data: approveData, displayText: approveText },
-      },
-      {
-        type: 'button', style: 'secondary', height: 'sm',
-        action: { type: 'postback', label: '✗ ปฏิเสธ', data: rejectData, displayText: rejectText },
-      },
+      { type: 'box', layout: 'horizontal', spacing: 'sm', contents: buttons.slice(0, 2) },
+      ...(buttons[2] ? [buttons[2]] : []),
     ],
   }
 }
@@ -109,7 +120,7 @@ export async function notifyLeave({ id, empName, dateFrom, dateTo, period, leave
       ],
     },
     body: { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '16px', contents: rows },
-    footer: approveFooter(`approve_leave:${id}`, `reject_leave:${id}`, `อนุมัติการลา - ${empName}`, `ไม่อนุมัติการลา - ${empName}`),
+    footer: approveFooter(`approve_leave:${id}`, `reject_leave:${id}`, `อนุมัติการลา - ${empName}`, `ไม่อนุมัติการลา - ${empName}`, `/approve?type=leave&id=${id}`),
   }
 
   await pushFlex(cfg.line_channel_token, cfg.line_group_id, `📋 คำขอลา - ${empName} (${dateStr})`, bubble)
@@ -140,7 +151,7 @@ export async function notifyAdvance({ id, empName, amount, note }) {
       ],
     },
     body: { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '16px', contents: rows },
-    footer: approveFooter(`approve_advance:${id}`, `reject_advance:${id}`, `อนุมัติการเบิก - ${empName}`, `ไม่อนุมัติการเบิก - ${empName}`),
+    footer: approveFooter(`approve_advance:${id}`, `reject_advance:${id}`, `อนุมัติการเบิก - ${empName}`, `ไม่อนุมัติการเบิก - ${empName}`, `/approve?type=advance&id=${id}`),
   }
 
   await pushFlex(cfg.line_channel_token, cfg.line_group_id, `💵 คำขอเบิก - ${empName} ${amountStr}`, bubble)
@@ -178,7 +189,7 @@ export async function notifyDrawerRequest({ id, empName, note }) {
       ],
     },
     body: { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '16px', contents: rows },
-    footer: approveFooter(`approve_drawer:${id}`, `reject_drawer:${id}`, `อนุมัติเปิดลิ้นชัก - ${empName}`, `ไม่อนุมัติเปิดลิ้นชัก - ${empName}`),
+    footer: approveFooter(`approve_drawer:${id}`, `reject_drawer:${id}`, `อนุมัติเปิดลิ้นชัก - ${empName}`, `ไม่อนุมัติเปิดลิ้นชัก - ${empName}`, `/approve?type=drawer&id=${id}`),
   }
 
   await pushFlex(cfg.line_channel_token, cfg.line_group_id, `🔓 คำขอเปิดลิ้นชัก - ${empName} ${now}`, bubble)

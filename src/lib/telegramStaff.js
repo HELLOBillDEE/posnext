@@ -100,11 +100,15 @@ export async function notifyLeave({ id, empName, dateFrom, dateTo, period, leave
     ...(note ? [`📝 หมายเหตุ: ${note}`] : []),
   ]
 
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || ''
   await sendMessage(cfg.telegram_bot_token, cfg.telegram_chat_id, lines.join('\n'), {
-    inline_keyboard: [[
-      { text: '✅ อนุมัติ', callback_data: `approve_leave:${id}` },
-      { text: '❌ ปฏิเสธ', callback_data: `reject_leave:${id}` },
-    ]],
+    inline_keyboard: [
+      [
+        { text: '✅ อนุมัติ', callback_data: `approve_leave:${id}` },
+        { text: '❌ ปฏิเสธ', callback_data: `reject_leave:${id}` },
+      ],
+      ...(appUrl ? [[{ text: '🔗 เปิดหน้าอนุมัติ', url: `${appUrl}/approve?type=leave&id=${id}` }]] : []),
+    ],
   })
 }
 
@@ -180,11 +184,15 @@ export async function notifyDrawerRequest({ id, empName, note, amount }) {
     ...(note ? [`📝 หมายเหตุ: ${note}`] : []),
   ]
 
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || ''
   await sendMessage(cfg.telegram_bot_token, cfg.telegram_chat_id, lines.join('\n'), {
-    inline_keyboard: [[
-      { text: '✅ อนุมัติ', callback_data: `approve_drawer:${id}` },
-      { text: '❌ ปฏิเสธ', callback_data: `reject_drawer:${id}` },
-    ]],
+    inline_keyboard: [
+      [
+        { text: '✅ อนุมัติ', callback_data: `approve_drawer:${id}` },
+        { text: '❌ ปฏิเสธ', callback_data: `reject_drawer:${id}` },
+      ],
+      ...(appUrl ? [[{ text: '🔗 เปิดหน้าอนุมัติ', url: `${appUrl}/approve?type=drawer&id=${id}` }]] : []),
+    ],
   })
 }
 
@@ -281,10 +289,14 @@ export async function notifyAdvance({ id, empName, amount, note }) {
     ...(note ? [`📝 หมายเหตุ: ${note}`] : []),
   ]
 
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || ''
   await sendMessage(cfg.telegram_bot_token, cfg.telegram_chat_id, lines.join('\n'), {
-    inline_keyboard: [[
-      { text: '✅ อนุมัติ', callback_data: `approve_advance:${id}` },
-      { text: '❌ ปฏิเสธ', callback_data: `reject_advance:${id}` },
-    ]],
+    inline_keyboard: [
+      [
+        { text: '✅ อนุมัติ', callback_data: `approve_advance:${id}` },
+        { text: '❌ ปฏิเสธ', callback_data: `reject_advance:${id}` },
+      ],
+      ...(appUrl ? [[{ text: '🔗 เปิดหน้าอนุมัติ', url: `${appUrl}/approve?type=advance&id=${id}` }]] : []),
+    ],
   })
 }
