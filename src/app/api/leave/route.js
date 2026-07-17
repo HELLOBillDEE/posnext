@@ -58,7 +58,7 @@ export async function POST(req) {
       const empName  = emp.nickname || emp.name
       const fmtD = d => new Date(d + 'T00:00:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })
       const dateStr  = from === to ? fmtD(from) : `${fmtD(from)} – ${fmtD(to)}`
-      notifyLeave({ id: inserted.id, empName, dateFrom: from, dateTo: to, period, note: note || null })
+      notifyLeave({ id: inserted.id, empName, dateFrom: from, dateTo: to, period, leaveType: leave_type, note: note || null })
         .catch(e => console.error('[leave notify]', e?.message))
       sendPushToAll({
         title: '🏖 คำขอลา',

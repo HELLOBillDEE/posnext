@@ -67,7 +67,7 @@ export async function POST(req) {
     // แจ้งเตือน admin เฉพาะกรณีต้องอนุมัติ
     if (!autoApprove && inserted?.id) {
       const empName = emp.nickname || emp.name
-      notifyAdvance({ id: inserted.id, empName, amount: Number(amount) })
+      notifyAdvance({ id: inserted.id, empName, amount: Number(amount), note: note || null })
         .catch(e => console.error('[advance notify]', e?.message))
       sendPushToAll({
         title: '💵 คำขอเบิก',
