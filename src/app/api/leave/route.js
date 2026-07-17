@@ -1,13 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
-import { notifyLeave as notifyLeaveLine, getLineSettings } from '@/lib/lineStaff'
-import { notifyLeave as notifyLeaveTg } from '@/lib/telegramStaff'
-async function notifyLeave(p) {
-  const lineCfg = await getLineSettings()
-  if (lineCfg) {
-    try { await notifyLeaveLine(p); return } catch {}
-  }
-  await notifyLeaveTg(p).catch(() => {})
-}
+import { notifyLeave } from '@/lib/telegramStaff'
+import { sendPushToAll } from '@/lib/webPush'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -62,14 +55,21 @@ export async function POST(req) {
     }).select('id').single()
 
     if (inserted?.id) {
-      notifyLeave({
-        id: inserted.id,
-        empName: emp.nickname || emp.name,
-        dateFrom: from,
-        dateTo: to,
-        period,
-        note: note || null,
-      }).catch(e => console.error('[leave notify]', e?.message))
+      const empName  = emp.nickname || emp.name
+      const fmtD = d => new Date(d + 'T00:00:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })
+      const dateStr  = from === to ? fmtD(from) : `${fmtD(from)} – ${fmtD(to)}`
+      notifyLeave({ id: inserted.id, empName, dateFrom: from, dateTo: to, period, note: note || null })
+        .catch(e => console.error('[leave notify]', e?.message))
+      sendPushToAll({
+        title: '🏖 คำขอลา',
+        body: `${empName} — ${dateStr}${note ? `\n${note}` : ''}`,
+        tag: `leave-${inserted.id}`,
+        actions: [
+          { action: 'approve', title: '✅ อนุมัติ' },
+          { action: 'reject',  title: '❌ ปฏิเสธ' },
+        ],
+        meta: { type: 'leave', id: inserted.id },
+      }).catch(() => {})
     }
 
     return Response.json({ name: emp.nickname || emp.name, leave_type, date_from: from, date_to: to, leave_period: period })

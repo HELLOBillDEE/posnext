@@ -1,13 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
-import { notifyDrawerRequest as notifyDrawerReqLine, getLineSettings } from '@/lib/lineStaff'
-import { notifyDrawerRequest as notifyDrawerReqTg } from '@/lib/telegramStaff'
-async function notifyDrawerRequest(p) {
-  const lineCfg = await getLineSettings()
-  if (lineCfg) {
-    try { await notifyDrawerReqLine(p); return } catch {}
-  }
-  await notifyDrawerReqTg(p).catch(() => {})
-}
+import { notifyDrawerRequest } from '@/lib/telegramStaff'
+import { sendPushToAll } from '@/lib/webPush'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -43,6 +36,16 @@ export async function POST(req) {
       .select('id').single()
 
     notifyDrawerRequest({ id: req_.id, empName, note }).catch(() => {})
+    sendPushToAll({
+      title: '🔓 คำขอเปิดลิ้นชัก',
+      body: empName + (note ? ` — ${note}` : ''),
+      tag: `drawer-${req_.id}`,
+      actions: [
+        { action: 'approve', title: '✅ อนุมัติ' },
+        { action: 'reject',  title: '❌ ปฏิเสธ' },
+      ],
+      meta: { type: 'drawer', id: req_.id },
+    }).catch(() => {})
 
     return Response.json({ ok: true, request_id: req_.id })
   } catch (e) {

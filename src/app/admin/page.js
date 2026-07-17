@@ -22,7 +22,7 @@ const SETTING_FIELDS = [
   { key:'telegram_chat_id',     label:'Telegram Chat ID (กลุ่ม)',          placeholder:'-1001234567890 (ดูจาก @getidsbot)' },
 ]
 
-const TABS = ['ตั้งค่าร้าน', 'เครื่องพิมพ์', 'ซัพพลายเออร์', 'ประวัติสต็อก', '🔓 ลิ้นชัก', '💰 พนักงาน']
+const TABS = ['ตั้งค่าร้าน', 'เครื่องพิมพ์', 'ซัพพลายเออร์', 'ประวัติสต็อก', '🔓 ลิ้นชัก', '💰 พนักงาน', '📢 ประกาศ']
 
 const DEF_BILLDEE = { url: '', business_id: '', token: '', enabled: false }
 function loadBillDeeConfig() {
@@ -44,6 +44,94 @@ function loadPrinters() {
     barcode: { ...DEF_BARCODE, bridge_url: origin, ...(saved.barcode || {}) },
     receipt: { ...DEF_RECEIPT, bridge_url: origin, ...(saved.receipt || {}) },
   }
+}
+
+const VAPID_PUBLIC = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const rawData = atob(base64)
+  return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)))
+}
+
+function PushBanner() {
+  const [state, setState] = useState('idle') // idle | loading | granted | denied | unsupported
+
+  useEffect(() => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      setState('unsupported'); return
+    }
+    if (Notification.permission === 'granted') {
+      navigator.serviceWorker.ready.then(reg => {
+        reg.pushManager.getSubscription().then(sub => {
+          setState(sub ? 'granted' : 'idle')
+        })
+      })
+    } else if (Notification.permission === 'denied') {
+      setState('denied')
+    }
+  }, [])
+
+  async function subscribe() {
+    setState('loading')
+    try {
+      const reg = await navigator.serviceWorker.register('/sw.js')
+      await navigator.serviceWorker.ready
+      const permission = await Notification.requestPermission()
+      if (permission !== 'granted') { setState('denied'); return }
+
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC),
+      })
+      await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscription: sub.toJSON(), label: navigator.userAgent.slice(0, 80) }),
+      })
+      setState('granted')
+    } catch (e) {
+      console.error(e)
+      setState('idle')
+    }
+  }
+
+  async function unsubscribe() {
+    setState('loading')
+    try {
+      const reg = await navigator.serviceWorker.ready
+      const sub = await reg.pushManager.getSubscription()
+      if (sub) {
+        await fetch('/api/push/subscribe', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ endpoint: sub.endpoint }),
+        })
+        await sub.unsubscribe()
+      }
+      setState('idle')
+    } catch { setState('idle') }
+  }
+
+  if (state === 'unsupported') return null
+  if (state === 'granted') return (
+    <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 mb-4 text-sm">
+      <span className="text-emerald-700 font-semibold">🔔 รับแจ้งเตือนอยู่บนอุปกรณ์นี้</span>
+      <button onClick={unsubscribe} className="text-xs text-slate-400 underline">ยกเลิก</button>
+    </div>
+  )
+  if (state === 'denied') return (
+    <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 mb-4 text-sm text-amber-700">
+      ⚠️ การแจ้งเตือนถูกบล็อก — เปิดใน Settings ของ iOS
+    </div>
+  )
+  return (
+    <button onClick={subscribe} disabled={state === 'loading'}
+      className="w-full flex items-center justify-center gap-2 bg-brand text-white rounded-xl py-3 mb-4 font-semibold text-sm disabled:opacity-60 active:scale-95 transition-all">
+      {state === 'loading' ? '⏳ กำลังเปิด...' : '🔔 เปิดรับแจ้งเตือนบนอุปกรณ์นี้'}
+    </button>
+  )
 }
 
 export default function AdminPage() {
@@ -80,6 +168,10 @@ export default function AdminPage() {
   const [logoUploading, setLogoUploading]     = useState(false)
   const [qrUploading, setQrUploading]         = useState(false)
   const [lineQrUploading, setLineQrUploading] = useState(false)
+  const [announcements, setAnnouncements]     = useState([])
+  const [annForm, setAnnForm]                 = useState({ title: '', body: '', type: 'info' })
+  const [annSaving, setAnnSaving]             = useState(false)
+  const [annMsg, setAnnMsg]                   = useState('')
 
   useEffect(() => { if (authed) loadAll() }, [tab, authed])  // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -123,6 +215,10 @@ export default function AdminPage() {
       setDrawerLogs(data || [])
     }
     if (tab === 5) loadPayroll(payrollPeriod)
+    if (tab === 6) {
+      const { data } = await supabase.from('shop_announcements').select('*').order('created_at', { ascending: false }).limit(50)
+      setAnnouncements(data || [])
+    }
   }
 
   async function loadPayroll(period) {
@@ -491,7 +587,10 @@ export default function AdminPage() {
 
   return (
     <div className="page">
-      <h1 className="font-heading font-bold text-xl text-slate-800 mb-5">⚙️ หลังบ้าน / ตั้งค่า</h1>
+      <h1 className="font-heading font-bold text-xl text-slate-800 mb-3">⚙️ หลังบ้าน / ตั้งค่า</h1>
+
+      {/* Web Push subscription banner */}
+      <PushBanner />
 
       {/* Tab bar */}
       <div className="flex gap-1.5 mb-5 overflow-x-auto scroll-hidden pb-1">
@@ -938,11 +1037,11 @@ export default function AdminPage() {
                         <p className="font-bold text-green-700">฿{emp.grossPay.toLocaleString('th-TH')}</p>
                         <p className="text-xs text-slate-400">ค่าแรงรวม{emp.streakBonus > 0 ? ' +โบนัส' : ''}</p>
                       </div>
-                      <div className={`rounded-xl py-2 ${emp.netPay > 0 ? 'bg-blue-50' : 'bg-red-50'}`}>
-                        <p className={`font-bold ${emp.netPay > 0 ? 'text-blue-700' : 'text-red-600'}`}>
-                          ฿{emp.netPay.toLocaleString('th-TH')}
+                      <div className={`rounded-xl py-2 ${(emp.netPayDue ?? emp.netPay ?? 0) >= 0 ? 'bg-blue-50' : 'bg-red-50'}`}>
+                        <p className={`font-bold ${(emp.netPayDue ?? emp.netPay ?? 0) >= 0 ? 'text-blue-700' : 'text-red-600'}`}>
+                          ฿{Number(emp.netPayDue ?? emp.netPay ?? 0).toLocaleString('th-TH')}
                         </p>
-                        <p className="text-xs text-slate-400">จ่ายสุทธิ</p>
+                        <p className="text-xs text-slate-400">คงเหลือจ่าย</p>
                       </div>
                     </div>
 
@@ -954,12 +1053,12 @@ export default function AdminPage() {
                     )}
 
                     {/* Advance detail */}
-                    {emp.advTotal > 0 && (
+                    {(emp.totalWithdrawn ?? emp.advTotal ?? 0) > 0 && (
                       <div className="bg-amber-50 rounded-xl px-3 py-2 text-xs text-amber-700">
-                        <span className="font-semibold">เบิกล่วงหน้า ฿{emp.advTotal.toLocaleString('th-TH')}</span>
-                        {emp.overDraw > 0 && (
+                        <span className="font-semibold">เบิกค่าแรง ฿{Number(emp.totalWithdrawn ?? emp.advTotal ?? 0).toLocaleString('th-TH')}</span>
+                        {(emp.carryForwardIn ?? emp.overDraw ?? 0) > 0 && (
                           <span className="ml-2 text-red-600 font-bold">
-                            · เบิกเกิน ฿{emp.overDraw.toLocaleString('th-TH')} (ต้องหัก {emp.daysToDeduct} วันถัดไป)
+                            · ทบจากเดือนก่อน ฿{Number(emp.carryForwardIn ?? emp.overDraw ?? 0).toLocaleString('th-TH')}
                           </span>
                         )}
                       </div>
@@ -1067,6 +1166,104 @@ export default function AdminPage() {
                   </div>
                 )
               })()}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── ประกาศ ── */}
+      {tab === 6 && (
+        <div className="space-y-4 max-w-xl">
+          {/* ฟอร์มสร้างประกาศ */}
+          <div className="card-pad space-y-3">
+            <h2 className="font-heading font-semibold text-slate-700 text-base">สร้างประกาศใหม่</h2>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 block mb-1">ประเภท</label>
+              <div className="flex gap-2">
+                {[['info','📢 ทั่วไป'],['holiday','📅 วันหยุด'],['urgent','🚨 ด่วน']].map(([val, label]) => (
+                  <button key={val} onClick={() => setAnnForm(f => ({ ...f, type: val }))}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all
+                      ${annForm.type === val ? 'bg-brand text-white border-brand' : 'bg-white text-slate-500 border-slate-200'}`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 block mb-1">หัวข้อ *</label>
+              <input value={annForm.title} onChange={e => setAnnForm(f => ({ ...f, title: e.target.value }))}
+                placeholder="เช่น ร้านหยุดวันจันทร์นี้" className="field w-full" />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 block mb-1">รายละเอียด (ไม่บังคับ)</label>
+              <textarea value={annForm.body} onChange={e => setAnnForm(f => ({ ...f, body: e.target.value }))}
+                rows={3} placeholder="รายละเอียดเพิ่มเติม..." className="field w-full resize-none" />
+            </div>
+            <button onClick={async () => {
+              if (!annForm.title.trim()) { setAnnMsg('กรุณาใส่หัวข้อ'); return }
+              setAnnSaving(true); setAnnMsg('')
+              try {
+                const res = await fetch('/api/announcements', {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(annForm),
+                })
+                const json = await res.json()
+                if (json.error) { setAnnMsg('เกิดข้อผิดพลาด: ' + json.error) }
+                else {
+                  setAnnForm({ title: '', body: '', type: 'info' })
+                  setAnnMsg('โพสต์ประกาศแล้ว ✅')
+                  setAnnouncements(prev => [json, ...prev])
+                }
+              } catch { setAnnMsg('เกิดข้อผิดพลาด') }
+              finally { setAnnSaving(false) }
+            }} disabled={annSaving}
+              className="w-full py-2.5 rounded-xl bg-brand text-white font-semibold text-sm disabled:opacity-50">
+              {annSaving ? 'กำลังโพสต์...' : 'โพสต์ประกาศ'}
+            </button>
+            {annMsg && <p className={`text-sm text-center ${annMsg.includes('✅') ? 'text-emerald-600' : 'text-red-500'}`}>{annMsg}</p>}
+          </div>
+
+          {/* รายการประกาศที่มีอยู่ */}
+          <h3 className="font-semibold text-slate-600 text-sm px-1">ประกาศที่แสดงอยู่</h3>
+          {announcements.filter(a => a.active).length === 0 && (
+            <p className="text-center text-slate-300 py-6 text-sm">ยังไม่มีประกาศ</p>
+          )}
+          {announcements.filter(a => a.active).map(ann => (
+            <div key={ann.id} className={`card-pad flex items-start gap-3
+              ${ann.type === 'urgent' ? 'border-l-4 border-l-red-400'
+              : ann.type === 'holiday' ? 'border-l-4 border-l-amber-400'
+              : 'border-l-4 border-l-blue-400'}`}>
+              <span className="text-xl mt-0.5">
+                {ann.type === 'urgent' ? '🚨' : ann.type === 'holiday' ? '📅' : '📢'}
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-slate-700 text-sm">{ann.title}</p>
+                {ann.body && <p className="text-xs text-slate-500 mt-0.5 whitespace-pre-line">{ann.body}</p>}
+                <p className="text-[10px] text-slate-400 mt-1">
+                  {new Date(ann.created_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit', timeZone: 'Asia/Bangkok' })}
+                </p>
+              </div>
+              <button onClick={async () => {
+                await fetch('/api/announcements', {
+                  method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ id: ann.id }),
+                })
+                setAnnouncements(prev => prev.map(a => a.id === ann.id ? { ...a, active: false } : a))
+              }} className="text-xs text-red-400 border border-red-200 rounded-lg px-2 py-1 shrink-0 hover:bg-red-50">
+                ลบ
+              </button>
+            </div>
+          ))}
+
+          {/* ประกาศที่ถูกลบแล้ว */}
+          {announcements.filter(a => !a.active).length > 0 && (
+            <>
+              <h3 className="font-semibold text-slate-400 text-sm px-1 mt-2">ลบแล้ว</h3>
+              {announcements.filter(a => !a.active).map(ann => (
+                <div key={ann.id} className="card-pad opacity-40">
+                  <p className="text-sm line-through text-slate-500">{ann.title}</p>
+                </div>
+              ))}
             </>
           )}
         </div>

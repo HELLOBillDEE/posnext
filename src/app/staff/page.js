@@ -62,6 +62,11 @@ export default function StaffPage() {
   const [amount,     setAmount]     = useState('')
   const [advLoad,    setAdvLoad]    = useState(false)
   const [advMsg,     setAdvMsg]     = useState(null)
+  const [showAdvForm, setShowAdvForm] = useState(false)
+  /* salary tab */
+  const [salaryData,   setSalaryData]   = useState(null)
+  const [salaryLoad,   setSalaryLoad]   = useState(false)
+  const [salaryPeriod, setSalaryPeriod] = useState(() => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 7))
   /* drawer request */
   const [drawerLoad, setDrawerLoad] = useState(false)
   const [drawerMsg,  setDrawerMsg]  = useState(null)
@@ -75,6 +80,8 @@ export default function StaffPage() {
   const [profPin2,   setProfPin2]   = useState('')
   const [profLoad,   setProfLoad]   = useState(false)
   const [profMsg,    setProfMsg]    = useState(null)
+  /* announcements */
+  const [announcements, setAnnouncements] = useState([])
   /* self-registration */
   const [regName,    setRegName]    = useState('')
   const [regNick,    setRegNick]    = useState('')
@@ -108,6 +115,7 @@ export default function StaffPage() {
       const json = await res.json()
       if (json.error) { localStorage.removeItem('staff_session'); setStep('login'); return }
       setSession(sess); setData(json); setStep('dashboard')
+      fetch('/api/announcements').then(r => r.json()).then(list => { if (Array.isArray(list)) setAnnouncements(list) }).catch(() => {})
     } catch { clearTimeout(tid); setStep('login') }
   }
 
@@ -252,18 +260,20 @@ export default function StaffPage() {
   }
 
   /* advance submit */
-  async function doAdvance() {
-    if (!amount || !session || advLoad) return
+  async function doAdvance(fixedAmt) {
+    const amt = fixedAmt ?? Number(amount)
+    if (!amt || !session || advLoad) return
     setAdvLoad(true); setAdvMsg(null)
     try {
       const res  = await fetch('/api/advance', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ employee_id: session.employee_id, password: session.password, amount: Number(amount) }),
+        body: JSON.stringify({ employee_id: session.employee_id, password: session.password, amount: amt }),
       })
       const json = await res.json()
       if (json.error) { setAdvMsg({ ok:false, text: json.error }); return }
-      setAdvMsg({ ok:true, text:`ส่งคำขอเบิก ฿${fmtMoney(json.amount)} แล้ว` })
-      setAmount('')
+      const autoOk = json.autoApproved
+      setAdvMsg({ ok:true, auto: autoOk, text: autoOk ? `อนุมัติทันที ✅ ฿${fmtMoney(json.amount)}` : `ส่งคำขอเบิก ฿${fmtMoney(json.amount)} แล้ว` })
+      setAmount(''); setShowAdvForm(false)
       await refreshData()
     } catch { setAdvMsg({ ok:false, text:'เชื่อมต่อไม่ได้' }) }
     finally { setAdvLoad(false) }
@@ -333,6 +343,68 @@ export default function StaffPage() {
     if (k==='✓') { doAdvance(); return }
     if (amount.length >= 6) return
     setAmount(a => a + k)
+  }
+
+  async function loadSalary(period) {
+    if (!session) return
+    setSalaryLoad(true)
+    try {
+      const res  = await fetch('/api/my-payroll', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employee_id: session.employee_id, password: session.password, period }),
+      })
+      const json = await res.json()
+      if (!json.error) setSalaryData(json)
+    } catch {}
+    setSalaryLoad(false)
+  }
+
+  function changeSalaryMonth(delta) {
+    const [y, m] = salaryPeriod.split('-').map(Number)
+    const d = new Date(y, m - 1 + delta, 1)
+    const newPeriod = d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 7)
+    setSalaryPeriod(newPeriod)
+    setSalaryData(null)
+    loadSalary(newPeriod)
+  }
+
+  function openSalaryTab() {
+    setTab('salary')
+    if (!salaryData || salaryData.period !== salaryPeriod) loadSalary(salaryPeriod)
+  }
+
+  function printSlip(sd) {
+    if (!sd) return
+    const fmtN = n => Number(n || 0).toLocaleString('th-TH')
+    const name = sd.employee?.nickname || sd.employee?.name
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>สลิปค่าแรง ${name}</title>
+<style>
+  body{font-family:Arial,sans-serif;max-width:320px;margin:0 auto;padding:16px;font-size:13px}
+  h2{text-align:center;margin:0 0 4px;font-size:16px}
+  .sub{text-align:center;color:#666;margin-bottom:12px;font-size:12px}
+  .row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dashed #eee}
+  .row.total{border-top:2px solid #333;border-bottom:none;font-weight:bold;font-size:14px;margin-top:4px}
+  .deduct{color:#dc2626}.earn{color:#16a34a}.net{color:#2563eb;font-size:16px}
+  footer{text-align:center;color:#999;font-size:10px;margin-top:16px}
+</style></head><body>
+<h2>สลิปค่าแรง</h2>
+<div class="sub">${name} · ${sd.monthLabel}</div>
+<div class="row"><span>วันทำงาน</span><span>${sd.daysWorked} วัน</span></div>
+<div class="row"><span>ค่าแรง (${fmtN(sd.daily_rate)}/วัน)</span><span class="earn">฿${fmtN(sd.grossPay)}</span></div>
+${sd.streakBonus > 0 ? `<div class="row"><span>โบนัส 10 วันติด</span><span class="earn">+฿${fmtN(sd.streakBonus)}</span></div>` : ''}
+${(sd.bonusDetail || []).map(b => `<div class="row"><span>${b.note || 'โบนัสพิเศษ'}</span><span class="earn">+฿${fmtN(b.amount)}</span></div>`).join('')}
+${sd.commission > 0 ? `<div class="row"><span>ค่าคอม</span><span class="earn">+฿${fmtN(sd.commission)}</span></div>` : ''}
+<div class="row"><span>รวมรายได้</span><span class="earn">฿${fmtN(sd.totalEarned)}</span></div>
+<div style="height:6px"></div>
+${sd.totalWithdrawn > 0 ? `<div class="row"><span>เบิกไปแล้ว</span><span class="deduct">-฿${fmtN(sd.totalWithdrawn)}</span></div>` : ''}
+${(sd.installmentDetail || []).filter(i => i.deductAmount > 0).map(i => `<div class="row"><span>${i.name} (${i.thisMonth} วัน)</span><span class="deduct">-฿${fmtN(i.deductAmount)}</span></div>`).join('')}
+${sd.carryForwardIn > 0 ? `<div class="row"><span>ทบจากเดือนก่อน</span><span class="deduct">-฿${fmtN(sd.carryForwardIn)}</span></div>` : ''}
+<div class="row total"><span>${sd.netPayDue >= 0 ? 'คงเหลือจ่าย' : 'ทบเดือนหน้า'}</span><span class="${sd.netPayDue >= 0 ? 'net' : 'deduct'}">${sd.netPayDue < 0 ? '−' : ''}฿${fmtN(Math.abs(sd.netPayDue))}</span></div>
+<footer>พิมพ์ ${new Date().toLocaleDateString('th-TH')}</footer>
+</body></html>`
+    const w = window.open('', '_blank', 'width=380,height=600')
+    if (w) { w.document.write(html); w.document.close(); w.print() }
   }
 
   const colorIdx = 0
@@ -515,17 +587,20 @@ export default function StaffPage() {
         </div>
 
         {/* Tabs */}
-        <div className="grid grid-cols-5 gap-1 mb-4">
+        <div className="flex gap-1.5 mb-4 overflow-x-auto pb-1 -mx-4 px-4" style={{scrollbarWidth:'none'}}>
           {[
             { id:'home',    label:'หน้าหลัก' },
             { id:'leave',   label:`ลา${pendLeave ? ` (${pendLeave})` : ''}` },
-            { id:'advance', label:`เบิก${pendAdv ? ` (${pendAdv})` : ''}` },
+            { id:'salary',  label:'ค่าแรง' },
             { id:'history', label:'ประวัติ' },
             { id:'profile', label:'โปรไฟล์' },
           ].map(t => (
-            <button key={t.id}
-              onClick={() => t.id === 'profile' ? openProfileTab(emp) : setTab(t.id)}
-              className={`py-2 rounded-xl text-xs font-semibold transition-all ${tab===t.id ? 'bg-brand text-white shadow-sm' : 'bg-white text-slate-500 border border-slate-200'}`}>
+            <button key={t.id} onClick={() => {
+              if (t.id === 'profile') openProfileTab(emp)
+              else if (t.id === 'salary') openSalaryTab()
+              else setTab(t.id)
+            }}
+              className={`shrink-0 py-2 px-3 rounded-xl text-xs font-semibold transition-all ${tab===t.id ? 'bg-brand text-white shadow-sm' : 'bg-white text-slate-500 border border-slate-200'}`}>
               {t.label}
             </button>
           ))}
@@ -535,6 +610,96 @@ export default function StaffPage() {
         {tab==='home' && (
           <div className="space-y-3">
 
+            {/* ── ประกาศจากร้าน ── */}
+            {announcements.map(ann => (
+              <div key={ann.id} className={`rounded-2xl p-4 border
+                ${ann.type === 'urgent'  ? 'bg-red-50 border-red-200'
+                : ann.type === 'holiday' ? 'bg-amber-50 border-amber-200'
+                :                          'bg-blue-50 border-blue-200'}`}>
+                <div className="flex items-start gap-2">
+                  <span className="text-lg leading-none mt-0.5">
+                    {ann.type === 'urgent' ? '🚨' : ann.type === 'holiday' ? '📅' : '📢'}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className={`font-semibold text-sm
+                      ${ann.type === 'urgent'  ? 'text-red-700'
+                      : ann.type === 'holiday' ? 'text-amber-700'
+                      :                          'text-blue-700'}`}>
+                      {ann.title}
+                    </p>
+                    {ann.body && <p className="text-xs text-slate-600 mt-0.5 whitespace-pre-line">{ann.body}</p>}
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      {new Date(ann.created_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit', timeZone: 'Asia/Bangkok' })}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            {/* ── Advance section ── */}
+            {session && (
+              <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+                {/* ปุ่มหลัก: เบิกวันนี้ + ระบุยอด */}
+                <div className="flex gap-2">
+                  {data?.net_daily > 0 && (
+                    <button onClick={() => doAdvance(data.net_daily)} disabled={advLoad}
+                      className="flex-1 bg-emerald-500 text-white rounded-2xl py-3 shadow-sm active:scale-95 transition-all disabled:opacity-50 text-center">
+                      <p className="text-[10px] font-medium opacity-80">เบิกค่าแรงวันนี้</p>
+                      <p className="text-xl font-bold">฿{fmtMoney(data.net_daily)}</p>
+                      <p className="text-[10px] opacity-70">อนุมัติทันที ✅</p>
+                    </button>
+                  )}
+                  <button onClick={() => { setShowAdvForm(f => !f); setAdvMsg(null) }}
+                    className={`${data?.net_daily > 0 ? 'w-24' : 'flex-1'} rounded-2xl py-3 text-sm font-bold border active:scale-95 transition-all
+                      ${showAdvForm ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-amber-600 border-amber-200'}`}>
+                    {showAdvForm ? '✕ ปิด' : '✏️\nระบุยอด'}
+                  </button>
+                </div>
+
+                {/* Numpad ระบุยอด */}
+                {showAdvForm && (
+                  <div className="space-y-2">
+                    <div className="bg-slate-50 rounded-2xl py-3 text-center border border-slate-100">
+                      <p className="text-3xl font-bold text-amber-600">
+                        {amount ? `฿${fmtMoney(Number(amount))}` : <span className="text-slate-300">฿0</span>}
+                      </p>
+                      {data?.net_daily > 0 && Number(amount) > data.net_daily && (
+                        <p className="text-xs text-orange-500 mt-1">เกินค่าแรงวันนี้ → ต้องขออนุมัติ</p>
+                      )}
+                    </div>
+                    <Numpad onKey={pressAmount} confirmDisabled={!amount || amount==='0'} loading={advLoad} />
+                  </div>
+                )}
+
+                {/* Feedback */}
+                {advMsg && (
+                  <p className={`text-sm font-semibold text-center ${advMsg.ok ? 'text-emerald-600' : 'text-red-500'}`}>
+                    {advMsg.ok ? '' : '❌'} {advMsg.text}
+                  </p>
+                )}
+
+                {/* รายการเบิกวันนี้ */}
+                {(data?.advances||[]).filter(a => a.requested_at?.slice(0,10) === todayStr()).map(a => (
+                  <div key={a.id} className="flex items-center justify-between py-2 border-t border-slate-100">
+                    <div>
+                      <p className="text-base font-bold text-amber-600">฿{fmtMoney(a.amount)}</p>
+                      {a.note && <p className="text-xs text-slate-400">{a.note}</p>}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge status={a.status} />
+                      {a.status==='pending' && (
+                        <button onClick={() => doCancelAdvance(a.id)}
+                          className="text-xs text-red-400 border border-red-200 rounded-full px-2 py-0.5 active:scale-95">
+                          ยกเลิก
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* ประวัติเข้างาน */}
             {(data?.recentAtt||[]).slice(0,7).map((a,i) => (
               <div key={i} className="bg-white rounded-2xl border border-slate-100 px-4 py-3 flex items-center justify-between">
                 <div>
@@ -548,7 +713,7 @@ export default function StaffPage() {
                 <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">มา</span>
               </div>
             ))}
-            {(data?.recentAtt||[]).length===0 && <p className="text-center text-slate-300 py-8 text-sm">ยังไม่มีประวัติเข้างาน</p>}
+            {(data?.recentAtt||[]).length===0 && !session && <p className="text-center text-slate-300 py-8 text-sm">ยังไม่มีประวัติเข้างาน</p>}
           </div>
         )}
 
@@ -640,42 +805,139 @@ export default function StaffPage() {
           </div>
         )}
 
-        {/* Tab: เบิก */}
-        {tab==='advance' && (
-          <div className="space-y-4">
-            <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-4">
-              <p className="font-semibold text-slate-700 text-sm">ส่งคำขอเบิกเงิน</p>
-              <div className="bg-slate-50 rounded-2xl py-4 text-center border border-slate-100">
-                <p className="text-4xl font-bold text-amber-600">
-                  {amount ? `฿${fmtMoney(Number(amount))}` : <span className="text-slate-300">฿0</span>}
-                </p>
-              </div>
-              <Numpad onKey={pressAmount} confirmDisabled={!amount || amount==='0'} loading={advLoad} />
-              {advMsg && (
-                <p className={`text-sm font-semibold text-center ${advMsg.ok ? 'text-green-600' : 'text-red-500'}`}>
-                  {advMsg.ok ? '✅' : '❌'} {advMsg.text}
-                </p>
-              )}
+        {/* Tab: ค่าแรง */}
+        {tab==='salary' && (
+          <div className="space-y-3">
+            {/* Month picker */}
+            <div className="flex items-center justify-center gap-4">
+              <button onClick={() => changeSalaryMonth(-1)} className="w-9 h-9 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-500 text-lg active:scale-95">‹</button>
+              <p className="font-bold text-slate-700 w-28 text-center">{salaryData?.monthLabel || salaryPeriod}</p>
+              <button onClick={() => changeSalaryMonth(1)} className="w-9 h-9 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-500 text-lg active:scale-95">›</button>
             </div>
 
-            {(data?.advances||[]).map(a => (
-              <div key={a.id} className="bg-white rounded-2xl border border-slate-100 px-4 py-3 flex items-center justify-between gap-2">
-                <div>
-                  <p className="text-xl font-bold text-amber-600">฿{fmtMoney(a.amount)}</p>
-                  {a.note && <p className="text-xs text-slate-400">{a.note}</p>}
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge status={a.status} />
-                  {a.status==='pending' && (
-                    <button onClick={() => doCancelAdvance(a.id)}
-                      className="text-xs text-red-400 border border-red-200 rounded-full px-2 py-0.5 hover:bg-red-50">
-                      ยกเลิก
-                    </button>
-                  )}
-                </div>
+            {salaryLoad && (
+              <div className="py-10 text-center">
+                <div className="w-6 h-6 border-2 border-brand border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                <p className="text-slate-400 text-xs">กำลังคำนวณ…</p>
               </div>
-            ))}
-            {(data?.advances||[]).length===0 && <p className="text-center text-slate-300 py-4 text-sm">ยังไม่มีประวัติการเบิก</p>}
+            )}
+
+            {!salaryLoad && salaryData && (
+              <>
+                {/* Summary cards */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-white rounded-2xl border border-slate-100 p-3 text-center">
+                    <p className="text-[10px] text-slate-400 mb-0.5">วันทำงาน</p>
+                    <p className="text-2xl font-bold text-slate-800">{salaryData.daysWorked}</p>
+                    <p className="text-[10px] text-slate-400">วัน</p>
+                  </div>
+                  <div className="bg-white rounded-2xl border border-slate-100 p-3 text-center">
+                    <p className="text-[10px] text-slate-400 mb-0.5">รายได้รวม</p>
+                    <p className="text-2xl font-bold text-emerald-600">฿{fmtMoney(salaryData.totalEarned)}</p>
+                    <p className="text-[10px] text-slate-400">บาท</p>
+                  </div>
+                  <div className="bg-white rounded-2xl border border-slate-100 p-3 text-center">
+                    <p className="text-[10px] text-slate-400 mb-0.5">เบิก+หัก</p>
+                    <p className="text-2xl font-bold text-red-500">฿{fmtMoney(salaryData.totalWithdrawn + salaryData.installmentDeduct + salaryData.carryForwardIn)}</p>
+                    <p className="text-[10px] text-slate-400">บาท</p>
+                  </div>
+                  <div className={`rounded-2xl border p-3 text-center ${salaryData.netPayDue >= 0 ? 'bg-blue-50 border-blue-100' : 'bg-orange-50 border-orange-100'}`}>
+                    <p className="text-[10px] text-slate-400 mb-0.5">{salaryData.netPayDue >= 0 ? 'คงเหลือ' : 'ทบเดือนหน้า'}</p>
+                    <p className={`text-2xl font-bold ${salaryData.netPayDue >= 0 ? 'text-blue-600' : 'text-orange-500'}`}>
+                      {salaryData.netPayDue < 0 ? '−' : ''}฿{fmtMoney(Math.abs(salaryData.netPayDue))}
+                    </p>
+                    <p className="text-[10px] text-slate-400">บาท</p>
+                  </div>
+                </div>
+
+                {/* รายละเอียด */}
+                <div className="bg-white rounded-2xl border border-slate-100 p-4 space-y-2 text-sm">
+                  <p className="text-xs font-bold text-slate-500 mb-2">รายละเอียด</p>
+                  <div className="flex justify-between text-slate-600">
+                    <span>ค่าแรง ({salaryData.daysWorked} วัน × ฿{fmtMoney(salaryData.daily_rate)})</span>
+                    <span className="text-emerald-600">+฿{fmtMoney(salaryData.grossPay)}</span>
+                  </div>
+                  {salaryData.streakBonus > 0 && (
+                    <div className="flex justify-between text-slate-600">
+                      <span>โบนัส 10 วันติด</span>
+                      <span className="text-emerald-600">+฿{fmtMoney(salaryData.streakBonus)}</span>
+                    </div>
+                  )}
+                  {(salaryData.bonusDetail || []).map((b, i) => (
+                    <div key={i} className="flex justify-between text-slate-600">
+                      <span>{b.note || 'โบนัสพิเศษ'}</span>
+                      <span className="text-emerald-600">+฿{fmtMoney(b.amount)}</span>
+                    </div>
+                  ))}
+                  {salaryData.commission > 0 && (
+                    <div className="flex justify-between text-slate-600">
+                      <span>ค่าคอม</span>
+                      <span className="text-emerald-600">+฿{fmtMoney(salaryData.commission)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between font-semibold text-slate-700 border-t border-dashed pt-2">
+                    <span>รวมรายได้</span>
+                    <span className="text-emerald-700">฿{fmtMoney(salaryData.totalEarned)}</span>
+                  </div>
+                  {salaryData.totalWithdrawn > 0 && (
+                    <div className="flex justify-between text-slate-600">
+                      <span>เบิกไปแล้ว ({salaryData.advances.length} ครั้ง)</span>
+                      <span className="text-red-500">−฿{fmtMoney(salaryData.totalWithdrawn)}</span>
+                    </div>
+                  )}
+                  {(salaryData.installmentDetail || []).filter(i => i.deductAmount > 0).map((inst, i) => (
+                    <div key={i} className="flex justify-between text-slate-600">
+                      <span>{inst.name} ({inst.thisMonth} วัน)</span>
+                      <span className="text-red-500">−฿{fmtMoney(inst.deductAmount)}</span>
+                    </div>
+                  ))}
+                  {salaryData.carryForwardIn > 0 && (
+                    <div className="flex justify-between text-slate-600">
+                      <span>ทบจากเดือนก่อน</span>
+                      <span className="text-orange-500">−฿{fmtMoney(salaryData.carryForwardIn)}</span>
+                    </div>
+                  )}
+                  <div className={`flex justify-between font-bold border-t-2 border-slate-200 pt-2 ${salaryData.netPayDue >= 0 ? 'text-blue-700' : 'text-orange-600'}`}>
+                    <span>{salaryData.netPayDue >= 0 ? 'คงเหลือต้องจ่าย' : 'ขาด → ทบเดือนหน้า'}</span>
+                    <span>{salaryData.netPayDue < 0 ? '−' : ''}฿{fmtMoney(Math.abs(salaryData.netPayDue))}</span>
+                  </div>
+                </div>
+
+                {/* รายการผ่อน */}
+                {(salaryData.installmentDetail || []).filter(i => i.total_days > 0).length > 0 && (
+                  <div className="bg-white rounded-2xl border border-slate-100 p-4 space-y-3">
+                    <p className="text-xs font-bold text-slate-500">รายการผ่อน</p>
+                    {salaryData.installmentDetail.filter(i => i.total_days > 0).map((inst, i) => {
+                      const pct = Math.min(100, Math.round((inst.paid_days / inst.total_days) * 100))
+                      return (
+                        <div key={i}>
+                          <div className="flex justify-between text-sm mb-1">
+                            <span className="text-slate-700 font-medium">{inst.name}</span>
+                            <span className="text-slate-400 text-xs">{inst.paid_days}/{inst.total_days} วัน</span>
+                          </div>
+                          <div className="w-full bg-slate-100 rounded-full h-2">
+                            <div className="bg-violet-400 h-2 rounded-full" style={{ width: `${pct}%` }} />
+                          </div>
+                          <p className="text-xs text-slate-400 mt-0.5">
+                            หักวันละ ฿{fmtMoney(inst.amount_per_day)} · เหลือ {inst.remaining - inst.thisMonth} วัน
+                          </p>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {/* ปุ่มพิมพ์สลิป */}
+                <button onClick={() => printSlip(salaryData)}
+                  className="w-full py-3 rounded-2xl bg-white border border-slate-200 text-slate-600 font-semibold text-sm active:scale-95 transition-all flex items-center justify-center gap-2">
+                  🖨️ พิมพ์สลิปเดือน{salaryData.monthLabel}
+                </button>
+
+                {salaryData.settled && (
+                  <p className="text-center text-xs text-emerald-600 font-semibold">✅ ปิดบัญชีแล้ว</p>
+                )}
+              </>
+            )}
           </div>
         )}
 
