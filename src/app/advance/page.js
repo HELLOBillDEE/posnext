@@ -22,50 +22,59 @@ function Numpad({ onKey, confirmDisabled, loading }) {
 }
 
 export default function AdvancePage() {
-  const [employees, setEmployees] = useState([])
-  const [step, setStep]         = useState('select') // select | pin | amount | result
-  const [selected, setSelected] = useState(null)
-  const [pin, setPin]           = useState('')
-  const [empPin, setEmpPin]     = useState('')
-  const [amount, setAmount]     = useState('')
-  const [loading, setLoading]   = useState(false)
-  const [result, setResult]     = useState(null)
+  const [employees, setEmployees]   = useState([])
+  const [step, setStep]             = useState('select') // select | pin | amount | result
+  const [selected, setSelected]     = useState(null)
+  const [pin, setPin]               = useState('')
+  const [empPin, setEmpPin]         = useState('')
+  const [amount, setAmount]         = useState('')
+  const [loading, setLoading]       = useState(false)
+  const [result, setResult]         = useState(null)
+  const [empInfo, setEmpInfo]       = useState(null) // { daily_rate, install_per_day, net_daily, installments }
 
   useEffect(() => {
     fetch('/api/checkin').then(r => r.json()).then(setEmployees).catch(() => {})
   }, [])
 
   const reset = useCallback(() => {
-    setStep('select'); setSelected(null); setPin(''); setEmpPin(''); setAmount(''); setResult(null)
+    setStep('select'); setSelected(null); setPin(''); setEmpPin('')
+    setAmount(''); setResult(null); setEmpInfo(null)
   }, [])
 
   useEffect(() => {
     if (!result) return
-    const id = setTimeout(reset, 3500)
+    const id = setTimeout(reset, 4000)
     return () => clearTimeout(id)
   }, [result, reset])
 
   async function verifyPin(p) {
     setLoading(true)
     try {
-      const res = await fetch('/api/checkin', {
+      const res  = await fetch('/api/checkin', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ employee_id: selected.id, pin: p, verifyOnly: true }),
       })
       const data = await res.json()
       if (data.error) { setResult(data); setStep('result'); return }
-      setEmpPin(p); setStep('amount')
+
+      // โหลด daily_rate และผ่อนของพนักงาน
+      setEmpPin(p)
+      const infoRes = await fetch(`/api/advance?employee_id=${selected.id}`)
+      const info    = await infoRes.json()
+      setEmpInfo(info?.error ? null : info)
+      setStep('amount')
     } catch { setResult({ error: 'เชื่อมต่อไม่ได้' }); setStep('result') }
     finally { setLoading(false); setPin('') }
   }
 
-  async function submitAdvance() {
-    if (!amount || loading) return
+  async function submitAdvance(amt) {
+    const finalAmt = amt ?? Number(amount)
+    if (!finalAmt || loading) return
     setLoading(true)
     try {
       const res = await fetch('/api/advance', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ employee_id: selected.id, pin: empPin, amount: Number(amount) }),
+        body: JSON.stringify({ employee_id: selected.id, pin: empPin, amount: finalAmt }),
       })
       setResult(await res.json()); setStep('result')
     } catch { setResult({ error: 'เชื่อมต่อไม่ได้' }); setStep('result') }
@@ -89,25 +98,32 @@ export default function AdvancePage() {
     setAmount(a=>a+k)
   }
 
-  const colorIdx = employees.findIndex(e => e.id === selected?.id)
-  const isAdv = result && result.amount !== undefined && !result.error
+  const colorIdx   = employees.findIndex(e => e.id === selected?.id)
+  const palette    = PALETTE[colorIdx % PALETTE.length]
+  const isApproved = result && !result.error
+  const netDaily   = empInfo?.net_daily ?? 0
+  const customAmt  = Number(amount)
+  const overLimit  = customAmt > netDaily && netDaily > 0
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center px-4 py-8">
       <div className="w-full max-w-xs">
         <div className="text-center mb-6">
           <p className="text-4xl mb-1">💵</p>
-          <p className="text-xl font-bold text-slate-700 font-heading">เบิกเงินล่วงหน้า</p>
+          <p className="text-xl font-bold text-slate-700 font-heading">เบิกค่าแรง</p>
         </div>
 
+        {/* Result */}
         {step==='result' && result ? (
-          <div className={`rounded-3xl p-8 text-center shadow-lg ${isAdv ? 'bg-amber-50 border-2 border-amber-400' : 'bg-red-50 border-2 border-red-300'}`}>
-            {isAdv ? <>
-              <p className="text-4xl mb-3">✅</p>
-              <p className="text-2xl font-bold text-amber-700">{result.name}</p>
-              <p className="text-amber-600 mt-1">ส่งคำขอเบิกแล้ว</p>
-              <p className="text-3xl font-bold text-amber-700 mt-3">฿{fmtMoney(result.amount)}</p>
-              <p className="text-xs text-amber-500 mt-2">รอ admin อนุมัติ</p>
+          <div className={`rounded-3xl p-8 text-center shadow-lg ${isApproved ? result.autoApproved ? 'bg-emerald-50 border-2 border-emerald-400' : 'bg-amber-50 border-2 border-amber-400' : 'bg-red-50 border-2 border-red-300'}`}>
+            {isApproved ? <>
+              <p className="text-4xl mb-3">{result.autoApproved ? '✅' : '📨'}</p>
+              <p className="text-2xl font-bold text-slate-700">{result.name}</p>
+              <p className="text-3xl font-bold mt-3 text-emerald-700">฿{fmtMoney(result.amount)}</p>
+              {result.autoApproved
+                ? <p className="text-emerald-600 font-semibold mt-2">อนุมัติทันที ✅</p>
+                : <p className="text-amber-600 mt-2">ส่งขออนุมัติแล้ว<br/><span className="text-xs">รอ admin อนุมัติ</span></p>
+              }
             </> : <>
               <p className="text-4xl mb-3">❌</p>
               <p className="text-xl font-bold text-red-600">{result.error}</p>
@@ -138,7 +154,7 @@ export default function AdvancePage() {
         ) : step==='pin' ? (
           <>
             <div className="text-center mb-5">
-              <div className={`w-14 h-14 rounded-full ${PALETTE[colorIdx % PALETTE.length]} flex items-center justify-center text-white font-bold text-2xl mx-auto mb-2`}>
+              <div className={`w-14 h-14 rounded-full ${palette} flex items-center justify-center text-white font-bold text-2xl mx-auto mb-2`}>
                 {(selected?.nickname || selected?.name || '').charAt(0)}
               </div>
               <p className="font-bold text-slate-700">{selected?.nickname || selected?.name}</p>
@@ -157,16 +173,48 @@ export default function AdvancePage() {
 
         ) : (
           <>
-            <div className="text-center mb-5">
-              <p className="text-slate-500 text-sm">สวัสดี <span className="font-bold text-slate-700">{selected?.nickname || selected?.name}</span></p>
-              <p className="text-slate-400 text-xs mt-0.5">กรอกจำนวนเงินที่ต้องการเบิก</p>
-              <div className="mt-3 bg-white rounded-2xl py-4 px-6 border border-slate-100 shadow-sm">
-                <p className="text-4xl font-bold text-amber-600 tracking-widest">
+            <div className="text-center mb-4">
+              <div className={`w-12 h-12 rounded-full ${palette} flex items-center justify-center text-white font-bold text-xl mx-auto mb-1`}>
+                {(selected?.nickname || selected?.name || '').charAt(0)}
+              </div>
+              <p className="font-semibold text-slate-700 text-sm">{selected?.nickname || selected?.name}</p>
+              {empInfo && (
+                <p className="text-xs text-slate-400 mt-0.5">
+                  ค่าแรง ฿{fmtMoney(empInfo.daily_rate)}/วัน
+                  {empInfo.install_per_day > 0 && ` − ผ่อน ฿${fmtMoney(empInfo.install_per_day)}`}
+                </p>
+              )}
+            </div>
+
+            {/* ปุ่มเบิกค่าแรงวันนี้ */}
+            {netDaily > 0 && (
+              <button onClick={() => submitAdvance(netDaily)} disabled={loading}
+                className="w-full bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white rounded-2xl py-5 mb-4 shadow-lg shadow-emerald-200 transition-all disabled:opacity-50">
+                <p className="text-sm font-medium opacity-80">เบิกค่าแรงวันนี้</p>
+                <p className="text-3xl font-bold">฿{fmtMoney(netDaily)}</p>
+                <p className="text-xs opacity-70 mt-0.5">อนุมัติทันที ✅</p>
+              </button>
+            )}
+
+            {/* กรอกจำนวนอื่น */}
+            <div className="relative">
+              {netDaily > 0 && (
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="flex-1 h-px bg-slate-200" />
+                  <p className="text-xs text-slate-400">หรือกรอกจำนวนอื่น</p>
+                  <div className="flex-1 h-px bg-slate-200" />
+                </div>
+              )}
+              <div className={`bg-white rounded-2xl py-4 px-6 border shadow-sm mb-4 text-center transition-colors ${overLimit ? 'border-orange-300' : 'border-slate-100'}`}>
+                <p className={`text-4xl font-bold tracking-widest ${overLimit ? 'text-orange-500' : 'text-amber-600'}`}>
                   {amount ? `฿${fmtMoney(Number(amount))}` : <span className="text-slate-300">฿0</span>}
                 </p>
+                {overLimit && (
+                  <p className="text-xs text-orange-500 mt-1">เกิน ฿{fmtMoney(netDaily)} → ต้องขออนุมัติ</p>
+                )}
               </div>
+              <Numpad onKey={pressAmount} confirmDisabled={!amount || amount==='0'} loading={loading} />
             </div>
-            <Numpad onKey={pressAmount} confirmDisabled={!amount || amount==='0'} loading={loading} />
           </>
         )}
 

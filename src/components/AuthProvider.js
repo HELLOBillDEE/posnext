@@ -41,15 +41,15 @@ export default function AuthProvider({ children }) {
     const cached = getStoredUser()
     if (cached !== undefined) setUser(cached)
 
-    const timeout = cached ? null : setTimeout(() => setUser(null), 12000)
+    const timeout = setTimeout(() => setUser(u => u === undefined ? null : u), 5000)
 
     supabase.auth.getSession()
       .then(({ data: { session } }) => {
-        if (timeout) clearTimeout(timeout)
+        clearTimeout(timeout)
         setUser(session?.user ?? null)
         if (session?.access_token) setAuthCookie(session.access_token)
       })
-      .catch(() => { if (timeout) clearTimeout(timeout); setUser(null) })
+      .catch(() => { clearTimeout(timeout); setUser(null) })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
       setUser(session?.user ?? null)

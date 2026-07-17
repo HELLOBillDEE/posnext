@@ -12,7 +12,7 @@ export async function POST(req) {
     if (!employee_id || (!pin && !password)) return Response.json({ error: 'ข้อมูลไม่ครบ' }, { status: 400 })
 
     let q = supabase.from('employees')
-      .select('id, name, nickname, position, salary, start_date, phone')
+      .select('id, name, nickname, position, salary, daily_rate, start_date, phone')
       .eq('id', employee_id).eq('active', true)
     if (password) q = q.eq('password', password.trim())
     else q = q.eq('pin', pin.trim())
@@ -22,7 +22,7 @@ export async function POST(req) {
 
     const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' })
 
-    const [{ data: todayAtt }, { data: recentAtt }, { data: leaves }, { data: advances }] = await Promise.all([
+    const [{ data: todayAtt }, { data: recentAtt }, { data: leaves }, { data: advances }, { data: installments }] = await Promise.all([
       supabase.from('attendance').select('check_in, check_out, date, status')
         .eq('employee_id', emp.id).eq('date', today).maybeSingle(),
       supabase.from('attendance').select('date, check_in, check_out, status')
@@ -31,7 +31,12 @@ export async function POST(req) {
         .eq('employee_id', emp.id).order('requested_at', { ascending: false }).limit(20),
       supabase.from('salary_advances').select('id, amount, note, status, requested_at')
         .eq('employee_id', emp.id).order('requested_at', { ascending: false }).limit(10),
+      supabase.from('employee_installments').select('name, amount_per_day')
+        .eq('employee_id', emp.id).eq('active', true),
     ])
+
+    const installPerDay = (installments || []).reduce((s, i) => s + Number(i.amount_per_day), 0)
+    const netDaily      = Math.max(0, Number(emp.daily_rate || 0) - installPerDay)
 
     return Response.json({
       employee: emp,
@@ -39,6 +44,8 @@ export async function POST(req) {
       recentAtt: recentAtt || [],
       leaves:   leaves || [],
       advances: advances || [],
+      net_daily: netDaily,
+      install_per_day: installPerDay,
     })
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 })

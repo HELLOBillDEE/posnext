@@ -63,7 +63,7 @@ export async function printViaBridge(bridgeUrl, ip, port, bytes, delays = [0, 30
       lastErr = e
     }
   }
-  throw lastErr
+  throw lastErr || new Error('ปริ้นล้มเหลว (no error captured)')
 }
 
 // คำสั่งเปิดลิ้นชัก (cash drawer) ผ่าน printer port

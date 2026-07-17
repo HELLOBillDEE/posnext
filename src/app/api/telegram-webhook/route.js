@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { answerCallback, editMessageText, saveChatId, getTgSettings } from '@/lib/telegramStaff'
+import { triggerDrawerVideo } from '@/lib/cameraRecord'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -103,6 +104,8 @@ export async function POST(req) {
             employee_name: dr.employee_name,
             note: `คำขออนุมัติ${dr.note ? ` — ${dr.note}` : ''}`,
           })
+          const now = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
+          triggerDrawerVideo(`🔓 เปิดลิ้นชัก — ${dr.employee_name}  🕐 ${now}`)
         }
         const emoji = status === 'approved' ? '✅' : '❌'
         const word  = status === 'approved' ? 'อนุมัติแล้ว' : 'ไม่อนุมัติ'

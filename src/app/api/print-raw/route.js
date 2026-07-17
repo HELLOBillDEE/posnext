@@ -23,7 +23,7 @@ export async function POST(req) {
       let connected = false
       const finish = (err) => { if (!done) { done = true; socket.destroy(); err ? reject(err) : resolve() } }
 
-      // Phase 1: connect timeout — ถ้าต่อไม่ติดภายใน 4 วิ = error
+      // connect timeout 4 วิ — ถ้าต่อไม่ติดเลย = error จริง
       const connectTimer = setTimeout(() => {
         if (!connected) finish(new Error(`เชื่อมต่อ ${ip}:${port} ไม่ได้`))
       }, 4000)
@@ -31,18 +31,19 @@ export async function POST(req) {
       socket.connect(port, ip, () => {
         clearTimeout(connectTimer)
         connected = true
-        // Phase 2: data timeout — ต่อติดแล้ว รอ FIN จาก printer สูงสุด 8 วิ
         socket.setTimeout(8000)
         socket.write(bytes, () => {
-          socket.end() // ส่ง FIN บอก printer ว่าหมดข้อมูลแล้ว (graceful)
+          socket.end()  // graceful FIN — ให้ kernel flush ข้อมูลก่อนปิด
         })
       })
-      // รอ printer ปิด connection เองหลัง process เสร็จ
-      socket.on('close', () => finish())
-      socket.on('end',   () => finish())
-      socket.on('timeout', () => finish()) // ต่อติดแต่ไม่มี FIN — assume success
-      // ECONNRESET = printer closed connection after receiving data — treat as success
-      socket.on('error', err => err.code === 'ECONNRESET' ? finish() : finish(err))
+
+      socket.on('close',   () => finish())
+      socket.on('end',     () => finish())
+      socket.on('timeout', () => finish())  // printer ไม่ส่ง FIN กลับ — assume success
+      socket.on('error', err => {
+        if (!connected) finish(err)   // ต่อไม่ติด = error จริง
+        else finish()                 // error หลัง connect = printer รับข้อมูลแล้ว (ECONNRESET, EPIPE ฯลฯ)
+      })
     })
 
     return Response.json({ ok: true }, { headers: CORS })
