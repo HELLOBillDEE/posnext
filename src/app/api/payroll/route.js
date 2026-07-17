@@ -119,7 +119,12 @@ export async function GET(req) {
         // ยังไม่ถึงเดือนที่กำหนดเริ่มผ่อน
         if (inst.start_date && inst.start_date.slice(0, 7) > period)
           return { ...inst, thisMonth: 0, deductAmount: 0, remaining, notStarted: true }
-        const daysToDeduct = Math.min(Math.floor(daysWorked), remaining)
+        // ถ้า start_date อยู่ในเดือนเดียวกัน นับเฉพาะวันทำงานตั้งแต่ start_date
+        let eligibleDays = daysWorked
+        if (inst.start_date && inst.start_date.slice(0, 7) === period) {
+          eligibleDays = workDates.filter(d => d.date >= inst.start_date && d.factor >= 1).length
+        }
+        const daysToDeduct = Math.min(Math.floor(eligibleDays), remaining)
         const amount = daysToDeduct * Number(inst.amount_per_day)
         installmentDeduct += amount
         return { ...inst, thisMonth: daysToDeduct, deductAmount: amount, remaining }
