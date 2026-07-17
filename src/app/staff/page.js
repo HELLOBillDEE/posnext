@@ -50,7 +50,8 @@ export default function StaffPage() {
   const [data,       setData]       = useState(null)
   const [tab,        setTab]        = useState('home')
   const [actionLoad, setActionLoad] = useState(false)
-  const [actionMsg,  setActionMsg]  = useState(null)
+  const [actionMsg,   setActionMsg]   = useState(null)
+  const [streakModal, setStreakModal] = useState(null)
   /* leave form */
   const [dateFrom,     setDateFrom]     = useState(todayStr())
   const [dateTo,       setDateTo]       = useState(todayStr())
@@ -253,6 +254,7 @@ export default function StaffPage() {
       })
       const json = await res.json()
       if (json.error) { setActionMsg({ ok:false, text: json.error }); return }
+      if (json.streak_days) setStreakModal(json.streak_days)
       setActionMsg({
         ok: true,
         text: json.action==='in'  ? `บันทึกเข้างาน ${fmtTime(json.time)}` :
@@ -589,6 +591,29 @@ ${sd.carryForwardIn > 0 ? `<div class="row"><span>ทบจากเดือน
 
   return (
     <div className="min-h-screen bg-slate-50 pb-8">
+
+      {/* Streak bonus modal */}
+      {streakModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xs overflow-hidden">
+            <div className="bg-gradient-to-br from-amber-400 to-orange-500 px-6 pt-8 pb-6 text-center">
+              <p className="text-5xl mb-2">🏆</p>
+              <p className="text-white font-bold text-xl">ครบ {streakModal} วันติด!</p>
+            </div>
+            <div className="px-6 py-5 text-center space-y-4">
+              <p className="text-slate-700 text-sm leading-relaxed">
+                เก่งมาก คุณทำงานมาครบ <b>{streakModal} วัน</b>แล้ว<br/>
+                กดเพื่อเบิก <b>฿200</b> ได้ที่ช่อง <b>ระบุยอด</b>
+              </p>
+              <button onClick={() => setStreakModal(null)}
+                className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl font-bold text-sm active:scale-95 transition-all">
+                รับทราบ 👍
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-brand text-white px-5 pt-10 pb-16">
         <div className="flex items-center justify-between">

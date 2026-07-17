@@ -67,7 +67,25 @@ export async function POST(req) {
     }
 
     notifyAttendance({ empName: emp.nickname || emp.name, action, time }).catch(() => {})
-    return Response.json({ action, name: emp.nickname || emp.name, time })
+
+    let streak_days = 0
+    if (action === 'in') {
+      const { data: recentAtt } = await supabase
+        .from('attendance').select('date')
+        .eq('employee_id', emp.id)
+        .order('date', { ascending: false }).limit(31)
+      const attDates = new Set((recentAtt || []).map(a => a.date))
+      const [y, m, d] = today.split('-').map(Number)
+      let dt = new Date(Date.UTC(y, m - 1, d))
+      let streak = 0
+      while (attDates.has(dt.toISOString().slice(0, 10))) {
+        streak++
+        dt.setUTCDate(dt.getUTCDate() - 1)
+      }
+      if (streak > 0 && streak % 10 === 0) streak_days = streak
+    }
+
+    return Response.json({ action, name: emp.nickname || emp.name, time, streak_days })
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 })
   }
