@@ -2,11 +2,10 @@
 import { useEffect, useState } from 'react'
 
 export default function ApprovePage() {
-  const [phase, setPhase]     = useState('loading') // loading|ready|acting|done|error|already
-  const [detail, setDetail]   = useState(null)  // { title, rows, status }
-  const [request, setRequest] = useState(null)  // { type, id }
-  const [profile, setProfile] = useState(null)  // LINE profile
-  const [result, setResult]   = useState('')
+  const [phase, setPhase]   = useState('loading') // loading|ready|acting|done|error|already
+  const [detail, setDetail] = useState(null)
+  const [request, setRequest] = useState(null)
+  const [result, setResult] = useState('')
 
   useEffect(() => {
     const p    = new URLSearchParams(window.location.search)
@@ -15,21 +14,15 @@ export default function ApprovePage() {
     if (!type || !id) { setPhase('error'); return }
     setRequest({ type, id })
 
-    import('@line/liff').then(async ({ default: liff }) => {
-      await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID })
-      if (!liff.isLoggedIn()) { liff.login({ redirectUri: window.location.href }); return }
-
-      const [prof, res] = await Promise.all([
-        liff.getProfile(),
-        fetch(`/api/approve-detail?type=${type}&id=${id}`),
-      ])
-      setProfile(prof)
-      const data = await res.json()
-      if (!res.ok) { setPhase('error'); return }
-      if (data.status !== 'pending') { setPhase('already'); setDetail(data); return }
-      setDetail(data)
-      setPhase('ready')
-    }).catch(e => { console.error('[LIFF]', e); setPhase('error') })
+    fetch(`/api/approve-detail?type=${type}&id=${id}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) { setPhase('error'); return }
+        if (data.status !== 'pending') { setPhase('already'); setDetail(data); return }
+        setDetail(data)
+        setPhase('ready')
+      })
+      .catch(() => setPhase('error'))
   }, [])
 
   async function handleAction(action) {
@@ -38,20 +31,11 @@ export default function ApprovePage() {
       const res = await fetch('/api/push/action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action,
-          type: request.type,
-          id: request.id,
-          approved_by: profile?.displayName || 'LINE',
-        }),
+        body: JSON.stringify({ action, type: request.type, id: request.id, approved_by: 'line' }),
       })
       if (!res.ok) throw new Error()
       setResult(action === 'approve' ? 'อนุมัติแล้ว ✅' : 'ปฏิเสธแล้ว ❌')
       setPhase('done')
-      setTimeout(async () => {
-        const { default: liff } = await import('@line/liff')
-        liff.closeWindow()
-      }, 1800)
     } catch {
       setPhase('error')
     }
@@ -76,7 +60,6 @@ export default function ApprovePage() {
     <div className="flex items-center justify-center min-h-screen bg-slate-50">
       <div className="text-center">
         <p className="text-3xl font-bold text-slate-800">{result}</p>
-        <p className="text-sm text-slate-400 mt-2">กำลังปิด...</p>
       </div>
     </div>
   )
@@ -95,29 +78,15 @@ export default function ApprovePage() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      {/* Header */}
-      <div className="bg-white border-b border-slate-100 px-4 py-3 flex items-center gap-2">
-        {profile?.pictureUrl && (
-          <img src={profile.pictureUrl} alt="" className="w-8 h-8 rounded-full object-cover" />
-        )}
-        <div>
-          <p className="text-xs text-slate-400">ผู้อนุมัติ</p>
-          <p className="text-sm font-semibold text-slate-700">{profile?.displayName || '—'}</p>
-        </div>
-      </div>
-
       {/* Card */}
-      <div className="flex-1 p-4 flex flex-col gap-4">
+      <div className="flex-1 p-4 flex flex-col gap-4 justify-center max-w-sm mx-auto w-full">
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-          {/* Card header */}
           <div className={`px-5 py-4 ${
-            request?.type === 'drawer'  ? 'bg-violet-600' :
-            request?.type === 'leave'   ? 'bg-amber-500'  : 'bg-orange-500'
+            request?.type === 'drawer' ? 'bg-violet-600' :
+            request?.type === 'leave'  ? 'bg-amber-500'  : 'bg-orange-500'
           }`}>
             <p className="text-white font-bold text-lg">{detail?.title}</p>
           </div>
-
-          {/* Rows */}
           <div className="divide-y divide-slate-50">
             {detail?.rows?.map((row, i) => (
               <div key={i} className="flex items-center justify-between px-5 py-3">
@@ -130,19 +99,14 @@ export default function ApprovePage() {
           </div>
         </div>
 
-        {/* Action buttons */}
         <div className="flex gap-3">
-          <button
-            onClick={() => handleAction('reject')}
-            className="flex-1 py-4 rounded-2xl bg-slate-100 text-slate-600 font-bold text-base active:bg-slate-200"
-          >
-            ✗  ปฏิเสธ
+          <button onClick={() => handleAction('reject')}
+            className="flex-1 py-4 rounded-2xl bg-slate-100 text-slate-600 font-bold text-base active:bg-slate-200">
+            ✗ ปฏิเสธ
           </button>
-          <button
-            onClick={() => handleAction('approve')}
-            className="flex-1 py-4 rounded-2xl bg-green-500 text-white font-bold text-base active:bg-green-600"
-          >
-            ✅  อนุมัติ
+          <button onClick={() => handleAction('approve')}
+            className="flex-1 py-4 rounded-2xl bg-green-500 text-white font-bold text-base active:bg-green-600">
+            ✅ อนุมัติ
           </button>
         </div>
       </div>
