@@ -156,7 +156,7 @@ export default function Nav() {
     document.documentElement.style.setProperty('--nav-w', collapsed ? '62px' : '230px')
   }, [collapsed])
 
-  if (path === '/login' || !auth?.user) return null
+  if (path === '/login' || path === '/approve' || path.startsWith('/staff') || !auth?.user) return null
 
   const isAdmin = auth.role === 'admin'
   const TABS = ALL_TABS.filter(t => isAdmin || !t.adminOnly)
