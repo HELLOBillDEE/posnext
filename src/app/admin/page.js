@@ -22,7 +22,7 @@ const SETTING_FIELDS = [
   { key:'telegram_chat_id',     label:'Telegram Chat ID (กลุ่ม)',          placeholder:'-1001234567890 (ดูจาก @getidsbot)' },
 ]
 
-const TABS = ['ตั้งค่าร้าน', 'เครื่องพิมพ์', 'ซัพพลายเออร์', 'ประวัติสต็อก', '🔓 ลิ้นชัก', '💰 พนักงาน', '📢 ประกาศ']
+const TABS = ['ตั้งค่าร้าน', 'เครื่องพิมพ์', 'ซัพพลายเออร์', 'ประวัติสต็อก', '🔓 ลิ้นชัก', '💰 พนักงาน', '📢 ประกาศ', '📋 อนุมัติ']
 
 const DEF_BILLDEE = { url: '', business_id: '', token: '', enabled: false }
 function loadBillDeeConfig() {
@@ -173,6 +173,8 @@ export default function AdminPage() {
   const [annSaving, setAnnSaving]             = useState(false)
   const [annMsg, setAnnMsg]                   = useState('')
   const [approvalModal, setApprovalModal]     = useState(null) // {type,id,loading,result}
+  const [pendingItems, setPendingItems]       = useState([])
+  const [pendingLoading, setPendingLoading]   = useState(false)
 
   useEffect(() => {
     const p = new URLSearchParams(window.location.search)
@@ -240,6 +242,7 @@ export default function AdminPage() {
       const { data } = await supabase.from('shop_announcements').select('*').order('created_at', { ascending: false }).limit(50)
       setAnnouncements(data || [])
     }
+    if (tab === 7) loadPending()
   }
 
   async function loadPayroll(period) {
@@ -265,6 +268,38 @@ export default function AdminPage() {
       body: JSON.stringify({ employee_id: empId, daily_rate: rate }),
     })
     await loadPayroll(payrollPeriod)
+  }
+
+  async function loadPending() {
+    setPendingLoading(true)
+    try {
+      const [{ data: leaves }, { data: advances }, { data: drawers }] = await Promise.all([
+        supabase.from('leave_requests').select('id, employee_name, date_from, date_to, period, leave_type, note, created_at').eq('status', 'pending').order('created_at', { ascending: false }),
+        supabase.from('salary_advances').select('id, employee_name, amount, note, created_at').eq('status', 'pending').order('created_at', { ascending: false }),
+        supabase.from('drawer_requests').select('id, employee_name, note, amount, created_at').eq('status', 'pending').order('created_at', { ascending: false }),
+      ])
+      const items = [
+        ...(leaves  || []).map(r => ({ ...r, _type: 'leave' })),
+        ...(advances|| []).map(r => ({ ...r, _type: 'advance' })),
+        ...(drawers || []).map(r => ({ ...r, _type: 'drawer' })),
+      ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      setPendingItems(items)
+    } finally {
+      setPendingLoading(false)
+    }
+  }
+
+  async function handlePendingAction(action, type, id) {
+    setPendingItems(prev => prev.map(p => p.id === id && p._type === type ? { ...p, _acting: action } : p))
+    try {
+      await fetch('/api/push/action', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, type, id }),
+      })
+      setPendingItems(prev => prev.filter(p => !(p.id === id && p._type === type)))
+    } catch {
+      setPendingItems(prev => prev.map(p => p.id === id && p._type === type ? { ...p, _acting: null } : p))
+    }
   }
 
   async function uploadLogo(file) {
@@ -1287,6 +1322,82 @@ export default function AdminPage() {
               ))}
             </>
           )}
+        </div>
+      )}
+
+      {/* ── Pending Approvals ── */}
+      {tab === 7 && (
+        <div className="space-y-3 max-w-xl">
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="font-heading font-semibold text-slate-700 text-base">คำขอรออนุมัติ</h2>
+            <button onClick={loadPending} disabled={pendingLoading}
+              className="text-xs text-brand border border-brand/30 px-3 py-1.5 rounded-lg active:bg-brand/5">
+              {pendingLoading ? '⏳' : '🔄 รีเฟรช'}
+            </button>
+          </div>
+
+          {pendingLoading && pendingItems.length === 0 && (
+            <p className="text-center text-slate-400 py-10 text-sm">⏳ กำลังโหลด...</p>
+          )}
+          {!pendingLoading && pendingItems.length === 0 && (
+            <div className="text-center py-16">
+              <p className="text-4xl mb-3">✅</p>
+              <p className="text-slate-400 text-sm font-semibold">ไม่มีคำขอรออนุมัติ</p>
+            </div>
+          )}
+
+          {pendingItems.map(item => {
+            const typeInfo = {
+              leave:   { emoji: '🏖', label: 'คำขอลา',          borderCls: 'border-l-amber-400',  bgCls: 'bg-amber-50',  badgeCls: 'bg-amber-100 text-amber-700' },
+              advance: { emoji: '💵', label: 'คำขอเบิก',         borderCls: 'border-l-orange-400', bgCls: 'bg-orange-50', badgeCls: 'bg-orange-100 text-orange-700' },
+              drawer:  { emoji: '🔓', label: 'คำขอเปิดลิ้นชัก', borderCls: 'border-l-violet-400', bgCls: 'bg-violet-50', badgeCls: 'bg-violet-100 text-violet-700' },
+            }[item._type] || { emoji: '📋', label: 'คำขอ', borderCls: 'border-l-slate-400', bgCls: 'bg-slate-50', badgeCls: 'bg-slate-100 text-slate-700' }
+
+            const fmtD = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short' }) : ''
+            const leaveTypeMap = { holiday: 'วันหยุด', sick: 'ลาป่วย', personal: 'ธุระส่วนตัว', other: 'อื่นๆ' }
+            const periodMap = { full: 'เต็มวัน', morning: 'ครึ่งเช้า', afternoon: 'ครึ่งบ่าย' }
+
+            const details = item._type === 'leave' ? [
+              `📅 ${item.date_from === item.date_to ? fmtD(item.date_from) : `${fmtD(item.date_from)} – ${fmtD(item.date_to)}`}`,
+              `⏰ ${periodMap[item.period] || item.period || 'เต็มวัน'}  ·  🏷 ${leaveTypeMap[item.leave_type] || item.leave_type || 'วันหยุด'}`,
+              ...(item.note ? [`📝 ${item.note}`] : []),
+            ] : item._type === 'advance' ? [
+              `💰 ฿${Number(item.amount || 0).toLocaleString('th-TH')}`,
+              ...(item.note ? [`📝 ${item.note}`] : []),
+            ] : [
+              ...(item.amount ? [`💰 ฿${Number(item.amount).toLocaleString('th-TH')}`] : []),
+              ...(item.note ? [`📝 ${item.note}`] : []),
+            ]
+
+            const timeStr = new Date(item.created_at).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
+            const dateStr = new Date(item.created_at).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'short' })
+            const acting = item._acting
+
+            return (
+              <div key={`${item._type}-${item.id}`}
+                className={`rounded-2xl border-l-4 ${typeInfo.borderCls} ${typeInfo.bgCls} p-4 shadow-sm`}>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xl">{typeInfo.emoji}</span>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${typeInfo.badgeCls}`}>{typeInfo.label}</span>
+                  <span className="ml-auto text-xs text-slate-400">{dateStr} {timeStr}</span>
+                </div>
+                <p className="font-semibold text-slate-800 text-sm mb-1.5">{item.employee_name}</p>
+                <div className="space-y-0.5 mb-3">
+                  {details.map((d, i) => <p key={i} className="text-xs text-slate-600">{d}</p>)}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => handlePendingAction('reject', item._type, item.id)} disabled={!!acting}
+                    className="flex-1 py-2.5 rounded-xl bg-red-50 text-red-600 font-semibold text-sm border border-red-200 active:scale-95 transition-all disabled:opacity-40">
+                    {acting === 'reject' ? '⏳' : '❌ ปฏิเสธ'}
+                  </button>
+                  <button onClick={() => handlePendingAction('approve', item._type, item.id)} disabled={!!acting}
+                    className="flex-1 py-2.5 rounded-xl bg-green-50 text-green-700 font-semibold text-sm border border-green-200 active:scale-95 transition-all disabled:opacity-40">
+                    {acting === 'approve' ? '⏳' : '✅ อนุมัติ'}
+                  </button>
+                </div>
+              </div>
+            )
+          })}
         </div>
       )}
 
