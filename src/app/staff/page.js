@@ -598,12 +598,12 @@ ${sd.carryForwardIn > 0 ? `<div class="row"><span>ทบจากเดือน
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xs overflow-hidden">
             <div className="bg-gradient-to-br from-amber-400 to-orange-500 px-6 pt-8 pb-6 text-center">
               <p className="text-5xl mb-2">🏆</p>
-              <p className="text-white font-bold text-xl">ครบ {streakModal} วันติด!</p>
+              <p className="text-white font-bold text-xl">โบนัสพิเศษ !</p>
             </div>
             <div className="px-6 py-5 text-center space-y-4">
               <p className="text-slate-700 text-sm leading-relaxed">
-                เก่งมาก คุณทำงานมาครบ <b>{streakModal} วัน</b>แล้ว<br/>
-                กดเพื่อเบิก <b>฿200</b> ได้ที่ช่อง <b>ระบุยอด</b>
+                คุณทำงานมาครบ <b>{streakModal} วัน</b>แล้ว<br/>
+                กดเพื่อเบิก <b>฿200</b> ได้ที่ช่อง <b>&apos;ระบุยอด&apos;</b>
               </p>
               <button onClick={() => setStreakModal(null)}
                 className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl font-bold text-sm active:scale-95 transition-all">
