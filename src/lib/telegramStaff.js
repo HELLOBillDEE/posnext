@@ -79,22 +79,25 @@ export async function notifyAttendance({ empName, action, time }) {
 }
 
 /* ── แจ้งเตือนคำขอลา ── */
-export async function notifyLeave({ id, empName, dateFrom, dateTo, note }) {
+export async function notifyLeave({ id, empName, dateFrom, dateTo, period, leaveType, note }) {
   const cfg = await getTelegramSettings()
   if (!cfg) return
 
-  const dateStr = dateFrom === dateTo
-    ? fmtDate(dateFrom)
-    : `${fmtDate(dateFrom)} – ${fmtDate(dateTo)}`
+  const dateStr     = dateFrom === dateTo ? fmtDate(dateFrom) : `${fmtDate(dateFrom)} – ${fmtDate(dateTo)}`
+  const periodMap   = { full: 'เต็มวัน', morning: 'ครึ่งเช้า', afternoon: 'ครึ่งบ่าย' }
+  const leaveTypeMap = { holiday: 'วันหยุด', sick: 'ลาป่วย', personal: 'ธุระส่วนตัว', other: 'อื่นๆ' }
 
-  const text = [
+  const lines = [
     `🏖 <b>คำขอลา</b>`,
-    `👤 ${empName}`,
-    `📅 ${dateStr}`,
-    note ? `📝 ${note}` : null,
-  ].filter(Boolean).join('\n')
+    `──────────────`,
+    `👤 พนักงาน: <b>${empName}</b>`,
+    `📅 วันที่: ${dateStr}`,
+    `⏰ ช่วงเวลา: ${periodMap[period] || period || 'เต็มวัน'}`,
+    `🏷 ประเภท: ${leaveTypeMap[leaveType] || leaveType || 'วันหยุด'}`,
+    ...(note ? [`📝 หมายเหตุ: ${note}`] : []),
+  ]
 
-  await sendMessage(cfg.telegram_bot_token, cfg.telegram_chat_id, text, {
+  await sendMessage(cfg.telegram_bot_token, cfg.telegram_chat_id, lines.join('\n'), {
     inline_keyboard: [[
       { text: '✅ อนุมัติ', callback_data: `approve_leave:${id}` },
       { text: '❌ ปฏิเสธ', callback_data: `reject_leave:${id}` },
@@ -161,18 +164,19 @@ export async function notifyDrawerRequest({ id, empName, note }) {
   const cfg = await getTelegramSettings()
   if (!cfg) return
 
-  const now = new Date().toLocaleTimeString('th-TH', {
-    timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit',
-  })
+  const now   = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
+  const today = new Date().toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'short', year: '2-digit' })
 
-  const text = [
+  const lines = [
     `🔓 <b>คำขอเปิดลิ้นชัก</b>`,
-    `👤 ${empName}`,
-    `🕐 ${now}`,
-    note ? `📝 ${note}` : null,
-  ].filter(Boolean).join('\n')
+    `──────────────`,
+    `👤 พนักงาน: <b>${empName}</b>`,
+    `📅 วันที่: ${today}`,
+    `🕐 เวลา: ${now}`,
+    ...(note ? [`📝 หมายเหตุ: ${note}`] : []),
+  ]
 
-  await sendMessage(cfg.telegram_bot_token, cfg.telegram_chat_id, text, {
+  await sendMessage(cfg.telegram_bot_token, cfg.telegram_chat_id, lines.join('\n'), {
     inline_keyboard: [[
       { text: '✅ อนุมัติ', callback_data: `approve_drawer:${id}` },
       { text: '❌ ปฏิเสธ', callback_data: `reject_drawer:${id}` },
@@ -261,17 +265,19 @@ export async function notifyDiscount({ empName, receiptNo, discItems, billDisc, 
 }
 
 /* ── แจ้งเตือนคำขอเบิก ── */
-export async function notifyAdvance({ id, empName, amount }) {
+export async function notifyAdvance({ id, empName, amount, note }) {
   const cfg = await getTelegramSettings()
   if (!cfg) return
 
-  const text = [
+  const lines = [
     `💵 <b>คำขอเบิก</b>`,
-    `👤 ${empName}`,
-    `💰 ฿${Number(amount).toLocaleString('th-TH')}`,
-  ].join('\n')
+    `──────────────`,
+    `👤 พนักงาน: <b>${empName}</b>`,
+    `💰 ยอดเบิก: <b>฿${Number(amount).toLocaleString('th-TH')}</b>`,
+    ...(note ? [`📝 หมายเหตุ: ${note}`] : []),
+  ]
 
-  await sendMessage(cfg.telegram_bot_token, cfg.telegram_chat_id, text, {
+  await sendMessage(cfg.telegram_bot_token, cfg.telegram_chat_id, lines.join('\n'), {
     inline_keyboard: [[
       { text: '✅ อนุมัติ', callback_data: `approve_advance:${id}` },
       { text: '❌ ปฏิเสธ', callback_data: `reject_advance:${id}` },
