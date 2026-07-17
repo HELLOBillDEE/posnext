@@ -9,8 +9,9 @@ const supabase = createClient(
 
 export async function POST(req) {
   try {
-    const { action, type, id } = await req.json()
+    const { action, type, id, approved_by } = await req.json()
     if (!action || !type || !id) return Response.json({ error: 'ข้อมูลไม่ครบ' }, { status: 400 })
+    const approvedBy = approved_by || 'push'
 
     const status = action === 'approve' ? 'approved' : 'rejected'
 
@@ -23,7 +24,7 @@ export async function POST(req) {
       await supabase.from('salary_advances').update({
         status,
         approved_at: status === 'approved' ? now : null,
-        approved_by: status === 'approved' ? 'push' : null,
+        approved_by: status === 'approved' ? approvedBy : null,
       }).eq('id', id)
     }
 
