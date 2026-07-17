@@ -29,7 +29,7 @@ export default function ApprovePage() {
       if (data.status !== 'pending') { setPhase('already'); setDetail(data); return }
       setDetail(data)
       setPhase('ready')
-    }).catch(() => setPhase('error'))
+    }).catch(e => { console.error('[LIFF]', e); setPhase('error') })
   }, [])
 
   async function handleAction(action) {
