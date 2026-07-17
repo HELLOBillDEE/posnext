@@ -86,12 +86,15 @@ export async function notifyLeave({ id, empName, dateFrom, dateTo, period, leave
   const dateStr     = dateFrom === dateTo ? fmtDate(dateFrom) : `${fmtDate(dateFrom)} – ${fmtDate(dateTo)}`
   const periodMap   = { full: 'เต็มวัน', morning: 'ครึ่งเช้า', afternoon: 'ครึ่งบ่าย' }
   const leaveTypeMap = { holiday: 'วันหยุด', sick: 'ลาป่วย', personal: 'ธุระส่วนตัว', other: 'อื่นๆ' }
+  const dayCount    = (new Date(dateTo) - new Date(dateFrom)) / 86400000 + 1
+  const days        = (period === 'morning' || period === 'afternoon') ? 0.5 : dayCount
 
   const lines = [
     `🏖 <b>คำขอลา</b>`,
     `──────────────`,
     `👤 พนักงาน: <b>${empName}</b>`,
     `📅 วันที่: ${dateStr}`,
+    `🔢 จำนวน: <b>${days} วัน</b>`,
     `⏰ ช่วงเวลา: ${periodMap[period] || period || 'เต็มวัน'}`,
     `🏷 ประเภท: ${leaveTypeMap[leaveType] || leaveType || 'วันหยุด'}`,
     ...(note ? [`📝 หมายเหตุ: ${note}`] : []),
