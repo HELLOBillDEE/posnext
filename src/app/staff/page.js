@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 const KEYS    = ['1','2','3','4','5','6','7','8','9','⌫','0','✓']
 const PALETTE = ['bg-brand','bg-blue-500','bg-emerald-500','bg-amber-500','bg-purple-500','bg-pink-500']
@@ -82,6 +82,8 @@ export default function StaffPage() {
   const [profMsg,    setProfMsg]    = useState(null)
   /* announcements */
   const [announcements, setAnnouncements] = useState([])
+  /* liff */
+  const lineUserIdRef = useRef(null)
   /* self-registration */
   const [regName,    setRegName]    = useState('')
   const [regNick,    setRegNick]    = useState('')
@@ -94,11 +96,39 @@ export default function StaffPage() {
   const [regErr,     setRegErr]     = useState(null)
 
   useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem('staff_session') || 'null')
-      if (saved?.employee_id && saved?.password) loadDashboard(saved)
-      else setStep('login')
-    } catch { setStep('login') }
+    const tryNormal = () => {
+      try {
+        const saved = JSON.parse(localStorage.getItem('staff_session') || 'null')
+        if (saved?.employee_id && saved?.password) loadDashboard(saved)
+        else setStep('login')
+      } catch { setStep('login') }
+    }
+
+    const initLiff = async () => {
+      const liffId = process.env.NEXT_PUBLIC_LIFF_STAFF_ID
+      if (!liffId) { tryNormal(); return }
+      try {
+        const liff = (await import('@line/liff')).default
+        await liff.init({ liffId })
+        if (liff.isInClient() && !liff.isLoggedIn()) {
+          liff.login({ redirectUri: window.location.href })
+          return
+        }
+        if (liff.isLoggedIn()) {
+          const profile = await liff.getProfile()
+          lineUserIdRef.current = profile.userId
+          const lineCache = JSON.parse(localStorage.getItem('staff_line_cache') || '{}')
+          const cached = lineCache[profile.userId]
+          if (cached?.employee_id && cached?.password) {
+            loadDashboard(cached)
+            return
+          }
+        }
+      } catch {}
+      tryNormal()
+    }
+
+    initLiff()
   }, [])
 
   async function loadDashboard(sess) {
@@ -137,6 +167,11 @@ export default function StaffPage() {
           employee_id: json.employee.id, name: json.employee.name,
           nickname: json.employee.nickname, colorIdx: 0,
         }))
+        if (lineUserIdRef.current) {
+          const lineCache = JSON.parse(localStorage.getItem('staff_line_cache') || '{}')
+          lineCache[lineUserIdRef.current] = sess
+          localStorage.setItem('staff_line_cache', JSON.stringify(lineCache))
+        }
       } catch {}
       setSession(sess); setLoginPhone(''); setLoginPw('')
       await loadDashboard(sess)
@@ -145,7 +180,14 @@ export default function StaffPage() {
   }
 
   function doLogout() {
-    try { localStorage.removeItem('staff_session') } catch {}
+    try {
+      localStorage.removeItem('staff_session')
+      if (lineUserIdRef.current) {
+        const lineCache = JSON.parse(localStorage.getItem('staff_line_cache') || '{}')
+        delete lineCache[lineUserIdRef.current]
+        localStorage.setItem('staff_line_cache', JSON.stringify(lineCache))
+      }
+    } catch {}
     setSession(null); setData(null); setAuthErr(null); setTab('home'); setStep('login')
   }
 
@@ -329,6 +371,13 @@ export default function StaffPage() {
       const newSession = { employee_id: json.employee.id, password: regPw.trim() }
       localStorage.setItem('staff_device_owner', JSON.stringify({ employee_id: json.employee.id, nickname: json.employee.nickname, name: json.employee.name, colorIdx: 0 }))
       localStorage.setItem('staff_session', JSON.stringify(newSession))
+      if (lineUserIdRef.current) {
+        try {
+          const lineCache = JSON.parse(localStorage.getItem('staff_line_cache') || '{}')
+          lineCache[lineUserIdRef.current] = newSession
+          localStorage.setItem('staff_line_cache', JSON.stringify(lineCache))
+        } catch {}
+      }
       setSession(newSession)
       await loadDashboard(newSession)
     } catch (e) {
