@@ -28,11 +28,20 @@ self.addEventListener('notificationclick', event => {
         body:    JSON.stringify({ action, type: meta.type, id: meta.id }),
       })
     )
+  } else if (meta.type && meta.id) {
+    const url = `/admin?approve=${meta.type}&id=${meta.id}`
+    event.waitUntil(
+      clients.matchAll({ type: 'window', includeUncontrolled: true }).then(wins => {
+        const admin = wins.find(w => w.url.includes('/admin'))
+        if (admin) { admin.navigate(url); return admin.focus() }
+        return clients.openWindow(url)
+      })
+    )
   } else {
     event.waitUntil(
-      clients.matchAll({ type: 'window' }).then(wins => {
-        if (wins.length) wins[0].focus()
-        else clients.openWindow('/')
+      clients.matchAll({ type: 'window', includeUncontrolled: true }).then(wins => {
+        if (wins.length) return wins[0].focus()
+        return clients.openWindow('/admin')
       })
     )
   }

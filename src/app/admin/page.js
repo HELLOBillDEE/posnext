@@ -172,6 +172,13 @@ export default function AdminPage() {
   const [annForm, setAnnForm]                 = useState({ title: '', body: '', type: 'info' })
   const [annSaving, setAnnSaving]             = useState(false)
   const [annMsg, setAnnMsg]                   = useState('')
+  const [approvalModal, setApprovalModal]     = useState(null) // {type,id,loading,result}
+
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search)
+    const type = p.get('approve'), id = p.get('id')
+    if (type && id) setApprovalModal({ type, id, loading: false, result: null })
+  }, [])
 
   useEffect(() => { if (authed) loadAll() }, [tab, authed])  // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -196,6 +203,20 @@ export default function AdminPage() {
       setPinError('เกิดข้อผิดพลาด กรุณาลองใหม่')
     } finally {
       setPinLoading(false)
+    }
+  }
+
+  async function handleApproval(action) {
+    setApprovalModal(p => ({ ...p, loading: true }))
+    try {
+      await fetch('/api/push/action', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, type: approvalModal.type, id: approvalModal.id }),
+      })
+      setApprovalModal(p => ({ ...p, loading: false, result: action === 'approve' ? 'อนุมัติแล้ว ✅' : 'ปฏิเสธแล้ว ❌' }))
+      setTimeout(() => setApprovalModal(null), 2000)
+    } catch {
+      setApprovalModal(p => ({ ...p, loading: false, result: 'เกิดข้อผิดพลาด' }))
     }
   }
 
@@ -1298,6 +1319,39 @@ export default function AdminPage() {
             <ModalActions onCancel={() => setSuppModal(null)} onSave={saveSupplier} saving={saving} />
           </div>
         </Modal>
+      )}
+
+      {/* Approval Modal — เปิดจาก push notification */}
+      {authed && approvalModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-xs text-center shadow-2xl">
+            {approvalModal.result ? (
+              <p className="text-2xl font-bold py-4">{approvalModal.result}</p>
+            ) : (
+              <>
+                <div className="text-5xl mb-3">
+                  {approvalModal.type === 'drawer' ? '🔓' : approvalModal.type === 'leave' ? '🏖' : '💵'}
+                </div>
+                <h2 className="font-bold text-lg mb-1">
+                  {approvalModal.type === 'drawer' ? 'คำขอเปิดลิ้นชัก' : approvalModal.type === 'leave' ? 'คำขอลา' : 'คำขอเบิก'}
+                </h2>
+                <p className="text-xs text-slate-400 mb-6">#{approvalModal.id}</p>
+                <div className="flex gap-3">
+                  <button onClick={() => handleApproval('reject')} disabled={approvalModal.loading}
+                    className="flex-1 py-4 rounded-2xl bg-red-100 text-red-600 font-bold text-lg disabled:opacity-50">
+                    ❌ ปฏิเสธ
+                  </button>
+                  <button onClick={() => handleApproval('approve')} disabled={approvalModal.loading}
+                    className="flex-1 py-4 rounded-2xl bg-green-100 text-green-700 font-bold text-lg disabled:opacity-50">
+                    ✅ อนุมัติ
+                  </button>
+                </div>
+                <button onClick={() => setApprovalModal(null)}
+                  className="mt-3 text-xs text-slate-400 underline">ปิด</button>
+              </>
+            )}
+          </div>
+        </div>
       )}
     </div>
   )
