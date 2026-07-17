@@ -1,6 +1,6 @@
 import { createHash } from 'crypto'
 import { createClient } from '@supabase/supabase-js'
-import { ensureCB, recordAndNotify, triggerDrawerVideo } from '@/lib/cameraRecord'
+import { recordAndNotify } from '@/lib/cameraRecord'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -81,9 +81,6 @@ export async function POST(req) {
     if (!s.camera_ip)          return Response.json({ ok: false, reason: 'camera not configured' })
     if (!s.telegram_bot_token) return Response.json({ ok: false, reason: 'no telegram token' })
     if (!s.telegram_chat_id)   return Response.json({ ok: false, reason: 'no telegram chat_id' })
-
-    const rtspUrl = `rtsp://${encodeURIComponent(s.camera_username || 'admin')}:${encodeURIComponent(s.camera_password || '')}@${s.camera_ip}:554/cam/realmonitor?channel=1&subtype=1`
-    ensureCB(rtspUrl)
 
     if (mode === 'snapshot') {
       const imgRes = await fetchWithDigestAuth(
