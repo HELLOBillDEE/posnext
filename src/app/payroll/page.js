@@ -119,10 +119,90 @@ function InstallmentModal({ empId, empName, onClose, onSaved }) {
   )
 }
 
+// ---- Bonus Modal ----
+function BonusModal({ empId, empName, period, onClose, onSaved }) {
+  const [list, setList]     = useState([])
+  const [amount, setAmount] = useState('')
+  const [note, setNote]     = useState('')
+  const [paidCash, setPaidCash] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    fetch(`/api/payroll/bonus?employee_id=${empId}&period=${period}`)
+      .then(r => r.json()).then(d => setList(Array.isArray(d) ? d : []))
+  }, [empId, period])
+
+  async function add() {
+    if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) return
+    setSaving(true)
+    const res = await fetch('/api/payroll/bonus', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ employee_id: empId, period, amount: Number(amount), note: note.trim() || null, paid_cash: paidCash }),
+    })
+    const data = await res.json()
+    if (!data.error) {
+      setList(p => [...p, data])
+      setAmount(''); setNote(''); setPaidCash(false)
+      onSaved()
+    }
+    setSaving(false)
+  }
+
+  async function remove(id) {
+    if (!confirm('ลบโบนัสนี้?')) return
+    await fetch(`/api/payroll/bonus?id=${id}`, { method: 'DELETE' })
+    setList(p => p.filter(b => b.id !== id))
+    onSaved()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
+        <div className="bg-amber-500 text-white px-4 py-3 flex justify-between items-center">
+          <h3 className="font-bold">🎁 โบนัส — {empName}</h3>
+          <button onClick={onClose} className="text-xl opacity-70">×</button>
+        </div>
+        <div className="p-4 space-y-3 max-h-[70vh] overflow-y-auto">
+          {list.length === 0 && <p className="text-slate-400 text-sm text-center py-4">ยังไม่มีโบนัสเดือนนี้</p>}
+          {list.map(b => (
+            <div key={b.id} className="flex items-center justify-between border border-amber-100 bg-amber-50 rounded-xl px-3 py-2">
+              <div>
+                <p className="text-sm font-semibold text-slate-800">{b.note || 'โบนัสพิเศษ'}</p>
+                <p className="text-xs text-emerald-600 font-bold">+฿{Number(b.amount).toLocaleString('th-TH')}</p>
+              </div>
+              <button onClick={() => remove(b.id)} className="text-xs text-red-400 hover:text-red-600 ml-3">✕</button>
+            </div>
+          ))}
+
+          <div className="border-t pt-3 space-y-2">
+            <p className="text-xs font-semibold text-slate-500">+ เพิ่มโบนัส</p>
+            <input type="number" placeholder="จำนวนเงิน (บาท)" value={amount}
+              onChange={e => setAmount(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-400" />
+            <input placeholder="หมายเหตุ เช่น โบนัส 10 วันติด" value={note}
+              onChange={e => setNote(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-400" />
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input type="checkbox" checked={paidCash} onChange={e => setPaidCash(e.target.checked)}
+                className="w-4 h-4 rounded accent-amber-500" />
+              <span className="text-sm text-slate-600">รับเงินสดไปแล้ว (หักออกจากยอดจ่าย)</span>
+            </label>
+            <button onClick={add} disabled={saving || !amount}
+              className="w-full py-2 bg-amber-500 text-white rounded-xl text-sm font-semibold disabled:opacity-40">
+              {saving ? '...' : '+ เพิ่มโบนัส'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ---- Employee Payroll Card ----
 function EmpCard({ emp, period, onSettled }) {
   const [settling, setSettling]   = useState(false)
   const [showInst, setShowInst]   = useState(false)
+  const [showBonus, setShowBonus] = useState(false)
   const [expanded, setExpanded]   = useState(false)
   const [editRate, setEditRate]   = useState(false)
   const [rateVal, setRateVal]     = useState(String(emp.daily_rate || ''))
@@ -207,7 +287,8 @@ ${emp.carryForwardIn>0?`<div class="row"><span>ทบจากเดือนก
 
   return (
     <>
-      {showInst && <InstallmentModal empId={emp.id} empName={emp.nickname||emp.name} onClose={() => setShowInst(false)} onSaved={onSettled} />}
+      {showInst  && <InstallmentModal empId={emp.id} empName={emp.nickname||emp.name} onClose={() => setShowInst(false)}  onSaved={onSettled} />}
+      {showBonus && <BonusModal empId={emp.id} empName={emp.nickname||emp.name} period={period} onClose={() => setShowBonus(false)} onSaved={onSettled} />}
       <div className={`bg-white rounded-2xl shadow-sm border overflow-hidden ${isSettled ? 'border-emerald-200' : 'border-slate-100'}`}>
         {/* Header */}
         <div className={`px-4 py-3 flex items-center justify-between ${isSettled ? 'bg-emerald-50' : 'bg-slate-50'}`}>
@@ -332,25 +413,33 @@ ${emp.carryForwardIn>0?`<div class="row"><span>ทบจากเดือนก
         )}
 
         {/* Actions */}
-        <div className="px-4 py-3 flex gap-2">
-          <button onClick={() => setShowInst(true)}
-            className="flex-1 py-2 border border-violet-200 text-violet-600 rounded-xl text-sm font-medium hover:bg-violet-50 transition-colors">
-            💳 จัดการผ่อน
-          </button>
-          <button onClick={printSlip}
-            className="flex-1 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-50 transition-colors">
-            🖨️ พิมสลิป
-          </button>
-          {!isSettled ? (
-            <button onClick={settle} disabled={settling}
-              className="flex-1 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors disabled:opacity-40">
-              {settling ? '...' : '✅ ปิดบัญชี'}
+        <div className="px-4 py-3 space-y-2">
+          <div className="flex gap-2">
+            <button onClick={() => setShowInst(true)}
+              className="flex-1 py-2 border border-violet-200 text-violet-600 rounded-xl text-sm font-medium hover:bg-violet-50 transition-colors">
+              💳 ผ่อน
             </button>
-          ) : (
-            <div className="flex-1 py-2 text-center text-xs text-slate-400">
-              ปิด {fmtDate(emp.settled.settled_at)}
-            </div>
-          )}
+            <button onClick={() => setShowBonus(true)}
+              className="flex-1 py-2 border border-amber-200 text-amber-600 rounded-xl text-sm font-medium hover:bg-amber-50 transition-colors">
+              🎁 โบนัส
+            </button>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={printSlip}
+              className="flex-1 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-50 transition-colors">
+              🖨️ สลิป
+            </button>
+            {!isSettled ? (
+              <button onClick={settle} disabled={settling}
+                className="flex-1 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors disabled:opacity-40">
+                {settling ? '...' : '✅ ปิดบัญชี'}
+              </button>
+            ) : (
+              <div className="flex-1 py-2 text-center text-xs text-slate-400">
+                ปิด {fmtDate(emp.settled.settled_at)}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </>
