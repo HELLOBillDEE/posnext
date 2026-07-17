@@ -17,7 +17,7 @@ export default function ApprovePage() {
 
     import('@line/liff').then(async ({ default: liff }) => {
       await liff.init({ liffId: process.env.NEXT_PUBLIC_LIFF_ID })
-      if (!liff.isLoggedIn()) { liff.login(); return }
+      if (!liff.isLoggedIn()) { liff.login({ redirectUri: window.location.href }); return }
 
       const [prof, res] = await Promise.all([
         liff.getProfile(),
