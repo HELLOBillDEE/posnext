@@ -24,7 +24,7 @@ export async function GET(req) {
 // POST /api/payroll/installment — สร้างรายการผ่อน
 export async function POST(req) {
   try {
-    const { employee_id, name, amount_per_day, total_days } = await req.json()
+    const { employee_id, name, amount_per_day, total_days, start_date } = await req.json()
     if (!employee_id || !name || !amount_per_day || !total_days)
       return Response.json({ error: 'ข้อมูลไม่ครบ' }, { status: 400 })
 
@@ -34,6 +34,7 @@ export async function POST(req) {
       total_days: Number(total_days),
       paid_days: 0,
       active: true,
+      start_date: start_date || null,
     }).select().single()
     if (error) throw error
     return Response.json(data)

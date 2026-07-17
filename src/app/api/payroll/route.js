@@ -116,6 +116,9 @@ export async function GET(req) {
       const installmentDetail = empInst.map(inst => {
         const remaining = inst.total_days - inst.paid_days
         if (remaining <= 0) return { ...inst, thisMonth: 0, remaining: 0 }
+        // ยังไม่ถึงเดือนที่กำหนดเริ่มผ่อน
+        if (inst.start_date && inst.start_date.slice(0, 7) > period)
+          return { ...inst, thisMonth: 0, deductAmount: 0, remaining, notStarted: true }
         const daysToDeduct = Math.min(Math.floor(daysWorked), remaining)
         const amount = daysToDeduct * Number(inst.amount_per_day)
         installmentDeduct += amount

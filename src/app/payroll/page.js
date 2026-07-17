@@ -14,7 +14,7 @@ function fmtDate(d) {
 // ---- Installment Modal ----
 function InstallmentModal({ empId, empName, onClose, onSaved }) {
   const [list, setList]   = useState([])
-  const [form, setForm]   = useState({ name: '', amount_per_day: '', total_days: '' })
+  const [form, setForm]   = useState({ name: '', amount_per_day: '', total_days: '', start_date: '' })
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -27,10 +27,10 @@ function InstallmentModal({ empId, empName, onClose, onSaved }) {
     setSaving(true)
     const res = await fetch('/api/payroll/installment', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ employee_id: empId, ...form, amount_per_day: Number(form.amount_per_day), total_days: Number(form.total_days) }),
+      body: JSON.stringify({ employee_id: empId, ...form, amount_per_day: Number(form.amount_per_day), total_days: Number(form.total_days), start_date: form.start_date || null }),
     })
     const data = await res.json()
-    if (!data.error) { setList(p => [...p, data]); setForm({ name: '', amount_per_day: '', total_days: '' }); onSaved() }
+    if (!data.error) { setList(p => [...p, data]); setForm({ name: '', amount_per_day: '', total_days: '', start_date: '' }); onSaved() }
     setSaving(false)
   }
 
@@ -68,6 +68,7 @@ function InstallmentModal({ empId, empName, onClose, onSaved }) {
                   <div>
                     <p className="font-semibold text-sm text-slate-800">{inst.name}</p>
                     <p className="text-xs text-slate-500">฿{fmt(inst.amount_per_day)}/วัน × {inst.total_days} วัน</p>
+                    {inst.start_date && <p className="text-xs text-slate-400">เริ่ม {new Date(inst.start_date + 'T00:00:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}</p>}
                   </div>
                   <div className="flex gap-1.5">
                     <button onClick={() => toggle(inst)} className={`text-xs px-2 py-0.5 rounded-full ${inst.active ? 'bg-slate-200 text-slate-600' : 'bg-emerald-100 text-emerald-600'}`}>
@@ -107,6 +108,12 @@ function InstallmentModal({ empId, empName, onClose, onSaved }) {
                   onChange={e => setForm(p=>({...p, total_days: e.target.value}))}
                   className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-violet-400" />
               </div>
+            </div>
+            <div className="mb-2">
+              <label className="text-[10px] text-slate-400">วันเริ่มผ่อน (ไม่บังคับ — ค่าเริ่มต้น: เดือนนี้)</label>
+              <input type="date" value={form.start_date}
+                onChange={e => setForm(p=>({...p, start_date: e.target.value}))}
+                className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-violet-400" />
             </div>
             <button onClick={add} disabled={saving || !form.name || !form.amount_per_day || !form.total_days}
               className="w-full py-2 bg-violet-600 text-white rounded-xl text-sm font-semibold disabled:opacity-40">
