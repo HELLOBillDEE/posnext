@@ -13,7 +13,7 @@ function setEmpCookie() { document.cookie = `pos_emp=1; ${COOKIE_OPTS}` }
 function clearEmpCookie() { document.cookie = `pos_emp=; path=/; SameSite=Strict; max-age=0` }
 
 // Routes employees can access
-const EMP_ROUTES = ['/pos', '/products', '/documents', '/repair', '/customers', '/po']
+const EMP_ROUTES = ['/pos', '/products', '/documents', '/repair', '/customers', '/po', '/stock-count']
 
 function getStoredUser() {
   try {
@@ -75,7 +75,7 @@ export default function AuthProvider({ children }) {
   // Routing guard
   useEffect(() => {
     if (user === undefined) return
-    const publicPaths = ['/login', '/checkin', '/staff', '/leave', '/advance', '/my']
+    const publicPaths = ['/login', '/checkin', '/staff', '/leave', '/advance', '/my', '/display']
     if (!user && !publicPaths.some(p => path === p || path.startsWith(p + '/'))) { router.replace('/login'); return }
     if (user && path === '/login') { router.replace('/pos'); return }
 

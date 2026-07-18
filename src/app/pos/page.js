@@ -106,6 +106,7 @@ export default function POSPage() {
   const productsRef = useRef([])
   const showPayRef  = useRef(false)
   const wasPaying   = useRef(false)
+  const dispChRef   = useRef(null)
   useEffect(() => { productsRef.current = products }, [products])
   useEffect(() => { showPayRef.current  = showPay  }, [showPay])
 
@@ -128,6 +129,14 @@ export default function POSPage() {
       })
       .subscribe()
     return () => { supabase.removeChannel(channel) }
+  }, [])
+
+  // Customer display broadcast channel
+  useEffect(() => {
+    const ch = supabase.channel('customer-display')
+    ch.subscribe()
+    dispChRef.current = ch
+    return () => { supabase.removeChannel(ch) }
   }, [])
 
   // Focus กลับไปที่ช่อง scan เฉพาะตอนปิด payment modal (true→false) ไม่ใช่ตอน mount
@@ -425,6 +434,22 @@ export default function POSPage() {
   const mixTotal    = mixCash + mixTransfer + mixCredit
   const mixRemain   = total - mixTotal
 
+  // Broadcast cart state to customer display tablet
+  useEffect(() => {
+    const ch = dispChRef.current
+    if (!ch) return
+    const status = showPay ? 'paying' : cart.length > 0 ? 'active' : 'idle'
+    ch.send({
+      type: 'broadcast', event: 'pos',
+      payload: {
+        status,
+        items: cart.map(i => ({ name: i.name, qty: i.qty, price: i.price, subtotal: i.price * i.qty - i.disc })),
+        subtotal, discount: totalDisc, total,
+      }
+    }).catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cart, showPay, subtotal, totalDisc, total])
+
   async function printQRSlip(amount) {
     const cfg = getReceiptCfg()
     if (!cfg.ip) {
@@ -564,6 +589,7 @@ export default function POSPage() {
             printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
           ).catch(() => {})
         }
+        dispChRef.current?.send({ type: 'broadcast', event: 'pos', payload: { status: 'paid', total } }).catch(() => {})
         setCart([]); setBillDiscount(''); setPayAmount(''); setNote(''); setCustomer(null)
         setShowPay(false)
         setSaving(false)
@@ -697,6 +723,7 @@ export default function POSPage() {
         setPendingQuotes(p => p.filter(q => q.id !== currentQuoteId))
         setCurrentQuoteId(null)
       }
+      dispChRef.current?.send({ type: 'broadcast', event: 'pos', payload: { status: 'paid', total } }).catch(() => {})
       setCart([]); setBillDiscount(''); setPayAmount(''); setNote(''); setCustomer(null); setPriceTier(null)
       setPayMode('single'); setPayMethod('cash'); setMixAmounts({ cash:'', transfer:'', credit:'' })
       setShowPay(false)

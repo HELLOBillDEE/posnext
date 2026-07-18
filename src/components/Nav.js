@@ -87,7 +87,8 @@ const ALL_TABS = [
   { href:'/po',        label:'สั่งซื้อ',  icon: IC.po },
   { href:'/repair',    label:'คิวซ่อม',   icon: IC.repair },
   { href:'/customers', label:'ลูกค้า',    icon: IC.customer },
-  { href:'/documents', label:'เอกสาร',    icon: IC.doc },
+  { href:'/documents',   label:'เอกสาร',   icon: IC.doc },
+  { href:'/stock-count', label:'นับสต๊อก', icon: IC.product },
   { href:'/reports',   label:'รายงาน',    icon: IC.report,    adminOnly: true },
   { href:'/employees', label:'พนักงาน',   icon: IC.employees, adminOnly: true },
   { href:'/payroll',   label:'ค่าแรง',    icon: IC.payroll,   adminOnly: true },
@@ -156,7 +157,7 @@ export default function Nav() {
     document.documentElement.style.setProperty('--nav-w', collapsed ? '62px' : '230px')
   }, [collapsed])
 
-  if (path === '/login' || path === '/approve' || path.startsWith('/staff') || !auth?.user) return null
+  if (path === '/login' || path === '/approve' || path.startsWith('/staff') || path === '/display' || !auth?.user) return null
 
   const isAdmin = auth.role === 'admin'
   const TABS = ALL_TABS.filter(t => isAdmin || !t.adminOnly)
