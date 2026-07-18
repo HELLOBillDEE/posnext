@@ -7,6 +7,7 @@ import { printViaBridge, buildReceiptESCPOS, kickDrawerViaBridge, buildDrawerKic
 import { syncSaleToBillDee } from '@/lib/billdeeSyncClient'
 import { buildFormalDocHTML, previewNextDocNo, commitNextDocNo } from '@/lib/docBuilder'
 import { cacheSet, cacheGet, addToQueue } from '@/lib/offlineQueue'
+import { getTerminalId, getTerminalName, setDeviceConfig } from '@/lib/deviceConfig'
 
 // HID keyboard usage-code → ASCII char
 const HID_KEY = {
@@ -91,6 +92,10 @@ export default function POSPage() {
   const [showDrawerModal, setShowDrawerModal] = useState(false)
   const [showCancelModal, setShowCancelModal] = useState(false)
   const [showHistPanel, setShowHistPanel]     = useState(false)
+  const [terminalId,   setTerminalId]   = useState('')
+  const [terminalName, setTerminalName] = useState('')
+  const [showDeviceSetup, setShowDeviceSetup] = useState(false)
+  const [deviceNameInput, setDeviceNameInput] = useState('')
   const [changeDisplay, setChangeDisplay]     = useState(null) // { change, total, payAmount }
   const [priceTier, setPriceTier]             = useState(null) // null | 'wholesale' | 'mechanic'
   // Web HID scanner
@@ -112,6 +117,14 @@ export default function POSPage() {
 
   useEffect(() => { loadData() }, [])
 
+  useEffect(() => {
+    const tid  = getTerminalId()
+    const tnam = getTerminalName()
+    if (!tid) { setShowDeviceSetup(true); return }
+    setTerminalId(tid); setTerminalName(tnam)
+  }, [])
+
+
   // Realtime: ถ้า drawer_request ถูกอนุมัติ → ให้ POS local trigger กล้อง (Vercel ทำไม่ได้)
   useEffect(() => {
     const channel = supabase
@@ -131,13 +144,14 @@ export default function POSPage() {
     return () => { supabase.removeChannel(channel) }
   }, [])
 
-  // Customer display broadcast channel
+  // Customer display broadcast channel — แยกตาม terminal
   useEffect(() => {
-    const ch = supabase.channel('customer-display')
+    const chName = terminalId ? 'customer-display-' + terminalId : 'customer-display'
+    const ch = supabase.channel(chName)
     ch.subscribe()
     dispChRef.current = ch
     return () => { supabase.removeChannel(ch) }
-  }, [])
+  }, [terminalId])
 
   // Focus กลับไปที่ช่อง scan เฉพาะตอนปิด payment modal (true→false) ไม่ใช่ตอน mount
   useEffect(() => {
@@ -222,7 +236,10 @@ export default function POSPage() {
       const s = Object.fromEntries(cfg.map(r => [r.key, r.value]))
       setSettings(s); cacheSet('settings', s)
     }
-    const { data: openShift } = await supabase.from('shifts').select('*').eq('status','open').order('opened_at',{ascending:false}).limit(1).maybeSingle()
+    const tid = getTerminalId()
+    const shiftQ = supabase.from('shifts').select('*').eq('status','open').order('opened_at',{ascending:false}).limit(1)
+    if (tid) shiftQ.eq('terminal_id', tid)
+    const { data: openShift } = await shiftQ.maybeSingle()
     setShift(openShift || null)
     const { data: quotes } = await supabase.from('quotations').select('*').eq('status','pending').order('created_at',{ascending:false})
     setPendingQuotes(quotes || [])
@@ -559,6 +576,7 @@ export default function POSPage() {
         change_amount: saveChange, note: saveNote,
         customer_id: customer?.id || null,
         employee_id: currentEmp?.id || null,
+        terminal_id: getTerminalId() || null,
       }
       const saleItems = cart.map(i => ({
         product_id: i.pid, product_name: i.name,
@@ -906,7 +924,7 @@ export default function POSPage() {
       {/* Shift banner */}
       {shift ? (
         <div className="bg-emerald-700 text-white px-4 py-2 flex items-center justify-between text-xs shrink-0 gap-2">
-          <span className="font-semibold">🟢 กะเปิดอยู่ · เงินเริ่มต้น ฿{fmt(shift.opening_cash)} · เปิดเมื่อ {new Date(shift.opened_at).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})}</span>
+          <span className="font-semibold">🟢 {terminalName ? terminalName + ' · ' : ''}กะเปิดอยู่ · เงินเริ่มต้น ฿{fmt(shift.opening_cash)} · เปิดเมื่อ {new Date(shift.opened_at).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})}</span>
           <div className="flex items-center gap-2 shrink-0">
             <button onClick={() => setShowHistPanel(true)}
               className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg font-semibold transition-colors">📋 ประวัติ</button>
@@ -1396,6 +1414,8 @@ export default function POSPage() {
           settings={settings}
           currentEmp={currentEmp}
           empMode={empMode}
+          terminalId={terminalId}
+          terminalName={terminalName}
           onClose={() => setShowHistPanel(false)}
           onReprint={openReceipt}
           onEditBill={handleEditBill}
@@ -1409,6 +1429,8 @@ export default function POSPage() {
           currentShift={shift}
           empMode={empMode}
           settings={settings}
+          terminalId={terminalId}
+          terminalName={terminalName}
           onClose={() => setShowShiftModal(false)}
           onOpened={s => { setShift(s); setShowShiftModal(false) }}
           onClosed={() => { setShift(null); setShowShiftModal(false) }}
@@ -1539,11 +1561,46 @@ export default function POSPage() {
         </div>
       )}
 
+      {/* ── Device Setup Modal ── */}
+      {showDeviceSetup && (
+        <div className="fixed inset-0 bg-black/70 z-[200] flex items-center justify-center p-6">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+            <div className="text-center mb-5">
+              <div className="text-4xl mb-2">💻</div>
+              <h2 className="text-xl font-bold text-slate-800">ตั้งค่าเครื่องนี้</h2>
+              <p className="text-sm text-slate-500 mt-1">กำหนดชื่อ/รหัสเครื่อง POS เพื่อแยกกะและยอดการเงิน</p>
+            </div>
+            <input
+              autoFocus
+              value={deviceNameInput}
+              onChange={e => setDeviceNameInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') saveDeviceName() }}
+              placeholder="เช่น T1, เคาน์เตอร์ 1, POS-A"
+              className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-base font-medium focus:border-brand focus:outline-none mb-4"
+            />
+            <button
+              onClick={saveDeviceName}
+              disabled={!deviceNameInput.trim()}
+              className="w-full py-3 rounded-xl font-bold text-sm btn-primary disabled:opacity-40">
+              บันทึกและเริ่มใช้งาน
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   )
+
+  function saveDeviceName() {
+    const name = deviceNameInput.trim()
+    if (!name) return
+    setDeviceConfig({ terminal_id: name, terminal_name: name })
+    setTerminalId(name); setTerminalName(name)
+    setShowDeviceSetup(false)
+  }
 }
 
-function SalesHistoryPanel({ settings, currentEmp, empMode, onClose, onReprint, onEditBill }) {
+function SalesHistoryPanel({ settings, currentEmp, empMode, terminalId, terminalName, onClose, onReprint, onEditBill }) {
   const [search, setSearch]           = useState('')
   const [sales, setSales]             = useState([])
   const [loading, setLoading]         = useState(false)
@@ -1551,19 +1608,21 @@ function SalesHistoryPanel({ settings, currentEmp, empMode, onClose, onReprint, 
   const [detailLoading, setDetailLoading] = useState(false)
   const [page, setPage]               = useState('list') // 'list' | 'detail'
   const [voidSale, setVoidSale]       = useState(null)
+  const [termFilter, setTermFilter]   = useState(terminalId ? 'mine' : 'all')
 
   useEffect(() => {
     const t = setTimeout(loadSales, search ? 300 : 0)
     return () => clearTimeout(t)
-  }, [search])
+  }, [search, termFilter])
 
   async function loadSales() {
     setLoading(true)
     try {
       let q = supabase.from('sales')
-        .select('id,receipt_no,created_at,total,payment_method,status,note,void_reason,payment_amount,discount,customer_id')
+        .select('id,receipt_no,created_at,total,payment_method,status,note,void_reason,payment_amount,discount,customer_id,terminal_id')
         .order('created_at', { ascending: false }).limit(60)
       if (search.trim()) q = q.ilike('receipt_no', `%${search.trim()}%`)
+      if (termFilter === 'mine' && terminalId) q = q.eq('terminal_id', terminalId)
       const { data } = await q
       setSales(data || [])
     } finally { setLoading(false) }
@@ -1639,10 +1698,22 @@ function SalesHistoryPanel({ settings, currentEmp, empMode, onClose, onReprint, 
 
         {page === 'list' ? (
           <>
-            <div className="px-3 py-2.5 border-b border-gray-100 shrink-0">
+            <div className="px-3 py-2.5 border-b border-gray-100 shrink-0 space-y-2">
               <input value={search} onChange={e => setSearch(e.target.value)}
                 placeholder="🔍 ค้นหาเลขบิล..."
                 className="w-full border border-gray-200 rounded-2xl px-4 py-2 text-sm focus:border-brand outline-none bg-gray-50" />
+              {terminalId && (
+                <div className="flex gap-1.5">
+                  <button onClick={() => setTermFilter('mine')}
+                    className={`flex-1 py-1.5 rounded-xl text-xs font-semibold transition-colors ${termFilter === 'mine' ? 'bg-brand text-white' : 'bg-gray-100 text-gray-500'}`}>
+                    💻 {terminalName || terminalId}
+                  </button>
+                  <button onClick={() => setTermFilter('all')}
+                    className={`flex-1 py-1.5 rounded-xl text-xs font-semibold transition-colors ${termFilter === 'all' ? 'bg-brand text-white' : 'bg-gray-100 text-gray-500'}`}>
+                    🏪 ทุกเครื่อง
+                  </button>
+                </div>
+              )}
             </div>
             <div className="flex-1 overflow-y-auto divide-y divide-gray-50">
               {loading ? (
@@ -1662,6 +1733,7 @@ function SalesHistoryPanel({ settings, currentEmp, empMode, onClose, onReprint, 
                     <p className="text-xs text-slate-400">
                       {new Date(sale.created_at).toLocaleString('th-TH', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
                       {' · '}{payLabel(sale.payment_method)}
+                      {termFilter === 'all' && sale.terminal_id && <span className="ml-1 text-[10px] bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded font-medium">💻 {sale.terminal_id}</span>}
                     </p>
                     {sale.note && <p className="text-xs text-slate-300 truncate mt-0.5">{sale.note}</p>}
                   </div>
@@ -1785,6 +1857,7 @@ function CancelBillModal({ sale, settings, currentEmp, empMode, onClose, onVoide
         status: 'voided',
         void_reason: reason.trim() || null,
         voided_at: new Date().toISOString(),
+        refund_terminal_id: getTerminalId() || null,
       }).eq('id', sale.id)
 
       // 2. cash refund → open drawer
@@ -2279,7 +2352,7 @@ function DenomRow({ denom, qty, onChange }) {
   )
 }
 
-function ShiftModal({ mode, currentShift, empMode, settings, onClose, onOpened, onClosed }) {
+function ShiftModal({ mode, currentShift, empMode, settings, terminalId, terminalName, onClose, onOpened, onClosed }) {
   const initQtys = () => Object.fromEntries(DENOMS.map(d => [d.v, '']))
   const [qtys, setQtys]               = useState(initQtys)
   const [note, setNote]               = useState('')
@@ -2310,18 +2383,23 @@ function ShiftModal({ mode, currentShift, empMode, settings, onClose, onOpened, 
   }, [mode, currentShift]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadPrevShift() {
-    const { data } = await supabase.from('shifts')
+    const q = supabase.from('shifts')
       .select('cash_remaining, closing_cash, closed_at')
       .eq('status', 'closed')
       .order('closed_at', { ascending: false })
-      .limit(1).maybeSingle()
+      .limit(1)
+    if (terminalId) q.eq('terminal_id', terminalId)
+    const { data } = await q.maybeSingle()
     setPrevShift(data)
   }
 
   async function loadShiftSummary() {
     const from = currentShift.opened_at
+    const tid  = currentShift.terminal_id || terminalId
+    const salesQ = supabase.from('sales').select('total,payment_method,note,status').gte('created_at', from).eq('status','completed')
+    if (tid) salesQ.eq('terminal_id', tid)
     const [{ data: sales }, { data: drawers }] = await Promise.all([
-      supabase.from('sales').select('total,payment_method,note,status').gte('created_at', from).eq('status','completed'),
+      salesQ,
       supabase.from('drawer_logs').select('amount,note').gte('opened_at', from),
     ])
     const salesTotal = (sales || []).reduce((s, r) => s + Number(r.total), 0)
@@ -2387,7 +2465,11 @@ function ShiftModal({ mode, currentShift, empMode, settings, onClose, onOpened, 
     if (totalCash === 0) return alert('กรุณากรอกจำนวนธนบัตร/เหรียญ')
     setSaving(true)
     const { data, error } = await supabase.from('shifts')
-      .insert({ opening_cash: totalCash, opening_breakdown: qtys, note: note.trim() || null })
+      .insert({
+        opening_cash: totalCash, opening_breakdown: qtys, note: note.trim() || null,
+        terminal_id: terminalId || null,
+        cashier_name: terminalName || empMode?.name || null,
+      })
       .select().single()
     setSaving(false)
     if (error) return alert('เกิดข้อผิดพลาด: ' + error.message)
