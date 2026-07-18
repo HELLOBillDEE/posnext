@@ -42,6 +42,7 @@ export async function GET(req) {
       supabase.from('payroll_settlements').select('employee_id, carry_forward_out').eq('period', prevPeriod),
       supabase.from('sale_items')
         .select('technician_name, price, qty')
+        .ilike('name', '%ค่าซ่อม%')
         .not('technician_name', 'is', null)
         .neq('technician_name', '')
         .gte('created_at', dateFrom + 'T00:00:00')
