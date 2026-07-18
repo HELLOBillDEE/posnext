@@ -22,6 +22,9 @@ export async function GET(req) {
     const prevDate  = new Date(year, month - 2, 1)
     const prevPeriod = prevDate.toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 7)
 
+    const startISO = new Date(year, month - 1, 1).toISOString()
+    const endISO   = new Date(year, month, 1).toISOString()
+
     const [
       { data: employees },
       { data: attendance },
@@ -30,8 +33,8 @@ export async function GET(req) {
       { data: installments },
       { data: settlements },
       { data: prevSettlements },
-      { data: repairItems },
       { data: bonuses },
+      { data: salesInPeriod },
     ] = await Promise.all([
       supabase.from('employees').select('id, name, nickname, position, daily_rate, repair_commission_pct').eq('active', true).order('name'),
       supabase.from('attendance').select('employee_id, date, check_in, check_out').gte('date', dateFrom).lte('date', dateTo),
@@ -40,15 +43,50 @@ export async function GET(req) {
       supabase.from('employee_installments').select('*').eq('active', true),
       supabase.from('payroll_settlements').select('*').eq('period', period),
       supabase.from('payroll_settlements').select('employee_id, carry_forward_out').eq('period', prevPeriod),
-      supabase.from('sale_items')
-        .select('technician_name, price, qty')
-        .ilike('name', '%ค่าซ่อม%')
-        .not('technician_name', 'is', null)
-        .neq('technician_name', '')
-        .gte('created_at', dateFrom + 'T00:00:00')
-        .lte('created_at', dateTo + 'T23:59:59'),
       supabase.from('employee_bonus').select('employee_id, amount, note').eq('period', period),
+      supabase.from('sales').select('id').gte('created_at', startISO).lt('created_at', endISO).neq('status', 'voided'),
     ])
+
+    // คำนวณค่าคอม: repair_orders + quotations + sale_items (ค่าซ่อม)
+    // laborByEmpId: { [emp_id]: number }
+    const laborByEmpId = {}
+    const saleIds = (salesInPeriod || []).map(s => s.id)
+
+    if (saleIds.length) {
+      const [{ data: repairOrders }, { data: posRepairItems }] = await Promise.all([
+        supabase.from('repair_orders').select('id, sale_id, technician_id').in('sale_id', saleIds),
+        supabase.from('sale_items')
+          .select('technician_name, price, qty')
+          .in('sale_id', saleIds)
+          .ilike('product_name', '%ค่าซ่อม%')
+          .not('technician_name', 'is', null)
+          .neq('technician_name', ''),
+      ])
+
+      // repair_orders → quotations → labor items
+      const repairIds = (repairOrders || []).map(r => r.id)
+      if (repairIds.length) {
+        const { data: quotations } = await supabase
+          .from('quotations').select('repair_order_id, items').in('repair_order_id', repairIds)
+        ;(quotations || []).forEach(q => {
+          const repairOrder = (repairOrders || []).find(r => r.id === q.repair_order_id)
+          if (!repairOrder) return
+          ;(Array.isArray(q.items) ? q.items : []).forEach(item => {
+            if (!item.is_labor || !item.tech_id) return
+            const labor = (parseFloat(item.price) || 0) * (parseFloat(item.qty) || 1)
+            laborByEmpId[item.tech_id] = (laborByEmpId[item.tech_id] || 0) + labor
+          })
+        })
+      }
+
+      // sale_items ค่าซ่อม → หา emp_id จาก technician_name
+      ;(posRepairItems || []).forEach(si => {
+        const emp = (employees || []).find(e => (e.nickname || e.name) === si.technician_name)
+        if (!emp) return
+        const labor = (parseFloat(si.price) || 0) * (parseFloat(si.qty) || 1)
+        laborByEmpId[emp.id] = (laborByEmpId[emp.id] || 0) + labor
+      })
+    }
 
     const result = (employees || []).map(emp => {
       const empAtt   = (attendance || []).filter(a => a.employee_id === emp.id)
@@ -103,12 +141,9 @@ export async function GET(req) {
         }
       }
 
-      // ค่าคอมมิชชั่น (ค่าแรงซ่อมที่ tag ชื่อพนักงาน)
-      const displayName = emp.nickname || emp.name
-      const commPct = Number(emp.repair_commission_pct || 0) / 100
-      const laborTotal = (repairItems || [])
-        .filter(r => r.technician_name === displayName)
-        .reduce((s, r) => s + Number(r.price) * Number(r.qty), 0)
+      // ค่าคอมมิชชั่น (repair_orders + sale_items ค่าซ่อม ที่ tag ชื่อพนักงาน)
+      const commPct    = Number(emp.repair_commission_pct || 0) / 100
+      const laborTotal = laborByEmpId[emp.id] || 0
       const commission = Math.round(laborTotal * commPct)
 
       // Installment deductions (ตัดวันทำงานจริงในเดือนนี้)
