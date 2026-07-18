@@ -1,8 +1,10 @@
 export const dynamic = 'force-dynamic'
 
-export function GET() {
+export function GET(request) {
   const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
   const SUPA_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+  const terminalId = new URL(request.url).searchParams.get('t') || ''
+  const CHANNEL = terminalId ? 'customer-display-' + terminalId : 'customer-display'
 
   const html = `<!DOCTYPE html>
 <html lang="th">
@@ -100,12 +102,13 @@ body{font-family:'Kanit',sans-serif;}
 <div id="app"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
-const SURL='${SUPA_URL}', SKEY='${SUPA_KEY}'
+const SURL='${SUPA_URL}', SKEY='${SUPA_KEY}', CHANNEL='${CHANNEL}'
 const fmt = n => Number(n||0).toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2})
 
-let cfg={shop_name:'',shop_logo:'',shop_phone:'',payment_qr:''}
+let cfg={shop_name:'',shop_logo:'',shop_phone:'',payment_qr:'',display_video_1:'',display_video_2:'',display_video_3:'',display_video_4:'',display_video_5:'',display_image_1:'',display_image_2:'',display_image_3:''}
 let state={status:'idle',items:[],subtotal:0,discount:0,total:0}
 let slideIdx=0, slideTimer=null
+let _vidIdx=0
 
 const app=document.getElementById('app')
 const sb=window.supabase.createClient(SURL,SKEY,{db:{schema:'pos'}})
@@ -127,16 +130,23 @@ function logoElWhite(size){
   return '<div style="width:'+s+';height:'+s+';border-radius:50%;background:linear-gradient(135deg,#C72C41,#801336);display:flex;align-items:center;justify-content:center;font-size:calc('+s+' * 0.45);color:#fff">🔧</div>'
 }
 
-function startSlides(){
+function startSlides(n){
   if(slideTimer) clearInterval(slideTimer)
   slideIdx=0; updateSlide()
-  slideTimer=setInterval(()=>{ slideIdx=(slideIdx+1)%3; updateSlide() },5000)
+  slideTimer=setInterval(()=>{ slideIdx=(slideIdx+1)%(n||3); updateSlide() },5000)
 }
 function updateSlide(){
   document.querySelectorAll('.slide').forEach((el,i)=>el.classList.toggle('on',i===slideIdx))
 }
 function stopSlides(){
   if(slideTimer){clearInterval(slideTimer);slideTimer=null}
+}
+function setupPlaylist(vids){
+  const v=document.getElementById('vidPlayer')
+  if(!v||!vids.length) return
+  _vidIdx=0; v.src=vids[0]
+  v.onended=()=>{ _vidIdx=(_vidIdx+1)%vids.length; v.src=vids[_vidIdx]; v.play().catch(()=>{}) }
+  v.play().catch(()=>{})
 }
 
 function render(){
@@ -145,35 +155,33 @@ function render(){
 
   /* ── IDLE ── */
   if(s.status==='idle'){
-    const phoneSlide=cfg.shop_phone
-      ?'<div class="slide s2"><div class="ic">📞</div><div class="tx1">ติดต่อสอบถาม</div><div class="tx2">'+cfg.shop_phone+'</div></div>'
-      :'<div class="slide s2"><div class="ic">🛍️</div><div class="tx1">มีสินค้ามากมาย</div><div class="tx2">ราคาถูก คุณภาพดี</div></div>'
-    app.innerHTML=\`
-      <div class="split">
-        <div class="pL">
-          <div class="slides">
-            <div class="slide s1">
-              \${logoEl('130px')}
-              <div class="sname">\${cfg.shop_name||'ยินดีต้อนรับ'}</div>
-              <div class="sub">ขอบคุณที่ใช้บริการ</div>
-            </div>
-            \${phoneSlide}
-            <div class="slide s3">
-              <div class="ic">🛒</div>
-              <div class="tx1">เลือกสินค้าที่ต้องการ</div>
-              <div class="tx2">แจ้งพนักงานได้เลย</div>
-            </div>
-          </div>
-        </div>
-        <div class="pR idle-r">
-          \${logoElWhite('150px')}
-          <div class="sname">\${cfg.shop_name||'ร้านค้า'}</div>
-          \${cfg.shop_phone?'<div class="phone">📞 '+cfg.shop_phone+'</div>':''}
-          <div class="wlc">ยินดีต้อนรับ</div>
-        </div>
-      </div>
-    \`
-    startSlides()
+    const vids=[cfg.display_video_1,cfg.display_video_2,cfg.display_video_3,cfg.display_video_4,cfg.display_video_5].filter(Boolean)
+    const imgs=[cfg.display_image_1,cfg.display_image_2,cfg.display_image_3].filter(Boolean)
+    let leftPanel='', slideCount=0, pendingVids=null
+    if(vids.length>0){
+      leftPanel='<div class="pL" style="background:#000"><video id="vidPlayer" playsinline style="width:100%;height:100%;object-fit:cover"></video></div>'
+      pendingVids=vids
+    } else if(imgs.length>0){
+      const imgSlides=imgs.map((u,i)=>'<div class="slide"'+(i===0?' style="opacity:1"':'')+'>'+
+        '<img src="'+u+'" style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0"></div>').join('')
+      leftPanel='<div class="pL"><div class="slides">'+imgSlides+'</div></div>'
+      slideCount=imgs.length
+    } else {
+      const phoneSlide=cfg.shop_phone
+        ?'<div class="slide s2"><div class="ic">📞</div><div class="tx1">ติดต่อสอบถาม</div><div class="tx2">'+cfg.shop_phone+'</div></div>'
+        :'<div class="slide s2"><div class="ic">🛍️</div><div class="tx1">มีสินค้ามากมาย</div><div class="tx2">ราคาถูก คุณภาพดี</div></div>'
+      leftPanel='<div class="pL"><div class="slides">'+
+        '<div class="slide s1">'+logoEl('130px')+'<div class="sname">'+(cfg.shop_name||'ยินดีต้อนรับ')+'</div><div class="sub">ขอบคุณที่ใช้บริการ</div></div>'+
+        phoneSlide+
+        '<div class="slide s3"><div class="ic">🛒</div><div class="tx1">เลือกสินค้าที่ต้องการ</div><div class="tx2">แจ้งพนักงานได้เลย</div></div>'+
+        '</div></div>'
+      slideCount=3
+    }
+    const tid=CHANNEL.replace('customer-display-','').replace('customer-display','')
+    const rightPanel='<div class="pR idle-r">'+logoElWhite('150px')+'<div class="sname">'+(cfg.shop_name||'ร้านค้า')+'</div>'+(cfg.shop_phone?'<div class="phone">📞 '+cfg.shop_phone+'</div>':'')+'<div style="margin-top:12px;padding:10px 16px;border:2px solid #C72C41;border-radius:14px;text-align:center;color:#C72C41;font-weight:700;font-size:15px;line-height:1.5">🧾 กรุณารับใบเสร็จ<br>จากพนักงานทุกครั้ง</div>'+'<div class="wlc" style="margin-top:6px">ยินดีต้อนรับ</div>'+(tid?'<div style="font-size:11px;color:#94a3b8;margin-top:8px">'+tid+'</div>':'')+'</div>'
+    app.innerHTML='<div class="split">'+leftPanel+rightPanel+'</div>'
+    if(pendingVids) setupPlaylist(pendingVids)
+    else if(slideCount>0) startSlides(slideCount)
     return
   }
 
@@ -255,8 +263,18 @@ function render(){
 render()
 loadCfg()
 
-sb.channel('customer-display')
-  .on('broadcast',{event:'pos'},({payload})=>{ state=payload; render() })
+let _receiptTimer=null
+sb.channel(CHANNEL)
+  .on('broadcast',{event:'pos'},({payload})=>{
+    if(_receiptTimer){clearTimeout(_receiptTimer);_receiptTimer=null}
+    state=payload; render()
+    if(payload.status==='paid'){
+      _receiptTimer=setTimeout(()=>{
+        state={status:'idle',items:[],subtotal:0,discount:0,total:0}
+        render(); _receiptTimer=null
+      },7000)
+    }
+  })
   .subscribe()
 </script>
 </body>
