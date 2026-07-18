@@ -279,7 +279,7 @@ export async function notifyDiscount({ empName, receiptNo, discItems, billDisc, 
 /* ── แจ้งเตือนคำขอเบิก ── */
 export async function notifyAdvance({ id, empName, amount, note, autoApproved }) {
   const cfg = await getTelegramSettings()
-  if (!cfg) return
+  if (!cfg) { console.error('[notifyAdvance] no Telegram settings found'); return }
 
   const lines = [
     `💵 <b>${autoApproved ? 'เบิกค่าแรง ✅ อนุมัติอัตโนมัติ' : 'คำขอเบิก ⏳ รออนุมัติ'}</b>`,

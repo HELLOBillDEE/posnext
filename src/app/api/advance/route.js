@@ -55,7 +55,7 @@ export async function POST(req) {
     const autoApprove = Number(amount) <= netDaily
     const now         = new Date().toISOString()
 
-    const { data: inserted } = await supabase.from('salary_advances').insert({
+    const { data: inserted, error: insertErr } = await supabase.from('salary_advances').insert({
       employee_id: emp.id,
       amount: Number(amount),
       note: note || null,
@@ -64,11 +64,17 @@ export async function POST(req) {
       approved_by: autoApprove ? 'auto' : null,
     }).select('id').single()
 
-    if (inserted?.id) {
-      const empName = emp.nickname || emp.name
-      notifyAdvance({ id: inserted.id, empName, amount: Number(amount), note: note || null, autoApproved: autoApprove })
-        .catch(e => console.error('[advance notify]', e?.message))
-      if (!autoApprove) {
+    if (insertErr) {
+      console.error('[advance insert error]', insertErr.code, insertErr.message)
+      throw new Error('บันทึกไม่สำเร็จ: ' + insertErr.message)
+    }
+
+    const empName = emp.nickname || emp.name
+    console.log('[advance] inserted id:', inserted?.id, 'emp:', empName, 'amount:', amount, 'auto:', autoApprove)
+    notifyAdvance({ id: inserted?.id, empName, amount: Number(amount), note: note || null, autoApproved: autoApprove })
+      .catch(e => console.error('[advance notify error]', e?.message))
+
+    if (!autoApprove) {
         sendPushToAll({
           title: '💵 คำขอเบิก',
           body: `${empName} — ฿${Number(amount).toLocaleString('th-TH')}`,
@@ -79,7 +85,6 @@ export async function POST(req) {
           ],
           meta: { type: 'advance', id: inserted.id },
         }).catch(() => {})
-      }
     }
 
     return Response.json({
