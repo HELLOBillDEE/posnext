@@ -437,7 +437,7 @@ export default function POSPage() {
   const subtotal  = cart.reduce((s, i) => s + i.price * i.qty - i.disc, 0)
   const billDisc  = parseFloat(billDiscount) || 0
   const tierPct   = PRICE_TIERS.find(t => t.id === priceTier)?.pct || 0
-  const tierDisc  = Math.floor(subtotal * tierPct / 100)
+  const tierDisc  = Math.ceil(subtotal * tierPct / 100)
   const totalDisc = billDisc + tierDisc
   const vatRate   = parseFloat(settings.vat_rate || 0) / 100
   const vatAmt    = (subtotal - totalDisc) * vatRate

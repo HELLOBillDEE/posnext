@@ -122,7 +122,7 @@ export default function CommissionPage() {
         .filter(d => d.laborTotal > 0)
         .map(d => ({
           ...d,
-          commission: d.laborTotal * (parseFloat(d.emp.repair_commission_pct) || 0) / 100,
+          commission: Math.ceil(d.laborTotal * (parseFloat(d.emp.repair_commission_pct) || 0) / 100),
         }))
         .sort((a, b) => b.commission - a.commission)
 
@@ -227,7 +227,7 @@ export default function CommissionPage() {
                                 <p className="text-xs text-white/40">{j.repair_no}</p>
                               </div>
                               <div className="text-right flex-shrink-0 ml-3">
-                                <p className="text-sm font-bold text-emerald-400">฿{fmt(j.labor * pct / 100)}</p>
+                                <p className="text-sm font-bold text-emerald-400">฿{fmt(Math.ceil(j.labor * pct / 100))}</p>
                                 <p className="text-xs text-white/30">ค่าแรง ฿{fmt(j.labor)}</p>
                               </div>
                             </div>
