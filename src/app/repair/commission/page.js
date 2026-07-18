@@ -49,9 +49,9 @@ export default function CommissionPage() {
       const [{ data: quotations }, { data: employees }, { data: posRepairItems }] = await Promise.all([
         quotationsPromise,
         supabase.from('employees').select('id,name,nickname,repair_commission_pct').eq('active', true),
-        supabase.from('sale_items').select('sale_id,name,qty,price,technician_name')
+        supabase.from('sale_items').select('sale_id,product_name,qty,price,technician_name')
           .in('sale_id', saleIds)
-          .ilike('name', '%ค่าซ่อม%')
+          .ilike('product_name', '%ค่าซ่อม%')
           .not('technician_name', 'is', null)
           .neq('technician_name', ''),
       ])
@@ -112,9 +112,9 @@ export default function CommissionPage() {
           repair_id: `pos-${si.sale_id}`,
           repair_no: 'POS',
           customer_name: '—',
-          device: si.name,
+          device: si.product_name,
           labor,
-          items: [{ name: si.name, qty: si.qty, price: si.price }],
+          items: [{ name: si.product_name, qty: si.qty, price: si.price }],
         })
       })
 
