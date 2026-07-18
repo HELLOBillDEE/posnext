@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic'
 export function GET(request) {
   const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
   const SUPA_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-  const terminalId = new URL(request.url).searchParams.get('t') || ''
+  const terminalId = (new URL(request.url).searchParams.get('t') || '').toLowerCase()
   const CHANNEL = terminalId ? 'customer-display-' + terminalId : 'customer-display'
 
   const html = `<!DOCTYPE html>

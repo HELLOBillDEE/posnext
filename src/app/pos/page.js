@@ -146,7 +146,7 @@ export default function POSPage() {
 
   // Customer display broadcast channel — แยกตาม terminal
   useEffect(() => {
-    const chName = terminalId ? 'customer-display-' + terminalId : 'customer-display'
+    const chName = terminalId ? 'customer-display-' + terminalId.toLowerCase() : 'customer-display'
     const ch = supabase.channel(chName)
     ch.subscribe()
     dispChRef.current = ch
