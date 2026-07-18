@@ -286,7 +286,6 @@ function EmpCard({ emp, period, onSettled }) {
 <div class="row"><span>ค่าแรง (${fmt(emp.daily_rate)}/วัน)</span><span class="earn">฿${fmt(emp.grossPay)}</span></div>
 ${emp.streakBonus>0?`<div class="row"><span>โบนัส 10 วันติด</span><span class="earn">+฿${fmt(emp.streakBonus)}</span></div>`:''}
 ${(emp.bonusDetail||[]).map(b=>`<div class="row"><span>${b.note||'โบนัสพิเศษ'}</span><span class="earn">+฿${fmt(b.amount)}</span></div>`).join('')}
-${emp.commission>0?`<div class="row"><span>ค่าคอม (${emp.repair_commission_pct}%)</span><span class="earn">+฿${fmt(emp.commission)}</span></div>`:''}
 <div class="row"><span>รวมรายได้</span><span class="earn">฿${fmt(emp.totalEarned)}</span></div>
 <div style="height:8px"></div>
 ${emp.totalWithdrawn>0?`<div class="row"><span>เบิกไปแล้ว</span><span class="deduct">-฿${fmt(emp.totalWithdrawn)}</span></div>`:''}
@@ -380,12 +379,6 @@ ${emp.carryForwardIn>0?`<div class="row"><span>ทบจากเดือนก
                 <span className="text-emerald-600">+฿{fmt(b.amount)}</span>
               </div>
             ))}
-            {emp.commission > 0 && (
-              <div className="flex justify-between text-slate-600">
-                <span>ค่าคอมมิชชั่น ({emp.repair_commission_pct}% × ฿{fmt(emp.laborTotal)})</span>
-                <span className="text-emerald-600">+฿{fmt(emp.commission)}</span>
-              </div>
-            )}
             <div className="flex justify-between font-semibold text-slate-700 border-t border-dashed pt-1.5">
               <span>รายได้รวม</span>
               <span className="text-emerald-700">฿{fmt(emp.totalEarned)}</span>
