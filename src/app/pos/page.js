@@ -2265,6 +2265,7 @@ function ShiftModal({ mode, currentShift, empMode, settings, onClose, onOpened, 
   const [expOther, setExpOther]       = useState([]) // [{label, amount}]
   // ขอเปิดลิ้นชัก
   const [drawerReq, setDrawerReq]     = useState(null) // null|'sending'|'sent'|'error'
+  const [recSessionId, setRecSessionId] = useState(null)
 
   const totalCash    = DENOMS.reduce((s, d) => s + (parseFloat(qtys[d.v]) || 0) * d.v, 0)
   const expSafeN     = parseFloat(expSafe)    || 0
@@ -2310,6 +2311,23 @@ function ShiftModal({ mode, currentShift, empMode, settings, onClose, onOpened, 
     setShiftSummary({ salesTotal, cashSales, drawerIn, drawerOut, expected, count: sales?.length || 0 })
   }
 
+  function startShiftRec() {
+    fetch('/api/camera-record', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'start' }),
+    }).then(r => r.json()).then(j => { if (j.sessionId) setRecSessionId(j.sessionId) }).catch(() => {})
+  }
+
+  function stopShiftRec(caption) {
+    const sid = recSessionId
+    if (!sid) return
+    setRecSessionId(null)
+    fetch('/api/camera-record', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'stop', sessionId: sid, caption }),
+    }).catch(() => {})
+  }
+
   async function requestDrawerOpen() {
     const cfg = getReceiptCfg()
     if (!empMode && cfg.ip) {
@@ -2317,11 +2335,7 @@ function ShiftModal({ mode, currentShift, empMode, settings, onClose, onOpened, 
       setDrawerReq('sending')
       try {
         await kickDrawerViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100)
-        const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
-        fetch('/api/camera-snapshot', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ caption: `🔓 เปิดลิ้นชัก — ${mode === 'open' ? 'เปิดกะ' : 'ปิดกะ'}  🕐 ${timeCam}` }),
-        }).catch(() => {})
+        startShiftRec()
         setDrawerReq('sent')
       } catch { setDrawerReq('error') }
       return
@@ -2336,6 +2350,7 @@ function ShiftModal({ mode, currentShift, empMode, settings, onClose, onOpened, 
         body: JSON.stringify({ employee_id: empMode.id, employee_name: empMode.name, note: `${mode === 'open' ? 'เปิดกะ' : 'ปิดกะ'} — นับเงิน` }),
       })
       const j = await res.json()
+      if (!j.error) startShiftRec()
       setDrawerReq(j.error ? 'error' : 'sent')
     } catch { setDrawerReq('error') }
   }
@@ -2348,6 +2363,8 @@ function ShiftModal({ mode, currentShift, empMode, settings, onClose, onOpened, 
       .select().single()
     setSaving(false)
     if (error) return alert('เกิดข้อผิดพลาด: ' + error.message)
+    const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
+    stopShiftRec(`🟢 เปิดกะเรียบร้อย 🕐 ${timeCam}`)
     onOpened(data)
   }
 
@@ -2393,10 +2410,7 @@ function ShiftModal({ mode, currentShift, empMode, settings, onClose, onOpened, 
         }),
       }).catch(() => {})
       const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
-      fetch('/api/camera-snapshot', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ caption: `🔴 ปิดกะ — ${currentShift.cashier_name || empMode?.name || ''}  🕐 ${timeCam}` }),
-      }).catch(() => {})
+      stopShiftRec(`🔴 ปิดกะ — ${currentShift.cashier_name || empMode?.name || ''}  🕐 ${timeCam}`)
     }
     setSaving(false)
     if (error) return alert('เกิดข้อผิดพลาด: ' + error.message)
@@ -2410,12 +2424,12 @@ function ShiftModal({ mode, currentShift, empMode, settings, onClose, onOpened, 
 
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-end md:items-center justify-center p-3"
-      onClick={e => e.target === e.currentTarget && onClose()}>
+      onClick={e => { if (e.target === e.currentTarget) { stopShiftRec(null); onClose() } }}>
       <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden fade-in flex flex-col" style={{maxHeight:'92vh'}}>
 
         <div className={`text-white px-4 py-3.5 flex justify-between items-center shrink-0 ${mode==='open' ? 'bg-emerald-700' : 'bg-red-600'}`}>
           <h2 className="font-bold text-base">{mode==='open' ? '🟢 เปิดกะ — นับเงิน' : '🔴 ปิดกะ — นับเงิน'}</h2>
-          <button onClick={onClose} className="text-2xl leading-none opacity-70">×</button>
+          <button onClick={() => { stopShiftRec(null); onClose() }} className="text-2xl leading-none opacity-70">×</button>
         </div>
 
         <div className="overflow-y-auto flex-1 p-4 space-y-3">

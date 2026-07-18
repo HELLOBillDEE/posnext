@@ -16,6 +16,9 @@ const supabaseStorage = createClient(
 
 const FFMPEG = process.env.FFMPEG_PATH || '/opt/homebrew/bin/ffmpeg'
 
+// Active shift recordings: sessionId -> { proc, outPath }
+const activeRecordings = new Map()
+
 function buildCameraUrl(s) {
   const ip   = s.camera_ip
   const user = encodeURIComponent(s.camera_username || 'admin')
@@ -82,6 +85,51 @@ export async function recordAndNotify(s, caption) {
     await sendToTelegram(s.telegram_bot_token, s.telegram_chat_id, buf, caption)
   } catch (e) {
     console.error('[camera] recordAndNotify error:', e.message)
+  } finally {
+    await unlink(outPath).catch(() => {})
+  }
+}
+
+export async function startShiftRecording(s) {
+  const sessionId = `shift-${Date.now()}`
+  const outPath   = join(tmpdir(), `${sessionId}.mp4`)
+  const url       = buildCameraUrl(s)
+
+  const proc = spawn(FFMPEG, [
+    '-f', 'mjpeg', '-i', url,
+    '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28',
+    '-movflags', '+faststart',
+    '-y', outPath,
+  ], { stdio: ['pipe', 'pipe', 'pipe'] })
+
+  proc.on('error', e => console.error('[camera] startShiftRecording spawn error:', e.message))
+  activeRecordings.set(sessionId, { proc, outPath })
+  return sessionId
+}
+
+export async function stopShiftRecording(s, sessionId, caption) {
+  const rec = activeRecordings.get(sessionId)
+  if (!rec) return
+  activeRecordings.delete(sessionId)
+
+  const { proc, outPath } = rec
+
+  await new Promise(resolve => {
+    proc.on('close', resolve)
+    try { proc.stdin.write('q'); proc.stdin.end() } catch {}
+    setTimeout(() => { try { proc.kill('SIGTERM') } catch {} resolve() }, 6000)
+  })
+
+  if (!caption) { await unlink(outPath).catch(() => {}); return }
+
+  try {
+    const buf       = await readFile(outPath)
+    const filename  = `${sessionId}.mp4`
+    const publicUrl = await uploadToStorage(buf, filename, 'video/mp4').catch(() => null)
+    if (publicUrl) await saveToDrawerLog('video_url', publicUrl)
+    await sendToTelegram(s.telegram_bot_token, s.telegram_chat_id, buf, caption)
+  } catch (e) {
+    console.error('[camera] stopShiftRecording error:', e.message)
   } finally {
     await unlink(outPath).catch(() => {})
   }
