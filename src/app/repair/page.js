@@ -403,6 +403,7 @@ export default function RepairPage() {
   const [settings, setSettings]           = useState({})
   const [printerCfg, setPrinterCfg]       = useState({ receipt: null, barcode: null })
   const [employees, setEmployees]         = useState([])
+  const [isEmp, setIsEmp]                 = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -429,6 +430,9 @@ export default function RepairPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useEffect(() => {
+    setIsEmp(document.cookie.includes('pos_emp=1'))
+  }, [])
   useEffect(() => {
     const onSynced = () => load()
     window.addEventListener('offline-synced', onSynced)
@@ -765,11 +769,13 @@ export default function RepairPage() {
             <p className="text-white/40 text-sm mt-0.5">{jobs.length} รายการทั้งหมด</p>
           </div>
           <div className="flex items-center gap-2">
-            <a href="/repair/commission"
-              className="px-3 py-2.5 rounded-xl text-sm font-semibold text-violet-300 transition-all active:scale-95"
-              style={{ background: 'rgba(124,58,237,0.15)', border: '1px solid rgba(124,58,237,0.3)' }}>
-              💰 คอมช่าง
-            </a>
+            {!isEmp && (
+              <a href="/repair/commission"
+                className="px-3 py-2.5 rounded-xl text-sm font-semibold text-violet-300 transition-all active:scale-95"
+                style={{ background: 'rgba(124,58,237,0.15)', border: '1px solid rgba(124,58,237,0.3)' }}>
+                💰 คอมช่าง
+              </a>
+            )}
             <button onClick={openAdd}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm text-white transition-all active:scale-95"
               style={{ background: 'linear-gradient(135deg,#C72C41,#EE4540)', boxShadow: '0 4px 14px rgba(199,44,65,0.4)' }}>
