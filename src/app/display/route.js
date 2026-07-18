@@ -159,7 +159,7 @@ function render(){
     const imgs=[cfg.display_image_1,cfg.display_image_2,cfg.display_image_3].filter(Boolean)
     let leftPanel='', slideCount=0, pendingVids=null
     if(vids.length>0){
-      leftPanel='<div class="pL" style="background:#000"><video id="vidPlayer" playsinline style="width:100%;height:100%;object-fit:cover"></video></div>'
+      leftPanel='<div class="pL" style="background:#000;position:relative"><video id="vidPlayer" muted autoplay playsinline style="width:100%;height:100%;object-fit:cover"></video><div id="muteBtn" onclick="toggleMute()" style="position:absolute;bottom:12px;right:12px;background:rgba(0,0,0,0.5);color:#fff;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:18px;cursor:pointer;user-select:none" title="แตะเพื่อเปิด/ปิดเสียง">🔇</div></div>'
       pendingVids=vids
     } else if(imgs.length>0){
       const imgSlides=imgs.map((u,i)=>'<div class="slide"'+(i===0?' style="opacity:1"':'')+'>'+
@@ -258,6 +258,14 @@ function render(){
     \`
     return
   }
+}
+
+function toggleMute(){
+  const v=document.getElementById('vidPlayer')
+  const btn=document.getElementById('muteBtn')
+  if(!v) return
+  v.muted=!v.muted
+  if(btn) btn.textContent=v.muted?'🔇':'🔊'
 }
 
 render()
