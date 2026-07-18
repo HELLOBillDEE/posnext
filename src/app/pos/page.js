@@ -438,7 +438,8 @@ export default function POSPage() {
   useEffect(() => {
     const ch = dispChRef.current
     if (!ch) return
-    const status = showPay ? 'paying' : cart.length > 0 ? 'active' : 'idle'
+    const isQR = showPay && payMethod === 'transfer' && payMode === 'single'
+    const status = showPay ? (isQR ? 'paying_qr' : 'paying') : cart.length > 0 ? 'active' : 'idle'
     ch.send({
       type: 'broadcast', event: 'pos',
       payload: {
@@ -448,7 +449,7 @@ export default function POSPage() {
       }
     }).catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cart, showPay, subtotal, totalDisc, total])
+  }, [cart, showPay, payMethod, payMode, subtotal, totalDisc, total])
 
   async function printQRSlip(amount) {
     const cfg = getReceiptCfg()

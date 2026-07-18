@@ -1,85 +1,264 @@
 export const dynamic = 'force-dynamic'
 
 export function GET() {
-  const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-  const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+  const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+  const SUPA_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
   const html = `<!DOCTYPE html>
 <html lang="th">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>Customer Display</title>
-  <style>
-    *{margin:0;padding:0;box-sizing:border-box;}
-    body{font-family:'Sarabun',sans-serif;background:#1a1a2e;overflow:hidden;}
-    #app{position:fixed;inset:0;display:flex;flex-direction:column;}
-    .screen{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;}
-    .idle{background:linear-gradient(135deg,#1a1a2e 0%,#16213e 100%);color:#fff;}
-    .idle .ic{font-size:96px;margin-bottom:24px;}
-    .idle .t1{font-size:52px;font-weight:700;}
-    .idle .t2{font-size:24px;margin-top:12px;opacity:.6;}
-    .paid{background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;}
-    .paid .ic{font-size:96px;margin-bottom:24px;}
-    .paid .t1{font-size:52px;font-weight:700;}
-    .paid .t2{font-size:40px;margin-top:16px;opacity:.9;}
-    .paying{background:linear-gradient(135deg,#0369a1,#075985);color:#fff;}
-    .paying .ic{font-size:80px;margin-bottom:24px;}
-    .paying .t1{font-size:40px;font-weight:600;opacity:.9;}
-    .paying .t2{font-size:72px;font-weight:700;margin-top:16px;}
-    .active{background:#f1f5f9;align-items:stretch;justify-content:flex-start;}
-    .hdr{background:linear-gradient(135deg,#C72C41,#801336);color:#fff;padding:14px 24px;flex-shrink:0;}
-    .hdr h1{font-size:26px;font-weight:700;}
-    .items{flex:1;overflow-y:auto;padding:12px 16px;}
-    .item{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;margin-bottom:10px;background:#fff;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,.08);}
-    .iname{font-size:22px;font-weight:600;color:#1e293b;}
-    .iprice{font-size:17px;color:#64748b;margin-top:2px;}
-    .itotal{font-size:26px;font-weight:700;color:#C72C41;flex-shrink:0;}
-    .ftotal{background:#fff;border-top:2px solid #e2e8f0;padding:16px 24px;flex-shrink:0;}
-    .frow{display:flex;justify-content:space-between;font-size:20px;color:#64748b;margin-bottom:6px;}
-    .fmain{display:flex;justify-content:space-between;font-size:38px;font-weight:700;color:#C72C41;}
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Customer Display</title>
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{width:100%;height:100%;overflow:hidden;background:#111;}
+body{font-family:'Kanit',sans-serif;}
+#app{width:100vw;height:100vh;position:fixed;inset:0;}
+
+/* split */
+.split{display:flex;width:100%;height:100%;}
+.pL{width:50%;height:100%;overflow:hidden;position:relative;}
+.pR{width:50%;height:100%;overflow:hidden;position:relative;display:flex;flex-direction:column;}
+
+/* fullscreen overlay */
+.fs{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;}
+
+/* ── IDLE ── */
+.slides{width:100%;height:100%;position:relative;background:linear-gradient(135deg,#1a1a2e,#16213e);}
+.slide{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;opacity:0;transition:opacity 1.2s ease;}
+.slide.on{opacity:1;}
+.s1{color:#fff;}
+.s1 .logo{width:130px;height:130px;border-radius:50%;overflow:hidden;border:3px solid rgba(255,255,255,0.25);margin-bottom:20px;display:flex;align-items:center;justify-content:center;}
+.s1 .logo img{width:100%;height:100%;object-fit:cover;}
+.s1 .sname{font-size:36px;font-weight:700;text-align:center;}
+.s1 .sub{font-size:18px;opacity:.6;margin-top:6px;}
+.s2{color:#fff;background:linear-gradient(135deg,#C72C41,#801336);}
+.s2 .ic{font-size:64px;margin-bottom:12px;}
+.s2 .tx1{font-size:22px;opacity:.85;}
+.s2 .tx2{font-size:48px;font-weight:700;margin-top:4px;text-align:center;}
+.s3{color:#fff;}
+.s3 .ic{font-size:60px;margin-bottom:12px;}
+.s3 .tx1{font-size:22px;opacity:.75;text-align:center;}
+.s3 .tx2{font-size:34px;font-weight:600;margin-top:6px;text-align:center;}
+
+.idle-r{background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:32px;}
+.idle-r .logo{width:150px;height:150px;border-radius:50%;overflow:hidden;border:4px solid #f1f5f9;}
+.idle-r .logo img{width:100%;height:100%;object-fit:cover;}
+.idle-r .sname{font-size:26px;font-weight:700;color:#1e293b;text-align:center;}
+.idle-r .phone{font-size:22px;color:#C72C41;font-weight:600;}
+.idle-r .wlc{font-size:16px;color:#94a3b8;margin-top:4px;}
+
+/* ── ACTIVE ── */
+.cart-l{background:#f8fafc;display:flex;flex-direction:column;}
+.cart-hdr{background:linear-gradient(135deg,#C72C41,#801336);color:#fff;padding:14px 20px;flex-shrink:0;}
+.cart-hdr h2{font-size:20px;font-weight:700;}
+.cart-body{flex:1;overflow-y:auto;padding:10px;}
+.cart-body::-webkit-scrollbar{display:none;}
+.ci{display:flex;justify-content:space-between;align-items:center;background:#fff;border-radius:10px;padding:12px 14px;margin-bottom:8px;box-shadow:0 1px 3px rgba(0,0,0,.07);}
+.ci-name{font-size:17px;font-weight:600;color:#1e293b;}
+.ci-unit{font-size:13px;color:#94a3b8;margin-top:2px;}
+.ci-tot{font-size:20px;font-weight:700;color:#C72C41;flex-shrink:0;}
+
+.total-r{background:linear-gradient(170deg,#C72C41,#801336);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px;gap:6px;}
+.total-r .lbl{font-size:18px;opacity:.8;}
+.total-r .amt{font-size:58px;font-weight:800;line-height:1;}
+.total-r .disc{font-size:15px;opacity:.7;}
+.total-r .cnt{font-size:16px;opacity:.75;margin-top:6px;}
+
+/* ── PAYING (cash/credit) ── */
+.pay-fs{background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff;}
+.pay-fs .ic{font-size:72px;margin-bottom:20px;}
+.pay-fs .t1{font-size:32px;opacity:.8;}
+.pay-fs .t2{font-size:76px;font-weight:800;margin-top:8px;}
+
+/* ── QR PAYMENT ── */
+.qr-l{background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;}
+.qr-l .qtitle{font-size:20px;color:#64748b;font-weight:500;}
+.qr-l .qimg{width:min(260px,80%);border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,.1);}
+.qr-l .qnote{font-size:14px;color:#94a3b8;text-align:center;}
+.qr-r{background:linear-gradient(135deg,#0369a1,#075985);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px;gap:10px;}
+.qr-r .ic{font-size:56px;}
+.qr-r .t1{font-size:22px;opacity:.85;}
+.qr-r .t2{font-size:64px;font-weight:800;line-height:1;}
+.qr-r .t3{font-size:16px;opacity:.65;text-align:center;margin-top:4px;}
+
+/* ── PAID ── */
+.paid-fs{background:linear-gradient(135deg,#f0f9ff,#e0f2fe);}
+.paid-card{background:#fff;border-radius:24px;padding:44px 60px;text-align:center;box-shadow:0 8px 40px rgba(0,0,0,.12);display:flex;flex-direction:column;align-items:center;gap:6px;max-width:580px;}
+.paid-card .ic{font-size:72px;margin-bottom:4px;}
+.paid-card .p1{font-size:28px;color:#C72C41;font-weight:700;}
+.paid-card .p2{font-size:54px;font-weight:800;color:#0f172a;line-height:1.1;}
+.paid-card .p3{font-size:40px;font-weight:700;color:#0f172a;}
+.paid-card .p4{font-size:18px;color:#64748b;margin-top:8px;}
+</style>
 </head>
 <body>
-  <div id="app"></div>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-  <script>
-    const fmt = n => Number(n||0).toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2})
-    let state = {status:'idle',items:[],subtotal:0,discount:0,total:0}
+<div id="app"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+const SURL='${SUPA_URL}', SKEY='${SUPA_KEY}'
+const fmt = n => Number(n||0).toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2})
 
-    function render() {
-      const app = document.getElementById('app')
-      const s = state
-      if (s.status === 'idle') {
-        app.innerHTML = '<div class="screen idle"><div class="ic">🛍️</div><div class="t1">ยินดีต้อนรับ</div><div class="t2">กรุณาแจ้งรายการสินค้า</div></div>'
-        return
-      }
-      if (s.status === 'paid') {
-        app.innerHTML = '<div class="screen paid"><div class="ic">✅</div><div class="t1">ขอบคุณที่ใช้บริการ!</div><div class="t2">฿' + fmt(s.total) + '</div></div>'
-        return
-      }
-      if (s.status === 'paying') {
-        app.innerHTML = '<div class="screen paying"><div class="ic">💳</div><div class="t1">กำลังชำระเงิน</div><div class="t2">฿' + fmt(s.total) + '</div></div>'
-        return
-      }
-      const items = (s.items||[]).map(i =>
-        '<div class="item"><div><div class="iname">'+i.name+'</div><div class="iprice">฿'+fmt(i.price)+' × '+i.qty+'</div></div><div class="itotal">฿'+fmt(i.subtotal)+'</div></div>'
-      ).join('')
-      const disc = s.discount > 0
-        ? '<div class="frow"><span>ยอดรวม</span><span>฿'+fmt(s.subtotal)+'</span></div><div class="frow" style="color:#dc2626"><span>ส่วนลด</span><span>−฿'+fmt(s.discount)+'</span></div>'
-        : ''
-      app.innerHTML = '<div class="screen active"><div class="hdr"><h1>รายการสินค้า</h1></div><div class="items">'+items+'</div><div class="ftotal">'+disc+'<div class="fmain"><span>รวมทั้งหมด</span><span>฿'+fmt(s.total)+'</span></div></div></div>'
-    }
+let cfg={shop_name:'',shop_logo:'',shop_phone:'',payment_qr:''}
+let state={status:'idle',items:[],subtotal:0,discount:0,total:0}
+let slideIdx=0, slideTimer=null
 
-    render()
+const app=document.getElementById('app')
+const sb=window.supabase.createClient(SURL,SKEY,{db:{schema:'pos'}})
 
-    const sb = window.supabase.createClient('${SUPABASE_URL}', '${SUPABASE_KEY}', {db:{schema:'pos'}})
-    sb.channel('customer-display')
-      .on('broadcast', {event:'pos'}, ({payload}) => { state = payload; render() })
-      .subscribe()
-  </script>
+async function loadCfg(){
+  const {data}=await sb.from('settings').select('key,value')
+  if(data) cfg=Object.fromEntries(data.map(r=>[r.key,r.value]))
+  render()
+}
+
+function logoEl(size){
+  const s=size||'130px'
+  if(cfg.shop_logo) return '<img src="'+cfg.shop_logo+'" style="width:'+s+';height:'+s+';border-radius:50%;object-fit:cover;border:3px solid rgba(255,255,255,0.2)">'
+  return '<div style="width:'+s+';height:'+s+';border-radius:50%;background:linear-gradient(135deg,#C72C41,#801336);display:flex;align-items:center;justify-content:center;font-size:calc('+s+' * 0.45);color:#fff">🔧</div>'
+}
+function logoElWhite(size){
+  const s=size||'140px'
+  if(cfg.shop_logo) return '<img src="'+cfg.shop_logo+'" style="width:'+s+';height:'+s+';border-radius:50%;object-fit:cover;">'
+  return '<div style="width:'+s+';height:'+s+';border-radius:50%;background:linear-gradient(135deg,#C72C41,#801336);display:flex;align-items:center;justify-content:center;font-size:calc('+s+' * 0.45);color:#fff">🔧</div>'
+}
+
+function startSlides(){
+  if(slideTimer) clearInterval(slideTimer)
+  slideIdx=0; updateSlide()
+  slideTimer=setInterval(()=>{ slideIdx=(slideIdx+1)%3; updateSlide() },5000)
+}
+function updateSlide(){
+  document.querySelectorAll('.slide').forEach((el,i)=>el.classList.toggle('on',i===slideIdx))
+}
+function stopSlides(){
+  if(slideTimer){clearInterval(slideTimer);slideTimer=null}
+}
+
+function render(){
+  const s=state
+  stopSlides()
+
+  /* ── IDLE ── */
+  if(s.status==='idle'){
+    const phoneSlide=cfg.shop_phone
+      ?'<div class="slide s2"><div class="ic">📞</div><div class="tx1">ติดต่อสอบถาม</div><div class="tx2">'+cfg.shop_phone+'</div></div>'
+      :'<div class="slide s2"><div class="ic">🛍️</div><div class="tx1">มีสินค้ามากมาย</div><div class="tx2">ราคาถูก คุณภาพดี</div></div>'
+    app.innerHTML=\`
+      <div class="split">
+        <div class="pL">
+          <div class="slides">
+            <div class="slide s1">
+              \${logoEl('130px')}
+              <div class="sname">\${cfg.shop_name||'ยินดีต้อนรับ'}</div>
+              <div class="sub">ขอบคุณที่ใช้บริการ</div>
+            </div>
+            \${phoneSlide}
+            <div class="slide s3">
+              <div class="ic">🛒</div>
+              <div class="tx1">เลือกสินค้าที่ต้องการ</div>
+              <div class="tx2">แจ้งพนักงานได้เลย</div>
+            </div>
+          </div>
+        </div>
+        <div class="pR idle-r">
+          \${logoElWhite('150px')}
+          <div class="sname">\${cfg.shop_name||'ร้านค้า'}</div>
+          \${cfg.shop_phone?'<div class="phone">📞 '+cfg.shop_phone+'</div>':''}
+          <div class="wlc">ยินดีต้อนรับ</div>
+        </div>
+      </div>
+    \`
+    startSlides()
+    return
+  }
+
+  /* ── ACTIVE ── */
+  if(s.status==='active'){
+    const rows=(s.items||[]).map(i=>
+      '<div class="ci"><div><div class="ci-name">'+i.name+'</div><div class="ci-unit">฿'+fmt(i.price)+' × '+i.qty+'</div></div><div class="ci-tot">฿'+fmt(i.subtotal)+'</div></div>'
+    ).join('')
+    const disc=s.discount>0?'<div class="disc">ส่วนลด −฿'+fmt(s.discount)+'</div>':''
+    app.innerHTML=\`
+      <div class="split">
+        <div class="pL cart-l">
+          <div class="cart-hdr"><h2>รายการสินค้า</h2></div>
+          <div class="cart-body">\${rows}</div>
+        </div>
+        <div class="pR total-r">
+          <div class="lbl">ยอดชำระ</div>
+          <div class="amt">฿\${fmt(s.total)}</div>
+          \${disc}
+          <div class="cnt">\${(s.items||[]).length} รายการ</div>
+        </div>
+      </div>
+    \`
+    return
+  }
+
+  /* ── PAYING (cash / credit) ── */
+  if(s.status==='paying'){
+    app.innerHTML=\`
+      <div class="fs pay-fs">
+        <div class="ic">💳</div>
+        <div class="t1">กำลังชำระเงิน</div>
+        <div class="t2">฿\${fmt(s.total)}</div>
+      </div>
+    \`
+    return
+  }
+
+  /* ── PAYING QR ── */
+  if(s.status==='paying_qr'){
+    const qrEl=cfg.payment_qr
+      ?'<img class="qimg" src="'+cfg.payment_qr+'" alt="QR">'
+      :'<div style="width:220px;height:220px;background:#f1f5f9;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:72px">📱</div>'
+    app.innerHTML=\`
+      <div class="split">
+        <div class="pL qr-l">
+          <div class="qtitle">สแกนเพื่อชำระเงิน</div>
+          \${qrEl}
+          <div class="qnote">รองรับทุกธนาคาร · PromptPay</div>
+        </div>
+        <div class="pR qr-r">
+          <div class="ic">💳</div>
+          <div class="t1">ยอดที่ต้องชำระ</div>
+          <div class="t2">฿\${fmt(s.total)}</div>
+          <div class="t3">สแกน QR แล้วแจ้งพนักงาน</div>
+        </div>
+      </div>
+    \`
+    return
+  }
+
+  /* ── PAID ── */
+  if(s.status==='paid'){
+    app.innerHTML=\`
+      <div class="fs paid-fs">
+        <div class="paid-card">
+          <div class="ic">🧾</div>
+          <div class="p1">กรุณา</div>
+          <div class="p2">รับใบเสร็จ</div>
+          <div class="p3">จากพนักงาน</div>
+          <div class="p4">ขอบคุณที่ใช้บริการ 🙏</div>
+        </div>
+      </div>
+    \`
+    return
+  }
+}
+
+render()
+loadCfg()
+
+sb.channel('customer-display')
+  .on('broadcast',{event:'pos'},({payload})=>{ state=payload; render() })
+  .subscribe()
+</script>
 </body>
 </html>`
 
