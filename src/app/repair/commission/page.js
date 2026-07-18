@@ -37,26 +37,26 @@ export default function CommissionPage() {
       const { data: repairOrders } = await supabase
         .from('repair_orders').select('id,repair_no,customer_name,device,sale_id,technician_id,technician_name')
         .in('sale_id', saleIds)
-      if (!repairOrders?.length) { setLoading(false); return }
 
-      const repairIds = repairOrders.map(r => r.id)
+      const repairIds = (repairOrders || []).map(r => r.id)
 
       // 3. Quotations for those repairs (items JSONB)
-      const { data: quotations } = await supabase
-        .from('quotations').select('repair_order_id,items')
-        .in('repair_order_id', repairIds)
+      const quotationsPromise = repairIds.length
+        ? supabase.from('quotations').select('repair_order_id,items').in('repair_order_id', repairIds)
+        : Promise.resolve({ data: [] })
 
-      // 4. Employees with commission rate
-      const { data: employees } = await supabase
-        .from('employees').select('id,name,nickname,repair_commission_pct').eq('active', true)
+      // 4. Employees + POS sale_items ที่แท็กช่างไว้ (ดึงพร้อมกัน)
+      const [{ data: quotations }, { data: employees }, { data: posRepairItems }] = await Promise.all([
+        quotationsPromise,
+        supabase.from('employees').select('id,name,nickname,repair_commission_pct').eq('active', true),
+        supabase.from('sale_items').select('sale_id,name,qty,price,technician_name')
+          .in('sale_id', saleIds)
+          .ilike('name', '%ค่าซ่อม%')
+          .not('technician_name', 'is', null)
+          .neq('technician_name', ''),
+      ])
 
-      // 4b. POS sale_items ที่ชื่อ "ค่าซ่อม" และแท็กช่างไว้
-      const { data: posRepairItems } = await supabase
-        .from('sale_items').select('sale_id,name,qty,price,technician_name')
-        .in('sale_id', saleIds)
-        .ilike('name', '%ค่าซ่อม%')
-        .not('technician_name', 'is', null)
-        .neq('technician_name', '')
+      if (!repairIds.length && !posRepairItems?.length) { setLoading(false); return }
 
       // 5. Build repair map: repair_order_id → repair info + items
       const repairMap = {}

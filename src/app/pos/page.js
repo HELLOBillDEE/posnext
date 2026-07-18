@@ -1838,12 +1838,11 @@ function SalesHistoryPanel({ settings, currentEmp, empMode, terminalId, terminal
 }
 
 function CancelBillModal({ sale, settings, currentEmp, empMode, onClose, onVoided }) {
-  const [reason, setReason]   = useState('')
-  const [cashRefund, setCash] = useState(sale.payment_method === 'cash')
-  const [step, setStep]       = useState('idle') // 'idle'|'saving'|'requesting'|'done'|'rejected'
-  const [errMsg, setErr]      = useState('')
+  const [reason, setReason]       = useState('')
+  const [refundMethod, setRefund] = useState('cash') // 'cash'|'transfer'
+  const [step, setStep]           = useState('idle') // 'idle'|'saving'|'requesting'|'done'|'rejected'
+  const [errMsg, setErr]          = useState('')
 
-  const isCash   = sale.payment_method === 'cash'
   const empName  = currentEmp ? (currentEmp.nickname || currentEmp.name) : (empMode?.name || 'ไม่ระบุ')
   const refundAmt = Number(sale.total) || 0
 
@@ -1861,7 +1860,7 @@ function CancelBillModal({ sale, settings, currentEmp, empMode, onClose, onVoide
       }).eq('id', sale.id)
 
       // 2. cash refund → open drawer
-      if (isCash && cashRefund) {
+      if (refundMethod === 'cash') {
         if (empMode) {
           // employee → request approval
           setStep('requesting')
@@ -1967,16 +1966,22 @@ function CancelBillModal({ sale, settings, currentEmp, empMode, onClose, onVoide
               placeholder="เหตุผลยกเลิก (บังคับ)"
               className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-red-400 outline-none" />
 
-            {isCash && (
-              <label className="flex items-center gap-3 bg-amber-50 rounded-2xl px-4 py-3 border border-amber-200 cursor-pointer">
-                <input type="checkbox" checked={cashRefund} onChange={e => setCash(e.target.checked)}
-                  className="w-5 h-5 accent-amber-500" />
-                <div>
-                  <p className="font-bold text-amber-700 text-sm">💸 คืนเงินสด ฿{refundAmt.toLocaleString('th-TH')}</p>
-                  <p className="text-xs text-amber-600">เปิดลิ้นชักผ่านการอนุมัติ</p>
-                </div>
-              </label>
-            )}
+            <div>
+              <p className="text-xs text-slate-400 mb-1.5 font-semibold">คืนเงินโดย</p>
+              <div className="flex gap-2">
+                <button onClick={() => setRefund('cash')}
+                  className={`flex-1 py-2.5 rounded-xl text-sm font-bold border-2 transition-colors ${refundMethod === 'cash' ? 'bg-amber-50 border-amber-400 text-amber-700' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
+                  💵 เงินสด
+                </button>
+                <button onClick={() => setRefund('transfer')}
+                  className={`flex-1 py-2.5 rounded-xl text-sm font-bold border-2 transition-colors ${refundMethod === 'transfer' ? 'bg-blue-50 border-blue-400 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
+                  📲 โอน
+                </button>
+              </div>
+              {refundMethod === 'cash' && (
+                <p className="text-xs text-amber-600 mt-1.5 text-center">จะขอเปิดลิ้นชักเพื่อคืนเงิน ฿{refundAmt.toLocaleString('th-TH')}</p>
+              )}
+            </div>
 
             {errMsg && <p className="text-center text-red-500 text-xs font-semibold">{errMsg}</p>}
 
@@ -2434,6 +2439,29 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
     }).catch(() => {})
   }
 
+  function pollShiftDrawerApproval(requestId) {
+    let attempts = 0
+    const iv = setInterval(async () => {
+      attempts++
+      if (attempts > 60) { clearInterval(iv); return }
+      try {
+        const r = await fetch(`/api/request-drawer?id=${requestId}`)
+        const j = await r.json()
+        if (j.status === 'approved') {
+          clearInterval(iv)
+          try {
+            const cfg = getReceiptCfg()
+            if (cfg.ip) await kickDrawerViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100)
+          } catch {}
+          setDrawerReq('sent')
+        } else if (j.status === 'rejected') {
+          clearInterval(iv)
+          setDrawerReq('error')
+        }
+      } catch {}
+    }, 5000)
+  }
+
   async function requestDrawerOpen() {
     const cfg = getReceiptCfg()
     if (!empMode && cfg.ip) {
@@ -2446,7 +2474,7 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
       } catch { setDrawerReq('error') }
       return
     }
-    // employee — ส่ง request
+    // employee — ส่ง request แล้ว poll รอ approve
     if (!empMode) { setDrawerReq('error'); return }
     setDrawerReq('sending')
     try {
@@ -2456,8 +2484,10 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
         body: JSON.stringify({ employee_id: empMode.id, employee_name: empMode.name, note: `${mode === 'open' ? 'เปิดกะ' : 'ปิดกะ'} — นับเงิน` }),
       })
       const j = await res.json()
-      if (!j.error) startShiftRec()
-      setDrawerReq(j.error ? 'error' : 'sent')
+      if (j.error) { setDrawerReq('error'); return }
+      startShiftRec()
+      setDrawerReq('waiting')
+      pollShiftDrawerApproval(j.request_id)
     } catch { setDrawerReq('error') }
   }
 
@@ -2528,7 +2558,8 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
   }
 
   const drawerBtnLabel = drawerReq === 'sending' ? '⏳...'
-    : drawerReq === 'sent' ? (empMode ? '📨 ส่งคำขอแล้ว' : '✅ เปิดแล้ว')
+    : drawerReq === 'waiting' ? '📨 รออนุมัติ...'
+    : drawerReq === 'sent' ? '✅ เปิดแล้ว'
     : drawerReq === 'error' ? '❌ ล้มเหลว'
     : '🔓 เปิดลิ้นชักนับเงิน'
 
@@ -2545,7 +2576,7 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
         <div className="overflow-y-auto flex-1 p-4 space-y-3">
 
           {/* ปุ่มขอเปิดลิ้นชัก */}
-          <button onClick={requestDrawerOpen} disabled={drawerReq === 'sending'}
+          <button onClick={requestDrawerOpen} disabled={drawerReq === 'sending' || drawerReq === 'waiting' || drawerReq === 'sent'}
             className="w-full border-2 border-dashed border-slate-300 rounded-2xl py-2.5 text-sm font-semibold text-slate-500 hover:border-brand hover:text-brand transition-colors disabled:opacity-50">
             {drawerBtnLabel}
           </button>
