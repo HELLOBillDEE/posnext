@@ -1,6 +1,6 @@
 import './globals.css'
 import { Kanit } from 'next/font/google'
-import Nav from '@/components/Nav'
+import LayoutNav from '@/components/LayoutNav'
 import AuthProvider from '@/components/AuthProvider'
 import StaffGuard from '@/components/StaffGuard'
 
@@ -60,7 +60,7 @@ export default function RootLayout({ children }) {
         <AuthProvider>
           <StaffGuard />
           <div className="flex min-h-screen">
-            <Nav />
+            <LayoutNav />
             <main className="flex-1 nav-main min-h-screen pb-[72px] md:pb-0">
               {children}
             </main>
