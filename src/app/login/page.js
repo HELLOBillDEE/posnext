@@ -44,7 +44,7 @@ export default function LoginPage() {
         </div>
 
         <div className="rounded-3xl p-7"
-          style={{ background: 'rgba(255,255,255,0.07)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)', border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 32px 64px rgba(0,0,0,0.3)' }}>
+          style={{ background: 'rgba(255,255,255,0.07)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)', border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 32px 64px rgba(0,0,0,0.3)', isolation: 'isolate', position: 'relative' }}>
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
               <label className="text-xs font-semibold text-white/50 uppercase tracking-widest block mb-2">อีเมล</label>
