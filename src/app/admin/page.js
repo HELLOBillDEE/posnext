@@ -3,6 +3,8 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { fmt, fmtDate } from '@/lib/utils'
 import { printViaBridge, buildReceiptESCPOS, buildLabelTSPL, buildLabelESCPOS, kickDrawerViaBridge } from '@/lib/printBridge'
+import { useAuth } from '@/components/AuthProvider'
+import { savePinCredentials, hasPinCredentials, clearPinCredentials } from '@/lib/pinAuth'
 
 const SETTING_FIELDS = [
   { key:'shop_name',       label:'ชื่อร้าน',                         placeholder:'ร้านของฉัน' },
@@ -22,7 +24,7 @@ const SETTING_FIELDS = [
   { key:'telegram_chat_id',     label:'Telegram Chat ID (กลุ่ม)',          placeholder:'-1001234567890 (ดูจาก @getidsbot)' },
 ]
 
-const TABS = ['ตั้งค่าร้าน', 'เครื่องพิมพ์', 'ซัพพลายเออร์', 'ประวัติสต็อก', '🔓 ลิ้นชัก', '💰 พนักงาน', '📢 ประกาศ', '📋 อนุมัติ']
+const TABS = ['ตั้งค่าร้าน', 'เครื่องพิมพ์', 'ซัพพลายเออร์', 'ประวัติสต็อก', '🔓 ลิ้นชัก', '💰 พนักงาน', '📢 ประกาศ', '📋 อนุมัติ', '💻 อุปกรณ์']
 
 const DEF_BILLDEE = { url: '', business_id: '', token: '', enabled: false }
 function loadBillDeeConfig() {
@@ -165,9 +167,11 @@ export default function AdminPage() {
   const [payrollLoading, setPayrollLoading] = useState(false)
   const [editRate, setEditRate]           = useState({})   // { [emp_id]: value }
   const [leaveTab, setLeaveTab]           = useState(null) // employee id for leave detail view
-  const [logoUploading, setLogoUploading]     = useState(false)
-  const [qrUploading, setQrUploading]         = useState(false)
-  const [lineQrUploading, setLineQrUploading] = useState(false)
+  const [logoUploading, setLogoUploading]         = useState(false)
+  const [qrUploading, setQrUploading]             = useState(false)
+  const [lineQrUploading, setLineQrUploading]     = useState(false)
+  const [displayVideoUploading, setDisplayVideoUploading] = useState(null) // null | 1..5
+  const [displayImgUploading, setDisplayImgUploading]     = useState(null) // null | 1 | 2 | 3
   const [announcements, setAnnouncements]     = useState([])
   const [annForm, setAnnForm]                 = useState({ title: '', body: '', type: 'info' })
   const [annSaving, setAnnSaving]             = useState(false)
@@ -359,6 +363,49 @@ export default function AdminPage() {
     } finally {
       setLineQrUploading(false)
     }
+  }
+
+  async function uploadDisplayVideo(file, slot) {
+    setDisplayVideoUploading(slot)
+    try {
+      const ext  = file.name.split('.').pop()
+      const path = `display-video-${slot}.${ext}`
+      const { error: upErr } = await supabase.storage.from('shop-assets').upload(path, file, { upsert: true })
+      if (upErr) throw upErr
+      const { data } = supabase.storage.from('shop-assets').getPublicUrl(path)
+      const url = data.publicUrl + '?t=' + Date.now()
+      const key = `display_video_${slot}`
+      await supabase.from('settings').upsert({ key, value: url }, { onConflict: 'key' })
+      setSettings(p => ({ ...p, [key]: url }))
+    } catch (e) {
+      alert('อัปโหลดไม่สำเร็จ: ' + e.message)
+    } finally {
+      setDisplayVideoUploading(null)
+    }
+  }
+
+  async function uploadDisplayImage(file, slot) {
+    setDisplayImgUploading(slot)
+    try {
+      const ext  = file.name.split('.').pop()
+      const path = `display-image-${slot}.${ext}`
+      const { error: upErr } = await supabase.storage.from('shop-assets').upload(path, file, { upsert: true })
+      if (upErr) throw upErr
+      const { data } = supabase.storage.from('shop-assets').getPublicUrl(path)
+      const url = data.publicUrl + '?t=' + Date.now()
+      const key = `display_image_${slot}`
+      await supabase.from('settings').upsert({ key, value: url }, { onConflict: 'key' })
+      setSettings(p => ({ ...p, [key]: url }))
+    } catch (e) {
+      alert('อัปโหลดไม่สำเร็จ: ' + e.message)
+    } finally {
+      setDisplayImgUploading(null)
+    }
+  }
+
+  async function clearDisplayMedia(key) {
+    await supabase.from('settings').upsert({ key, value: '' }, { onConflict: 'key' })
+    setSettings(p => ({ ...p, [key]: '' }))
   }
 
   async function saveSettings() {
@@ -781,6 +828,78 @@ export default function AdminPage() {
               🧪 ทดสอบถ่ายภาพ
             </button>
             {camTestMsg && <p className="text-xs font-semibold text-slate-600">{camTestMsg}</p>}
+          </div>
+
+          {/* ── Customer Display media ── */}
+          <div className="rounded-xl p-4 space-y-4" style={{ background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+            <div>
+              <p className="font-bold text-sm text-slate-700">📺 Customer Display — สื่อฝั่งซ้าย</p>
+              <p className="text-xs text-slate-400 mt-0.5">วีดีโอหรือรูปโปรโมชั่นที่แสดงบน tablet หน้าร้าน (ขณะรอลูกค้า)</p>
+            </div>
+
+            {/* Video upload — multiple slots */}
+            <div>
+              <label className="text-xs font-semibold text-slate-500 block mb-2">🎬 วีดีโอโปรโมชั่น (เล่นวนทีละไฟล์ สูงสุด 5 คลิป)</label>
+              <div className="flex gap-3 flex-wrap">
+                {[1, 2, 3, 4, 5].map(slot => {
+                  const key = `display_video_${slot}`
+                  const url = settings[key]
+                  const busy = displayVideoUploading === slot
+                  return (
+                    <div key={slot} className="flex flex-col items-center gap-1">
+                      {url ? (
+                        <div className="relative">
+                          <video src={url} className="h-20 w-28 object-cover rounded-xl border border-slate-200" muted />
+                          <button onClick={() => clearDisplayMedia(key)}
+                            className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center shadow">×</button>
+                          <span className="text-xs text-slate-400 text-center block">{slot}</span>
+                        </div>
+                      ) : (
+                        <label className={`cursor-pointer h-20 w-28 rounded-xl border-2 border-dashed flex flex-col items-center justify-center text-xs gap-1 transition-all
+                          ${busy ? 'border-slate-300 text-slate-400' : 'border-slate-300 text-slate-400 hover:border-brand/40 hover:text-brand'}`}>
+                          {busy ? '⏳' : <><span className="text-lg">🎬</span><span>คลิปที่ {slot}</span></>}
+                          <input type="file" accept="video/*" className="hidden" disabled={!!displayVideoUploading}
+                            onChange={e => e.target.files[0] && uploadDisplayVideo(e.target.files[0], slot)} />
+                        </label>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+              {[1,2,3,4,5].some(s => settings[`display_video_${s}`]) && (
+                <p className="text-xs text-amber-600 mt-1.5">⚠️ มีวีดีโอ → จะเล่นวนทีละคลิป แทนรูปภาพ</p>
+              )}
+            </div>
+
+            {/* Promo images */}
+            <div>
+              <label className="text-xs font-semibold text-slate-500 block mb-2">🖼️ รูปภาพโปรโมชั่น (สูงสุด 3 รูป หมุนสไลด์)</label>
+              <div className="flex gap-3 flex-wrap">
+                {[1, 2, 3].map(slot => {
+                  const key = `display_image_${slot}`
+                  const url = settings[key]
+                  const busy = displayImgUploading === slot
+                  return (
+                    <div key={slot} className="flex flex-col items-center gap-1">
+                      {url ? (
+                        <div className="relative">
+                          <img src={url} alt="" className="h-20 w-28 object-cover rounded-xl border border-slate-200" />
+                          <button onClick={() => clearDisplayMedia(key)}
+                            className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center shadow">×</button>
+                        </div>
+                      ) : (
+                        <label className={`cursor-pointer h-20 w-28 rounded-xl border-2 border-dashed flex flex-col items-center justify-center text-xs gap-1 transition-all
+                          ${busy ? 'border-slate-300 text-slate-400' : 'border-slate-300 text-slate-400 hover:border-brand/40 hover:text-brand'}`}>
+                          {busy ? '⏳' : <><span className="text-lg">+</span><span>รูปที่ {slot}</span></>}
+                          <input type="file" accept="image/*" className="hidden" disabled={!!displayImgUploading}
+                            onChange={e => e.target.files[0] && uploadDisplayImage(e.target.files[0], slot)} />
+                        </label>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
           </div>
 
           <button onClick={saveSettings} disabled={saving}
@@ -1464,6 +1583,117 @@ export default function AdminPage() {
           </div>
         </div>
       )}
+
+      {tab === 8 && (
+        <DeviceSettings />
+      )}
+    </div>
+  )
+}
+
+function DeviceSettings() {
+  const auth = useAuth()
+  const [name,  setName]  = useState(() => { try { return JSON.parse(localStorage.getItem('device_config') || '{}').terminal_name || '' } catch { return '' } })
+  const [saved, setSaved] = useState(false)
+
+  function save() {
+    const n = name.trim()
+    if (!n) return
+    localStorage.setItem('device_config', JSON.stringify({ terminal_id: n, terminal_name: n }))
+    setSaved(true); setTimeout(() => setSaved(false), 2000)
+  }
+
+  const printerCfg = (() => { try { return JSON.parse(localStorage.getItem('printer_receipt') || '{}') } catch { return {} } })()
+
+  // PIN login setup
+  const [pinNew, setPinNew]       = useState('')
+  const [pinPass, setPinPass]     = useState('')
+  const [pinStatus, setPinStatus] = useState(() => hasPinCredentials() ? 'saved' : 'none') // 'none'|'saved'|'done'
+  const [pinErr, setPinErr]       = useState('')
+
+  async function savePin() {
+    if (pinNew.length < 4) { setPinErr('PIN ต้องมีอย่างน้อย 4 หลัก'); return }
+    if (!pinPass)          { setPinErr('กรอกรหัสผ่านก่อน'); return }
+    const email = auth?.user?.email
+    if (!email)            { setPinErr('ไม่พบบัญชี'); return }
+    setPinErr('')
+    await savePinCredentials(pinNew, email, pinPass)
+    setPinNew(''); setPinPass('')
+    setPinStatus('done')
+  }
+
+  function clearPin() {
+    clearPinCredentials()
+    setPinStatus('none')
+    setPinNew(''); setPinPass(''); setPinErr('')
+  }
+
+  return (
+    <div className="max-w-sm space-y-5">
+      <h2 className="font-heading font-semibold text-slate-700 text-base">💻 อุปกรณ์เครื่องนี้</h2>
+
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-4">
+        <div>
+          <label className="text-xs font-semibold text-slate-500 block mb-1.5">ชื่อ / รหัสเครื่อง</label>
+          <input value={name} onChange={e => setName(e.target.value)}
+            placeholder="เช่น T1, เคาน์เตอร์ 1, POS-A"
+            className="w-full border-2 border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand focus:outline-none" />
+          <p className="text-xs text-slate-400 mt-1">ใช้แยกกะและยอดการเงินระหว่างเครื่อง</p>
+        </div>
+        <button onClick={save} disabled={!name.trim()}
+          className={`w-full py-2.5 rounded-xl text-sm font-bold transition-all
+            ${saved ? 'bg-emerald-600 text-white' : 'btn-primary'} disabled:opacity-40`}>
+          {saved ? '✓ บันทึกแล้ว' : 'บันทึกชื่อเครื่อง'}
+        </button>
+      </div>
+
+      {/* PIN login setup */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-700">🔢 PIN เข้าระบบ (ไม่ต้องพิมพ์)</p>
+          <p className="text-xs text-slate-400 mt-0.5">ตั้ง PIN บนเครื่องนี้เพื่อกดเข้าระบบโดยไม่ต้องใช้ keyboard</p>
+        </div>
+        {(pinStatus === 'saved' || pinStatus === 'done') ? (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5">
+              <span className="text-emerald-600">✓</span>
+              <span className="text-sm text-emerald-700 font-semibold">PIN บันทึกแล้วในเครื่องนี้</span>
+            </div>
+            <button onClick={clearPin}
+              className="w-full py-2 rounded-xl text-xs text-red-500 border border-red-100 bg-red-50 active:scale-95 transition-all">
+              ลบ PIN ออก
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs font-semibold text-slate-500 block mb-1">PIN ใหม่ (4-8 หลัก)</label>
+              <input value={pinNew} onChange={e => setPinNew(e.target.value.replace(/\D/g,'').slice(0,8))}
+                type="text" inputMode="numeric" placeholder="เช่น 1234"
+                className="w-full border-2 border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand focus:outline-none" />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 block mb-1">รหัสผ่าน Supabase ของคุณ</label>
+              <input value={pinPass} onChange={e => setPinPass(e.target.value)}
+                type="password" placeholder="••••••••" autoComplete="current-password"
+                className="w-full border-2 border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand focus:outline-none" />
+              <p className="text-xs text-slate-400 mt-1">ใส่ครั้งเดียวเพื่อเข้ารหัสและบันทึกในเครื่องนี้</p>
+            </div>
+            {pinErr && <p className="text-xs text-red-500">{pinErr}</p>}
+            <button onClick={savePin} disabled={pinNew.length < 4 || !pinPass}
+              className="w-full py-2.5 rounded-xl text-sm font-bold btn-primary disabled:opacity-40">
+              บันทึก PIN
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="bg-slate-50 rounded-2xl border border-slate-200 p-4 space-y-2">
+        <p className="text-xs font-semibold text-slate-500">เครื่องพิมพ์ใบเสร็จ (ปัจจุบัน)</p>
+        <p className="text-sm text-slate-700">IP: <span className="font-mono font-semibold">{printerCfg.ip || '-'}</span></p>
+        <p className="text-sm text-slate-700">Port: <span className="font-mono font-semibold">{printerCfg.port || '9100'}</span></p>
+        <p className="text-xs text-slate-400 mt-1">แก้ไขได้ที่แท็บ "เครื่องพิมพ์"</p>
+      </div>
     </div>
   )
 }
