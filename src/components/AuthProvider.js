@@ -72,12 +72,18 @@ export default function AuthProvider({ children }) {
     } catch {}
   }, [])
 
+  // iOS PWA standalone — client-side nav ไม่ init touch ใหม่, ต้องใช้ full reload
+  const isIOSPWA = typeof window !== 'undefined' && window.navigator.standalone === true
+
   // Routing guard
   useEffect(() => {
     if (user === undefined) return
     if (path === '/display') return  // public kiosk — no auth required
     const publicPaths = ['/login', '/checkin', '/staff', '/leave', '/advance', '/my']
-    if (!user && !publicPaths.some(p => path === p || path.startsWith(p + '/'))) { router.replace('/login'); return }
+    if (!user && !publicPaths.some(p => path === p || path.startsWith(p + '/'))) {
+      if (isIOSPWA) { window.location.replace('/login'); return }
+      router.replace('/login'); return
+    }
     if (user && path === '/login') { router.replace('/pos'); return }
 
     // Employee route restriction
