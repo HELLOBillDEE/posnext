@@ -24,16 +24,10 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden"
-      style={{ background: 'linear-gradient(135deg, #14060a 0%, #2D142C 50%, #14060a 100%)' }}>
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute w-96 h-96 rounded-full blur-3xl opacity-30 -top-20 -left-20"
-          style={{ background: 'radial-gradient(circle, #C72C41, transparent)' }} />
-        <div className="absolute w-96 h-96 rounded-full blur-3xl opacity-20 -bottom-20 -right-20"
-          style={{ background: 'radial-gradient(circle, #EE4540, transparent)' }} />
-      </div>
+    <div className="min-h-screen flex items-center justify-center p-4"
+      style={{ background: 'linear-gradient(135deg, #14060a 0%, #2D142C 50%, #14060a 100%)', position: 'relative' }}>
 
-      <div className="w-full max-w-sm relative z-10 fade-in">
+      <div className="w-full max-w-sm" style={{ position: 'relative', zIndex: 1 }}>
         <div className="text-center mb-8">
           <div className="w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-5 shadow-2xl"
             style={{ background: 'transparent', boxShadow: '0 20px 60px rgba(199,44,65,0.4)' }}>
@@ -44,25 +38,21 @@ export default function LoginPage() {
         </div>
 
         <div className="rounded-3xl p-7"
-          style={{ background: 'rgba(255,255,255,0.07)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)', border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 32px 64px rgba(0,0,0,0.3)', isolation: 'isolate', position: 'relative' }}>
+          style={{ background: 'rgba(30,10,20,0.85)', border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 32px 64px rgba(0,0,0,0.5)' }}>
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
               <label className="text-xs font-semibold text-white/50 uppercase tracking-widest block mb-2">อีเมล</label>
               <input type="email" value={email} onChange={e => setEmail(e.target.value)}
                 placeholder="your@email.com" required autoComplete="email"
-                className="w-full rounded-2xl px-4 py-3.5 text-sm outline-none text-white placeholder-white/25"
-                style={inputStyle}
-                onFocus={e => { e.target.style.background='rgba(199,44,65,0.2)'; e.target.style.borderColor='rgba(199,44,65,0.6)' }}
-                onBlur={e => { e.target.style.background='rgba(255,255,255,0.08)'; e.target.style.borderColor='rgba(255,255,255,0.12)' }} />
+                className="w-full rounded-2xl px-4 py-3.5 text-sm outline-none text-white placeholder-white/25 focus:ring-2 focus:ring-red-500/50"
+                style={{ ...inputStyle, WebkitTransform: 'translateZ(0)', position: 'relative', zIndex: 2 }} />
             </div>
             <div>
               <label className="text-xs font-semibold text-white/50 uppercase tracking-widest block mb-2">รหัสผ่าน</label>
               <input type="password" value={password} onChange={e => setPassword(e.target.value)}
                 placeholder="••••••••" required autoComplete="current-password"
-                className="w-full rounded-2xl px-4 py-3.5 text-sm outline-none text-white placeholder-white/25"
-                style={inputStyle}
-                onFocus={e => { e.target.style.background='rgba(199,44,65,0.2)'; e.target.style.borderColor='rgba(199,44,65,0.6)' }}
-                onBlur={e => { e.target.style.background='rgba(255,255,255,0.08)'; e.target.style.borderColor='rgba(255,255,255,0.12)' }} />
+                className="w-full rounded-2xl px-4 py-3.5 text-sm outline-none text-white placeholder-white/25 focus:ring-2 focus:ring-red-500/50"
+                style={{ ...inputStyle, WebkitTransform: 'translateZ(0)', position: 'relative', zIndex: 2 }} />
             </div>
             {error && (
               <div className="rounded-2xl px-4 py-3 text-sm flex items-center gap-2"
