@@ -25,11 +25,6 @@ export default function LoginPage() {
     touchAction: 'manipulation',
   }
 
-  function handleTouchEnd(e) {
-    e.preventDefault()
-    e.currentTarget.focus()
-  }
-
   return (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 9999,
@@ -55,14 +50,14 @@ export default function LoginPage() {
               <input ref={emailRef} type="text" inputMode="email" value={email} onChange={e => setEmail(e.target.value)}
                 placeholder="your@email.com" required autoComplete="email"
                 className="w-full rounded-2xl px-4 py-3.5 text-sm outline-none text-white placeholder-white/25 focus:ring-2 focus:ring-red-500/50"
-                style={inputStyle} onTouchEnd={handleTouchEnd} />
+                style={inputStyle} />
             </div>
             <div>
               <label className="text-xs font-semibold text-white/50 uppercase tracking-widest block mb-2">รหัสผ่าน</label>
               <input type="password" value={password} onChange={e => setPassword(e.target.value)}
                 placeholder="••••••••" required autoComplete="current-password"
                 className="w-full rounded-2xl px-4 py-3.5 text-sm outline-none text-white placeholder-white/25 focus:ring-2 focus:ring-red-500/50"
-                style={inputStyle} onTouchEnd={handleTouchEnd} />
+                style={inputStyle} />
             </div>
             {error && (
               <div className="rounded-2xl px-4 py-3 text-sm flex items-center gap-2"
