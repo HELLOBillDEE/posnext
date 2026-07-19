@@ -27,7 +27,7 @@ export default function LoginPage() {
 
   return (
     <div style={{
-      position: 'fixed', inset: 0, zIndex: 9999,
+      minHeight: '100svh',
       background: 'linear-gradient(135deg, #14060a 0%, #2D142C 50%, #14060a 100%)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px',
     }}>
