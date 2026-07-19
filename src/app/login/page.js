@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 
 export default function LoginPage() {
@@ -7,6 +7,14 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError]       = useState('')
   const [loading, setLoading]   = useState(false)
+  const emailRef = useRef(null)
+
+  // iOS PWA standalone — warmup touch handling หลัง redirect
+  useEffect(() => {
+    const noop = () => {}
+    document.addEventListener('touchstart', noop, { passive: true })
+    return () => document.removeEventListener('touchstart', noop)
+  }, [])
 
   async function handleLogin(e) {
     e.preventDefault()
@@ -42,17 +50,19 @@ export default function LoginPage() {
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
               <label className="text-xs font-semibold text-white/50 uppercase tracking-widest block mb-2">อีเมล</label>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+              <input ref={emailRef} type="email" value={email} onChange={e => setEmail(e.target.value)}
                 placeholder="your@email.com" required autoComplete="email"
                 className="w-full rounded-2xl px-4 py-3.5 text-sm outline-none text-white placeholder-white/25 focus:ring-2 focus:ring-red-500/50"
-                style={{ ...inputStyle, WebkitTransform: 'translateZ(0)', position: 'relative', zIndex: 2 }} />
+                style={{ ...inputStyle, WebkitTransform: 'translateZ(0)', position: 'relative', zIndex: 2 }}
+                onTouchStart={e => e.currentTarget.focus()} />
             </div>
             <div>
               <label className="text-xs font-semibold text-white/50 uppercase tracking-widest block mb-2">รหัสผ่าน</label>
               <input type="password" value={password} onChange={e => setPassword(e.target.value)}
                 placeholder="••••••••" required autoComplete="current-password"
                 className="w-full rounded-2xl px-4 py-3.5 text-sm outline-none text-white placeholder-white/25 focus:ring-2 focus:ring-red-500/50"
-                style={{ ...inputStyle, WebkitTransform: 'translateZ(0)', position: 'relative', zIndex: 2 }} />
+                style={{ ...inputStyle, WebkitTransform: 'translateZ(0)', position: 'relative', zIndex: 2 }}
+                onTouchStart={e => e.currentTarget.focus()} />
             </div>
             {error && (
               <div className="rounded-2xl px-4 py-3 text-sm flex items-center gap-2"
