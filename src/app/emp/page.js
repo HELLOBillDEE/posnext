@@ -664,6 +664,8 @@ function StockCountTab({ empName }) {
   const inputRef    = useRef(null)
   const productsRef = useRef([])
   const scannerRef  = useRef(null)
+  const videoRef    = useRef(null)
+  const rafRef      = useRef(null)
 
   useEffect(() => { productsRef.current = products }, [products])
 
@@ -742,35 +744,66 @@ function StockCountTab({ empName }) {
 
   async function openCamera() {
     setCameraOpen(true)
-    await new Promise(r => setTimeout(r, 300))
+    await new Promise(r => setTimeout(r, 200))
     try {
-      const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import('html5-qrcode')
-      const scanner = new Html5Qrcode('emp-stock-qr-reader', {
-        formatsToSupport: [
-          Html5QrcodeSupportedFormats.EAN_13,
-          Html5QrcodeSupportedFormats.EAN_8,
-          Html5QrcodeSupportedFormats.CODE_128,
-          Html5QrcodeSupportedFormats.CODE_39,
-          Html5QrcodeSupportedFormats.UPC_A,
-          Html5QrcodeSupportedFormats.UPC_E,
-          Html5QrcodeSupportedFormats.QR_CODE,
-        ],
-        verbose: false,
-        experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
       })
-      scannerRef.current = scanner
-      await scanner.start(
-        { facingMode: 'environment' },
-        { fps: 15, qrbox: (w, h) => {
-          const size = Math.min(w, h)
-          return { width: Math.round(size * 0.8), height: Math.round(size * 0.4) }
-        }},
-        (text) => {
-          processBarcode(text)
-          if (navigator.vibrate) navigator.vibrate(80)
-        },
-        () => {}
-      )
+      scannerRef.current = stream
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        await videoRef.current.play()
+      }
+
+      // ใช้ native BarcodeDetector (iOS 17+, Android Chrome, Desktop Chrome)
+      if ('BarcodeDetector' in window) {
+        const detector = new window.BarcodeDetector({
+          formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'qr_code'],
+        })
+        let lastCode = ''
+        let lastTime = 0
+        const scan = async () => {
+          if (!videoRef.current || videoRef.current.readyState < 2) {
+            rafRef.current = requestAnimationFrame(scan); return
+          }
+          try {
+            const results = await detector.detect(videoRef.current)
+            if (results.length > 0) {
+              const code = results[0].rawValue
+              const now = Date.now()
+              if (code !== lastCode || now - lastTime > 2000) {
+                lastCode = code; lastTime = now
+                processBarcode(code)
+                if (navigator.vibrate) navigator.vibrate(80)
+              }
+            }
+          } catch {}
+          rafRef.current = requestAnimationFrame(scan)
+        }
+        rafRef.current = requestAnimationFrame(scan)
+      } else {
+        // fallback: html5-qrcode สำหรับ iOS 16 / Firefox
+        const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import('html5-qrcode')
+        // หยุด stream ก่อนให้ html5-qrcode จัดการเอง
+        stream.getTracks().forEach(t => t.stop())
+        scannerRef.current = null
+        const scanner = new Html5Qrcode('emp-stock-qr-reader', {
+          formatsToSupport: [
+            Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8,
+            Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.CODE_39,
+            Html5QrcodeSupportedFormats.UPC_A, Html5QrcodeSupportedFormats.UPC_E,
+            Html5QrcodeSupportedFormats.QR_CODE,
+          ],
+          verbose: false,
+        })
+        scannerRef.current = scanner
+        await scanner.start(
+          { facingMode: 'environment' },
+          { fps: 15, qrbox: (w, h) => ({ width: Math.round(Math.min(w,h) * 0.8), height: Math.round(Math.min(w,h) * 0.4) }) },
+          (text) => { processBarcode(text); if (navigator.vibrate) navigator.vibrate(80) },
+          () => {}
+        )
+      }
     } catch (e) {
       flash('เปิดกล้องไม่ได้: ' + (e?.message || 'ไม่รองรับ'), false)
       setCameraOpen(false)
@@ -778,13 +811,19 @@ function StockCountTab({ empName }) {
   }
 
   async function closeCamera() {
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
     try {
       if (scannerRef.current) {
-        await scannerRef.current.stop()
-        scannerRef.current.clear()
+        if (scannerRef.current instanceof MediaStream) {
+          scannerRef.current.getTracks().forEach(t => t.stop())
+        } else {
+          await scannerRef.current.stop()
+          scannerRef.current.clear()
+        }
         scannerRef.current = null
       }
     } catch {}
+    if (videoRef.current) { videoRef.current.srcObject = null }
     setCameraOpen(false)
     inputRef.current?.focus()
   }
@@ -919,8 +958,14 @@ function StockCountTab({ empName }) {
     <div className="flex flex-col h-full">
       {/* Camera */}
       {cameraOpen && (
-        <div className="relative flex-shrink-0 overflow-hidden" style={{ height: '45vh', minHeight: 220 }}>
-          <div id="emp-stock-qr-reader" className="w-full h-full" />
+        <div className="relative flex-shrink-0 overflow-hidden bg-black" style={{ height: '45vh', minHeight: 220 }}>
+          {/* native BarcodeDetector path — video element */}
+          <video ref={videoRef} playsInline muted autoPlay
+            className="w-full h-full object-cover"
+            style={{ display: 'BarcodeDetector' in (typeof window !== 'undefined' ? window : {}) ? 'block' : 'none' }} />
+          {/* html5-qrcode fallback */}
+          <div id="emp-stock-qr-reader" className="w-full h-full"
+            style={{ display: 'BarcodeDetector' in (typeof window !== 'undefined' ? window : {}) ? 'none' : 'block' }} />
           <div className="absolute top-0 left-0 right-0 z-10 flex items-center px-4 pt-3 pb-6 pointer-events-none"
             style={{ background: 'linear-gradient(to bottom,rgba(0,0,0,0.6),transparent)' }}>
             <span className="text-white text-sm font-medium">📷 จ่อกล้องที่บาร์โค้ด</span>
