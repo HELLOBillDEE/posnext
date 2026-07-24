@@ -756,11 +756,15 @@ function StockCountTab({ empName }) {
           Html5QrcodeSupportedFormats.QR_CODE,
         ],
         verbose: false,
+        experimentalFeatures: { useBarCodeDetectorIfSupported: true },
       })
       scannerRef.current = scanner
       await scanner.start(
         { facingMode: 'environment' },
-        { fps: 10, qrbox: (w, h) => ({ width: Math.round(w * 0.85), height: Math.round(h * 0.35) }) },
+        { fps: 15, qrbox: (w, h) => {
+          const size = Math.min(w, h)
+          return { width: Math.round(size * 0.8), height: Math.round(size * 0.4) }
+        }},
         (text) => {
           processBarcode(text)
           if (navigator.vibrate) navigator.vibrate(80)
