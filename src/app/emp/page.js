@@ -161,13 +161,19 @@ function ProductsTab({ printerCfg, empName }) {
   const [printMsg, setPrintMsg]       = useState(null)
   const [labelSize, setLabelSize]     = useState({ pw: 100, ph: 25, cols: 3 })
   // order mode
-  const [mode, setMode]               = useState('print') // 'print' | 'order'
+  const [mode, setMode]               = useState('print') // 'print' | 'order' | 'withdraw'
   const [orderSelected, setOrderSelected] = useState(new Set())
   const [showLowOnly, setShowLowOnly] = useState(true)
   const [orderModal, setOrderModal]   = useState(false)
   const [orderNote, setOrderNote]     = useState('')
   const [isSending, setIsSending]     = useState(false)
   const [sendMsg, setSendMsg]         = useState(null)
+  // withdraw mode
+  const [withdrawModal, setWithdrawModal]   = useState(false)
+  const [withdrawType, setWithdrawType]     = useState('ใช้ในร้าน')
+  const [withdrawNote, setWithdrawNote]     = useState('')
+  const [isWithdrawing, setIsWithdrawing]   = useState(false)
+  const [withdrawMsg, setWithdrawMsg]       = useState(null)
 
   useEffect(() => {
     async function loadAll() {
@@ -246,6 +252,46 @@ function ProductsTab({ printerCfg, empName }) {
     setIsSending(false)
   }
 
+  async function submitWithdraw() {
+    if (!Object.keys(selected).length) return
+    setIsWithdrawing(true)
+    setWithdrawMsg(null)
+    try {
+      const items = Object.entries(selected).map(([pid, qty]) => {
+        const p = products.find(x => String(x.id) === String(pid))
+        return p ? { ...p, withdrawQty: qty } : null
+      }).filter(Boolean)
+
+      await Promise.all(items.map(p =>
+        supabase.from('products').update({ stock: Math.max(0, Number(p.stock) - p.withdrawQty) }).eq('id', p.id)
+      ))
+      await Promise.all(items.map(p =>
+        supabase.from('stock_history').insert({
+          product_id: p.id, product_name: p.name,
+          qty_before: Number(p.stock),
+          qty_change: -p.withdrawQty,
+          qty_after: Math.max(0, Number(p.stock) - p.withdrawQty),
+          type: 'withdraw',
+          note: `เบิก${withdrawType}${withdrawNote ? ` — ${withdrawNote}` : ''}`,
+          created_by: empName || '',
+        })
+      ))
+      // อัปเดต stock ใน local state
+      setProducts(prev => prev.map(p => {
+        const item = items.find(x => String(x.id) === String(p.id))
+        if (!item) return p
+        return { ...p, stock: Math.max(0, Number(p.stock) - item.withdrawQty) }
+      }))
+      setWithdrawMsg({ ok: true, text: `✓ เบิก ${items.length} รายการแล้ว` })
+      setSelected({})
+      setWithdrawNote('')
+      setTimeout(() => { setWithdrawModal(false); setWithdrawMsg(null) }, 2000)
+    } catch (e) {
+      setWithdrawMsg({ ok: false, text: e.message || 'เบิกสินค้าไม่ได้' })
+    }
+    setIsWithdrawing(false)
+  }
+
   async function handlePrint() {
     if (!printerCfg || printing || selCount === 0) return
     setPrinting(true)
@@ -286,14 +332,18 @@ function ProductsTab({ printerCfg, empName }) {
       {/* Top bar */}
       <div className="px-3 pt-3 pb-2 bg-white border-b border-slate-100 flex-shrink-0">
         {/* Mode toggle */}
-        <div className="flex gap-1.5 mb-2 p-1 bg-slate-100 rounded-xl">
-          <button onClick={() => { setMode('print'); setSearch('') }}
+        <div className="flex gap-1 mb-2 p-1 bg-slate-100 rounded-xl">
+          <button onClick={() => { setMode('print'); setSearch(''); setSelected({}) }}
             className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${mode === 'print' ? 'bg-white shadow text-slate-700' : 'text-slate-400'}`}>
-            🖨️ พิมบาร์โค้ด
+            🖨️ พิม
+          </button>
+          <button onClick={() => { setMode('withdraw'); setSearch(''); setSelected({}) }}
+            className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${mode === 'withdraw' ? 'bg-white shadow text-emerald-600' : 'text-slate-400'}`}>
+            📦 เบิก
           </button>
           <button onClick={() => { setMode('order'); setSearch('') }}
             className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${mode === 'order' ? 'bg-white shadow text-brand' : 'text-slate-400'}`}>
-            🛒 สั่งซื้อ{lowCount > 0 ? ` (${lowCount})` : ''}
+            🛒 สั่ง{lowCount > 0 ? `(${lowCount})` : ''}
           </button>
         </div>
 
@@ -321,6 +371,19 @@ function ProductsTab({ printerCfg, empName }) {
           <p className={`text-sm text-center mt-2 font-medium ${printMsg.ok ? 'text-green-600' : 'text-red-500'}`}>
             {printMsg.ok ? '✓' : '✗'} {printMsg.text}
           </p>
+        )}
+
+        {/* Withdraw mode controls */}
+        {mode === 'withdraw' && selCount > 0 && (
+          <div className="flex items-center gap-2 mt-2">
+            <button onClick={() => setWithdrawModal(true)}
+              className="flex-1 py-2.5 rounded-xl font-bold text-white text-sm active:scale-[0.98] transition-all"
+              style={{ background: 'linear-gradient(135deg,#059669,#047857)' }}>
+              📦 เบิก {totalLabels} ชิ้น ({selCount} ชนิด)
+            </button>
+            <button onClick={() => setSelected({})}
+              className="px-3 py-2.5 rounded-xl text-slate-500 text-sm border border-slate-200">ยกเลิก</button>
+          </div>
         )}
 
         {/* Order mode filter */}
@@ -385,6 +448,47 @@ function ProductsTab({ printerCfg, empName }) {
         </div>
       )}
 
+      {/* Withdraw mode — product list (reuses filtered + selected) */}
+      {mode === 'withdraw' && (
+        <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1.5">
+          {filtered.length === 0
+            ? <p className="text-center text-slate-400 py-16 text-sm">{products.length === 0 ? 'กำลังโหลด...' : 'ไม่พบสินค้า'}</p>
+            : filtered.map(p => {
+              const isSelected = !!selected[p.id]
+              return (
+                <div key={p.id} onClick={() => toggleSelect(p.id)}
+                  className={`bg-white rounded-xl p-3 shadow-sm flex items-center gap-3 active:scale-[0.99] transition-all cursor-pointer ${isSelected ? 'ring-2 ring-emerald-400/60' : ''}`}>
+                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 text-xs font-bold transition-all`}
+                    style={isSelected ? { background: 'linear-gradient(135deg,#059669,#047857)', color: '#fff' } : { background: 'rgba(5,150,105,0.1)', color: '#059669' }}>
+                    {isSelected ? '✓' : p.name[0]}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-slate-800 text-sm leading-tight truncate">{p.name}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">{p.barcode || '—'}</p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-xs text-slate-500">฿{fmtPrice(p.price)}</p>
+                    <p className={`text-xs font-semibold mt-0.5 ${Number(p.stock) <= 0 ? 'text-red-500' : 'text-slate-500'}`}>
+                      สต็อก {fmt(p.stock)} {p.unit || 'ชิ้น'}
+                    </p>
+                  </div>
+                  {isSelected && (
+                    <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                      <button onPointerDown={e => { e.stopPropagation(); adjustQty(p.id, -1) }}
+                        className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 font-bold text-lg flex items-center justify-center active:scale-90">−</button>
+                      <span className="w-8 text-center text-base font-bold text-emerald-600">{selected[p.id]}</span>
+                      <button onPointerDown={e => { e.stopPropagation(); adjustQty(p.id, 1) }}
+                        className="w-8 h-8 rounded-full font-bold text-lg flex items-center justify-center active:scale-90"
+                        style={{ background: 'rgba(5,150,105,0.12)', color: '#059669' }}>+</button>
+                    </div>
+                  )}
+                </div>
+              )
+            })
+          }
+        </div>
+      )}
+
       {/* Order mode — low-stock list */}
       {mode === 'order' && (
         <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1.5">
@@ -418,6 +522,72 @@ function ProductsTab({ printerCfg, empName }) {
               )
             })
           }
+        </div>
+      )}
+
+      {/* ── Withdraw Modal ── */}
+      {withdrawModal && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40" onClick={() => setWithdrawModal(false)}>
+          <div className="bg-white w-full max-w-md rounded-t-2xl shadow-2xl flex flex-col" style={{ maxHeight: '85vh' }} onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+              <div>
+                <p className="font-bold text-slate-700">📦 เบิกสินค้าใช้ในร้าน</p>
+                <p className="text-xs text-slate-400 mt-0.5">สต็อกจะถูกหักทันที และบันทึกประวัติ</p>
+              </div>
+              <button onClick={() => setWithdrawModal(false)} className="text-slate-400 text-xl">✕</button>
+            </div>
+
+            {/* Type selector */}
+            <div className="px-4 pt-3 pb-1 flex gap-2">
+              {['ร้านซ่อม', 'ใช้ในร้าน', 'กรอกแบ่ง'].map(t => (
+                <button key={t} onClick={() => setWithdrawType(t)}
+                  className={`flex-1 py-2 rounded-xl text-xs font-bold border transition-all ${withdrawType === t ? 'text-white border-transparent' : 'bg-white border-slate-200 text-slate-500'}`}
+                  style={withdrawType === t ? { background: 'linear-gradient(135deg,#059669,#047857)' } : {}}>
+                  {t === 'ร้านซ่อม' ? '🔧 ร้านซ่อม' : t === 'ใช้ในร้าน' ? '🏪 ใช้ในร้าน' : '📂 กรอกแบ่ง'}
+                </button>
+              ))}
+            </div>
+
+            {/* Item list */}
+            <div className="overflow-y-auto flex-1 px-3 py-2 space-y-1.5">
+              {Object.entries(selected).map(([pid, qty]) => {
+                const p = products.find(x => String(x.id) === String(pid))
+                if (!p) return null
+                return (
+                  <div key={pid} className="bg-slate-50 rounded-xl px-3 py-2.5 flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-slate-700 text-sm truncate">{p.name}</p>
+                      <p className="text-[11px] text-slate-400">{p.barcode || '—'} · สต็อก {fmt(p.stock)} {p.unit || 'ชิ้น'}</p>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button onPointerDown={e => { e.stopPropagation(); adjustQty(p.id, -1) }}
+                        className="w-7 h-7 rounded-full bg-slate-200 text-slate-600 font-bold flex items-center justify-center active:scale-90">−</button>
+                      <span className="w-8 text-center font-bold text-emerald-600 text-sm">{qty}</span>
+                      <button onPointerDown={e => { e.stopPropagation(); adjustQty(p.id, 1) }}
+                        className="w-7 h-7 rounded-full font-bold flex items-center justify-center active:scale-90"
+                        style={{ background: 'rgba(5,150,105,0.15)', color: '#059669' }}>+</button>
+                    </div>
+                    <button onClick={() => toggleSelect(p.id)} className="text-slate-300 active:text-red-400 text-base px-1">✕</button>
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="p-4 border-t border-slate-100 space-y-2.5">
+              <textarea value={withdrawNote} onChange={e => setWithdrawNote(e.target.value)}
+                placeholder="หมายเหตุ เช่น ซ่อม iPhone ลูกค้า / แบ่งใส่ถุง (ไม่บังคับ)"
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:border-emerald-400"
+                rows={2} />
+              {withdrawMsg && (
+                <p className={`text-sm text-center font-medium ${withdrawMsg.ok ? 'text-emerald-600' : 'text-red-500'}`}>{withdrawMsg.text}</p>
+              )}
+              <button onClick={submitWithdraw} disabled={isWithdrawing || !Object.keys(selected).length}
+                className="w-full py-3.5 rounded-xl font-bold text-white text-sm disabled:opacity-40 active:scale-95 transition-all"
+                style={{ background: 'linear-gradient(135deg,#059669,#047857)' }}>
+                {isWithdrawing ? '⏳ กำลังบันทึก...' : `📦 ยืนยันเบิก${withdrawType} ${totalLabels} ชิ้น`}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
