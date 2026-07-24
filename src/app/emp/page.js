@@ -768,28 +768,25 @@ function StockCountTab({ empName }) {
 
         const detector = new window.BarcodeDetector({ formats: supportedFormats.length ? supportedFormats : ['qr_code'] })
 
-        await new Promise(r => setTimeout(r, 150))
         if (videoRef.current) {
           videoRef.current.srcObject = stream
+          // รอให้ video มี dimensions จริงก่อน play
+          await new Promise(res => {
+            if (videoRef.current.readyState >= 1) { res(); return }
+            videoRef.current.onloadedmetadata = res
+          })
           await videoRef.current.play()
-          setCamDbg(`video playing | ${videoRef.current.videoWidth}x${videoRef.current.videoHeight}`)
+          setCamDbg(`playing ${videoRef.current.videoWidth}x${videoRef.current.videoHeight}`)
         }
 
-        let lastCode = '', lastTime = 0, frameCount = 0
+        let lastCode = '', lastTime = 0, scanning = false
         const scan = async () => {
           const vid = videoRef.current
-          const cvs = canvasRef.current
-          frameCount++
-          if (!vid || vid.readyState < 2 || !cvs) {
-            if (frameCount % 30 === 0) setCamDbg(`รอ video… readyState=${vid?.readyState}`)
-            rafRef.current = requestAnimationFrame(scan); return
-          }
-          cvs.width = vid.videoWidth || 640
-          cvs.height = vid.videoHeight || 480
-          cvs.getContext('2d').drawImage(vid, 0, 0)
-          if (frameCount % 60 === 0) setCamDbg(`scanning… ${cvs.width}x${cvs.height}`)
+          if (!vid || vid.readyState < 2 || vid.videoWidth === 0 || scanning) return
+          scanning = true
           try {
-            const results = await detector.detect(cvs)
+            // detect จาก video โดยตรง (ดีกว่า canvas บน iOS)
+            const results = await detector.detect(vid)
             if (results.length > 0) {
               const code = results[0].rawValue
               const now = Date.now()
@@ -799,10 +796,12 @@ function StockCountTab({ empName }) {
                 if (navigator.vibrate) navigator.vibrate(80)
               }
             }
-          } catch (de) { if (frameCount % 60 === 0) setCamDbg('detect err: ' + de.message) }
-          rafRef.current = requestAnimationFrame(scan)
+          } catch {}
+          scanning = false
         }
-        rafRef.current = requestAnimationFrame(scan)
+        // setInterval เสถียรกว่า rAF บน iOS Safari PWA
+        const ivId = setInterval(scan, 250)
+        rafRef.current = { cancel: () => clearInterval(ivId) }
 
       } else {
         setCamDbg('ไม่มี BarcodeDetector → ใช้ html5-qrcode')
@@ -828,7 +827,11 @@ function StockCountTab({ empName }) {
   }
 
   async function closeCamera() {
-    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
+    if (rafRef.current) {
+      if (typeof rafRef.current.cancel === 'function') rafRef.current.cancel()
+      else cancelAnimationFrame(rafRef.current)
+      rafRef.current = null
+    }
     try {
       if (scannerRef.current instanceof MediaStream) {
         scannerRef.current.getTracks().forEach(t => t.stop())
