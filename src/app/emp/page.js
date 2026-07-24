@@ -652,6 +652,7 @@ function StockCountTab({ empName }) {
   const [nameSuggs, setNameSuggs]   = useState([])
   const [lastMsg, setLastMsg]       = useState(null)
   const [cameraOpen, setCameraOpen] = useState(false)
+  const [camDbg, setCamDbg]         = useState('')
   // session save/load
   const [sessionId, setSessionId]     = useState(null)
   const [sessions, setSessions]       = useState([])
@@ -750,36 +751,43 @@ function StockCountTab({ empName }) {
     setCameraOpen(true)
     await new Promise(r => setTimeout(r, 200))
     try {
+      setCamDbg('กำลังขอสิทธิ์กล้อง…')
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
       })
       scannerRef.current = stream
+      setCamDbg('ได้สิทธิ์กล้องแล้ว')
 
       if ('BarcodeDetector' in window) {
-        // ── native BarcodeDetector (iOS 17+, Android Chrome) ──
-        let supportedFormats = ['ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'qr_code']
+        let supportedFormats = ['ean_13','ean_8','code_128','code_39','upc_a','upc_e','qr_code']
         try {
           const all = await window.BarcodeDetector.getSupportedFormats()
           supportedFormats = supportedFormats.filter(f => all.includes(f))
-        } catch {}
+          setCamDbg(`BD: ${supportedFormats.join(',')}`)
+        } catch (e2) { setCamDbg('getSupportedFormats err: ' + e2.message) }
+
         const detector = new window.BarcodeDetector({ formats: supportedFormats.length ? supportedFormats : ['qr_code'] })
 
-        await new Promise(r => setTimeout(r, 100))
+        await new Promise(r => setTimeout(r, 150))
         if (videoRef.current) {
           videoRef.current.srcObject = stream
           await videoRef.current.play()
+          setCamDbg(`video playing | ${videoRef.current.videoWidth}x${videoRef.current.videoHeight}`)
         }
 
-        let lastCode = '', lastTime = 0
+        let lastCode = '', lastTime = 0, frameCount = 0
         const scan = async () => {
           const vid = videoRef.current
           const cvs = canvasRef.current
+          frameCount++
           if (!vid || vid.readyState < 2 || !cvs) {
+            if (frameCount % 30 === 0) setCamDbg(`รอ video… readyState=${vid?.readyState}`)
             rafRef.current = requestAnimationFrame(scan); return
           }
           cvs.width = vid.videoWidth || 640
           cvs.height = vid.videoHeight || 480
           cvs.getContext('2d').drawImage(vid, 0, 0)
+          if (frameCount % 60 === 0) setCamDbg(`scanning… ${cvs.width}x${cvs.height}`)
           try {
             const results = await detector.detect(cvs)
             if (results.length > 0) {
@@ -791,34 +799,29 @@ function StockCountTab({ empName }) {
                 if (navigator.vibrate) navigator.vibrate(80)
               }
             }
-          } catch {}
+          } catch (de) { if (frameCount % 60 === 0) setCamDbg('detect err: ' + de.message) }
           rafRef.current = requestAnimationFrame(scan)
         }
         rafRef.current = requestAnimationFrame(scan)
 
       } else {
-        // ── fallback: html5-qrcode (iOS 16, Firefox) ──
+        setCamDbg('ไม่มี BarcodeDetector → ใช้ html5-qrcode')
         stream.getTracks().forEach(t => t.stop())
         scannerRef.current = null
         const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import('html5-qrcode')
-        const scanner = new Html5Qrcode('emp-stock-qr-reader', {
-          formatsToSupport: [
-            Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8,
+        const scanner = new Html5Qrcode('emp-stock-qr-reader', { verbose: false,
+          formatsToSupport: [Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8,
             Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.CODE_39,
-            Html5QrcodeSupportedFormats.UPC_A, Html5QrcodeSupportedFormats.UPC_E,
-            Html5QrcodeSupportedFormats.QR_CODE,
-          ],
-          verbose: false,
+            Html5QrcodeSupportedFormats.UPC_A, Html5QrcodeSupportedFormats.UPC_E, Html5QrcodeSupportedFormats.QR_CODE],
         })
         scannerRef.current = scanner
-        await scanner.start(
-          { facingMode: 'environment' },
-          { fps: 15, qrbox: (w, h) => ({ width: Math.round(Math.min(w,h) * 0.8), height: Math.round(Math.min(w,h) * 0.4) }) },
-          (text) => { processBarcode(text); if (navigator.vibrate) navigator.vibrate(80) },
-          () => {}
+        await scanner.start({ facingMode: 'environment' },
+          { fps: 15, qrbox: (w, h) => ({ width: Math.round(Math.min(w,h)*0.8), height: Math.round(Math.min(w,h)*0.4) }) },
+          (text) => { processBarcode(text); if (navigator.vibrate) navigator.vibrate(80) }, () => {}
         )
       }
     } catch (e) {
+      setCamDbg('ERROR: ' + e.message)
       flash('เปิดกล้องไม่ได้: ' + (e?.message || 'ไม่รองรับ'), false)
       setCameraOpen(false)
     }
@@ -986,6 +989,9 @@ function StockCountTab({ empName }) {
           <button onClick={closeCamera}
             className="absolute top-3 right-3 z-20 text-white text-xl font-bold w-8 h-8 flex items-center justify-center active:opacity-60"
             style={{ background: 'rgba(0,0,0,0.4)', borderRadius: 20 }}>✕</button>
+          {camDbg ? (
+            <div className="absolute bottom-10 left-2 right-2 z-10 bg-black/70 text-white text-[10px] px-2 py-1 rounded break-all">{camDbg}</div>
+          ) : null}
           {lastMsg && (
             <div className={`absolute bottom-3 left-3 right-3 z-10 py-2.5 px-4 rounded-2xl text-center font-bold text-sm shadow-lg ${lastMsg.ok ? 'bg-green-500 text-white' : 'bg-red-500 text-white'}`}>
               {lastMsg.text}
