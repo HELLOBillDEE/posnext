@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 
+const DOW_TH  = ['อา','จ','อ','พ','พฤ','ศ','ส']
 const KEYS    = ['1','2','3','4','5','6','7','8','9','⌫','0','✓']
 const PALETTE = ['bg-brand','bg-blue-500','bg-emerald-500','bg-amber-500','bg-purple-500','bg-pink-500']
 const STATUS  = {
@@ -33,6 +34,67 @@ function Numpad({ onKey, confirmDisabled, loading }) {
           {loading && k==='✓' ? '…' : k}
         </button>
       ))}
+    </div>
+  )
+}
+
+function AttendanceCal({ monthAtt, leaves, year, month }) {
+  const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' })
+  const firstDow = new Date(year, month - 1, 1).getDay() // 0=Sun
+  const daysInMonth = new Date(year, month, 0).getDate()
+
+  const attMap = {}
+  ;(monthAtt || []).forEach(a => { attMap[a.date] = a })
+
+  const leaveMap = {}
+  ;(leaves || []).filter(l => l.status === 'approved').forEach(l => {
+    let d = new Date(l.date_from + 'T00:00:00')
+    const end = new Date(l.date_to + 'T00:00:00')
+    while (d <= end) {
+      leaveMap[d.toLocaleDateString('sv-SE')] = l.leave_period || 'full'
+      d.setDate(d.getDate() + 1)
+    }
+  })
+
+  const cells = []
+  for (let i = 0; i < firstDow; i++) cells.push(null)
+  for (let d = 1; d <= daysInMonth; d++) {
+    const ds = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+    cells.push({ d, ds, att: attMap[ds], leave: leaveMap[ds], future: ds > todayStr })
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-100 p-4">
+      <div className="grid grid-cols-7 gap-1 mb-1">
+        {DOW_TH.map(d => (
+          <div key={d} className="text-center text-[10px] text-slate-400 font-semibold py-0.5">{d}</div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-1">
+        {cells.map((cell, i) => {
+          if (!cell) return <div key={i} />
+          const { d, ds, att, leave, future } = cell
+          const isToday = ds === todayStr
+          let bg = future ? 'bg-slate-50 text-slate-300'
+            : att?.check_in ? (att.check_out ? 'bg-green-100 text-green-700' : 'bg-amber-50 text-amber-600')
+            : leave === 'full' ? 'bg-blue-50 text-blue-500'
+            : leave ? 'bg-blue-50/70 text-blue-400'
+            : 'bg-red-50 text-red-400'
+          return (
+            <div key={i} className={`rounded-lg py-1.5 text-center text-xs font-semibold ${bg} ${isToday ? 'ring-2 ring-brand ring-offset-1' : ''}`}>
+              {d}
+            </div>
+          )
+        })}
+      </div>
+      <div className="flex gap-3 mt-3 flex-wrap">
+        {[['bg-green-100','มา'],['bg-blue-50','ลา'],['bg-red-50','ขาด'],['bg-amber-50','ยังไม่ออก']].map(([cls,lbl]) => (
+          <div key={lbl} className="flex items-center gap-1">
+            <div className={`w-3 h-3 rounded ${cls} border border-slate-100`} />
+            <span className="text-[10px] text-slate-400">{lbl}</span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -83,6 +145,8 @@ export default function StaffPage() {
   const [profMsg,    setProfMsg]    = useState(null)
   /* announcements */
   const [announcements, setAnnouncements] = useState([])
+  /* attendance calendar month (current month only) */
+  const calMonth = (() => { const now = new Date(); return { y: now.getFullYear(), m: now.getMonth() + 1 } })()
   /* liff */
   const lineUserIdRef = useRef(null)
   /* self-registration */
@@ -1054,7 +1118,20 @@ ${sd.carryForwardIn > 0 ? `<div class="row"><span>ทบจากเดือน
 
         {/* Tab: ประวัติ (รวม) */}
         {tab==='history' && (
-          <div className="space-y-2">
+          <div className="space-y-3">
+            {/* ── ตารางเข้างานแบบเดือน ── */}
+            <div>
+              <p className="text-xs font-bold text-slate-500 mb-2">
+                ตารางเข้างาน — {new Date(calMonth.y, calMonth.m - 1, 1).toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })}
+              </p>
+              <AttendanceCal
+                monthAtt={data?.recentAtt || []}
+                leaves={data?.leaves || []}
+                year={calMonth.y}
+                month={calMonth.m}
+              />
+            </div>
+            <div className="space-y-2">
             {historyItems.length===0 && <p className="text-center text-slate-300 py-8 text-sm">ยังไม่มีประวัติ</p>}
             {historyItems.map((item, i) => {
               if (item._type==='att') return (
@@ -1097,6 +1174,7 @@ ${sd.carryForwardIn > 0 ? `<div class="row"><span>ทบจากเดือน
               )
               return null
             })}
+            </div>
           </div>
         )}
 

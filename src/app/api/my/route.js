@@ -26,7 +26,7 @@ export async function POST(req) {
       supabase.from('attendance').select('check_in, check_out, date, status')
         .eq('employee_id', emp.id).eq('date', today).maybeSingle(),
       supabase.from('attendance').select('date, check_in, check_out, status')
-        .eq('employee_id', emp.id).order('date', { ascending: false }).limit(14),
+        .eq('employee_id', emp.id).gte('date', today.slice(0, 7) + '-01').lte('date', today).order('date', { ascending: true }),
       supabase.from('leave_requests').select('id, leave_type, leave_period, date_from, date_to, note, status, requested_at')
         .eq('employee_id', emp.id).order('requested_at', { ascending: false }).limit(20),
       supabase.from('salary_advances').select('id, amount, note, status, requested_at')
