@@ -3,7 +3,7 @@ import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import Nav from '@/components/Nav'
 
-const NO_NAV = ['/login', '/display', '/checkin', '/emp']
+const NO_NAV = ['/login', '/display', '/checkin', '/emp', '/staff']
 
 export default function LayoutNav() {
   const path = usePathname()
