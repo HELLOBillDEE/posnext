@@ -665,7 +665,11 @@ function StockCountTab({ empName }) {
   const productsRef = useRef([])
   const scannerRef  = useRef(null)
   const videoRef    = useRef(null)
+  const canvasRef   = useRef(null)
   const rafRef      = useRef(null)
+  const [hasBD, setHasBD] = useState(false) // BarcodeDetector available
+
+  useEffect(() => { setHasBD(typeof window !== 'undefined' && 'BarcodeDetector' in window) }, [])
 
   useEffect(() => { productsRef.current = products }, [products])
 
@@ -750,24 +754,34 @@ function StockCountTab({ empName }) {
         video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
       })
       scannerRef.current = stream
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        await videoRef.current.play()
-      }
 
-      // ใช้ native BarcodeDetector (iOS 17+, Android Chrome, Desktop Chrome)
       if ('BarcodeDetector' in window) {
-        const detector = new window.BarcodeDetector({
-          formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'qr_code'],
-        })
-        let lastCode = ''
-        let lastTime = 0
+        // ── native BarcodeDetector (iOS 17+, Android Chrome) ──
+        let supportedFormats = ['ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'qr_code']
+        try {
+          const all = await window.BarcodeDetector.getSupportedFormats()
+          supportedFormats = supportedFormats.filter(f => all.includes(f))
+        } catch {}
+        const detector = new window.BarcodeDetector({ formats: supportedFormats.length ? supportedFormats : ['qr_code'] })
+
+        await new Promise(r => setTimeout(r, 100))
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream
+          await videoRef.current.play()
+        }
+
+        let lastCode = '', lastTime = 0
         const scan = async () => {
-          if (!videoRef.current || videoRef.current.readyState < 2) {
+          const vid = videoRef.current
+          const cvs = canvasRef.current
+          if (!vid || vid.readyState < 2 || !cvs) {
             rafRef.current = requestAnimationFrame(scan); return
           }
+          cvs.width = vid.videoWidth || 640
+          cvs.height = vid.videoHeight || 480
+          cvs.getContext('2d').drawImage(vid, 0, 0)
           try {
-            const results = await detector.detect(videoRef.current)
+            const results = await detector.detect(cvs)
             if (results.length > 0) {
               const code = results[0].rawValue
               const now = Date.now()
@@ -781,12 +795,12 @@ function StockCountTab({ empName }) {
           rafRef.current = requestAnimationFrame(scan)
         }
         rafRef.current = requestAnimationFrame(scan)
+
       } else {
-        // fallback: html5-qrcode สำหรับ iOS 16 / Firefox
-        const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import('html5-qrcode')
-        // หยุด stream ก่อนให้ html5-qrcode จัดการเอง
+        // ── fallback: html5-qrcode (iOS 16, Firefox) ──
         stream.getTracks().forEach(t => t.stop())
         scannerRef.current = null
+        const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import('html5-qrcode')
         const scanner = new Html5Qrcode('emp-stock-qr-reader', {
           formatsToSupport: [
             Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8,
@@ -813,15 +827,13 @@ function StockCountTab({ empName }) {
   async function closeCamera() {
     if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
     try {
-      if (scannerRef.current) {
-        if (scannerRef.current instanceof MediaStream) {
-          scannerRef.current.getTracks().forEach(t => t.stop())
-        } else {
-          await scannerRef.current.stop()
-          scannerRef.current.clear()
-        }
-        scannerRef.current = null
+      if (scannerRef.current instanceof MediaStream) {
+        scannerRef.current.getTracks().forEach(t => t.stop())
+      } else if (scannerRef.current) {
+        await scannerRef.current.stop()
+        scannerRef.current.clear()
       }
+      scannerRef.current = null
     } catch {}
     if (videoRef.current) { videoRef.current.srcObject = null }
     setCameraOpen(false)
@@ -959,13 +971,14 @@ function StockCountTab({ empName }) {
       {/* Camera */}
       {cameraOpen && (
         <div className="relative flex-shrink-0 overflow-hidden bg-black" style={{ height: '45vh', minHeight: 220 }}>
-          {/* native BarcodeDetector path — video element */}
-          <video ref={videoRef} playsInline muted autoPlay
+          {/* native BarcodeDetector path */}
+          <video ref={videoRef} playsInline muted
             className="w-full h-full object-cover"
-            style={{ display: 'BarcodeDetector' in (typeof window !== 'undefined' ? window : {}) ? 'block' : 'none' }} />
+            style={{ display: hasBD ? 'block' : 'none' }} />
+          <canvas ref={canvasRef} style={{ display: 'none' }} />
           {/* html5-qrcode fallback */}
           <div id="emp-stock-qr-reader" className="w-full h-full"
-            style={{ display: 'BarcodeDetector' in (typeof window !== 'undefined' ? window : {}) ? 'none' : 'block' }} />
+            style={{ display: hasBD ? 'none' : 'block' }} />
           <div className="absolute top-0 left-0 right-0 z-10 flex items-center px-4 pt-3 pb-6 pointer-events-none"
             style={{ background: 'linear-gradient(to bottom,rgba(0,0,0,0.6),transparent)' }}>
             <span className="text-white text-sm font-medium">📷 จ่อกล้องที่บาร์โค้ด</span>
