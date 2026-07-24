@@ -322,7 +322,7 @@ function ProductsTab({ printerCfg, empName }) {
     const matchSearch = !search.trim() || p.name.toLowerCase().includes(search.toLowerCase())
       || (p.barcode || '').toLowerCase().includes(search.toLowerCase())
       || (p.search_tags || '').toLowerCase().includes(search.toLowerCase())
-    const matchLow = !showLowOnly || isLow(p)
+    const matchLow = !showLowOnly || search.trim() || isLow(p)
     return matchSearch && matchLow
   })
   const lowCount = products.filter(isLow).length
@@ -894,12 +894,16 @@ function StockCountTab({ empName }) {
     if (!items.length) return
     setIsSaving(true)
     try {
-      await supabase.from('stock_order_requests').insert({
-        session_id: sessionId || null, items, note: orderNote, requested_by: empName || '', status: 'pending',
+      const res = await fetch('/api/order-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productIds: items.map(i => i.pid), note: orderNote, requestedBy: empName || '' }),
       })
-      flash(`✓ ส่งรายการสั่งซื้อ ${items.length} รายการแล้ว`)
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'ส่งไม่ได้')
+      flash(`✓ ส่ง Telegram ${items.length} รายการแล้ว`)
       setModal(null)
-    } catch { flash('ส่งไม่ได้', false) }
+    } catch (e) { flash(e.message || 'ส่งไม่ได้', false) }
     finally { setIsSaving(false) }
   }
 
