@@ -751,26 +751,25 @@ function StockCountTab({ empName }) {
     setCameraOpen(true)
     await new Promise(r => setTimeout(r, 200))
     try {
-      setCamDbg('กำลังขอสิทธิ์กล้อง…')
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
-      })
-      scannerRef.current = stream
-      setCamDbg('ได้สิทธิ์กล้องแล้ว')
-
       if ('BarcodeDetector' in window) {
+        // ── Native BarcodeDetector (iOS 17+, Android Chrome) ──────────────
+        setCamDbg('กำลังขอสิทธิ์กล้อง (BD)…')
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        })
+        scannerRef.current = stream
+
         let supportedFormats = ['ean_13','ean_8','code_128','code_39','upc_a','upc_e','qr_code']
         try {
           const all = await window.BarcodeDetector.getSupportedFormats()
           supportedFormats = supportedFormats.filter(f => all.includes(f))
           setCamDbg(`BD: ${supportedFormats.join(',')}`)
-        } catch (e2) { setCamDbg('getSupportedFormats err: ' + e2.message) }
+        } catch (e2) { setCamDbg('BD formats err: ' + e2.message) }
 
         const detector = new window.BarcodeDetector({ formats: supportedFormats.length ? supportedFormats : ['qr_code'] })
 
         if (videoRef.current) {
           videoRef.current.srcObject = stream
-          // รอให้ video มี dimensions จริงก่อน play
           await new Promise(res => {
             if (videoRef.current.readyState >= 1) { res(); return }
             videoRef.current.onloadedmetadata = res
@@ -785,7 +784,6 @@ function StockCountTab({ empName }) {
           if (!vid || vid.readyState < 2 || vid.videoWidth === 0 || scanning) return
           scanning = true
           try {
-            // detect จาก video โดยตรง (ดีกว่า canvas บน iOS)
             const results = await detector.detect(vid)
             if (results.length > 0) {
               const code = results[0].rawValue
@@ -799,14 +797,13 @@ function StockCountTab({ empName }) {
           } catch {}
           scanning = false
         }
-        // setInterval เสถียรกว่า rAF บน iOS Safari PWA
         const ivId = setInterval(scan, 250)
         rafRef.current = { cancel: () => clearInterval(ivId) }
 
       } else {
-        setCamDbg('ไม่มี BarcodeDetector → ใช้ html5-qrcode')
-        stream.getTracks().forEach(t => t.stop())
-        scannerRef.current = null
+        // ── html5-qrcode fallback (iOS 16, Firefox) ───────────────────────
+        // ไม่ getUserMedia เอง — ให้ html5-qrcode จัดการกล้องทั้งหมด
+        setCamDbg('iOS 16: ใช้ html5-qrcode')
         const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import('html5-qrcode')
         const scanner = new Html5Qrcode('emp-stock-qr-reader', { verbose: false,
           formatsToSupport: [Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8,
@@ -814,10 +811,13 @@ function StockCountTab({ empName }) {
             Html5QrcodeSupportedFormats.UPC_A, Html5QrcodeSupportedFormats.UPC_E, Html5QrcodeSupportedFormats.QR_CODE],
         })
         scannerRef.current = scanner
-        await scanner.start({ facingMode: 'environment' },
-          { fps: 15, qrbox: (w, h) => ({ width: Math.round(Math.min(w,h)*0.8), height: Math.round(Math.min(w,h)*0.4) }) },
-          (text) => { processBarcode(text); if (navigator.vibrate) navigator.vibrate(80) }, () => {}
+        await scanner.start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: { width: 280, height: 200 } },
+          (text) => { processBarcode(text); if (navigator.vibrate) navigator.vibrate(80) },
+          () => {}
         )
+        setCamDbg('html5-qrcode กำลัง scan…')
       }
     } catch (e) {
       setCamDbg('ERROR: ' + e.message)
