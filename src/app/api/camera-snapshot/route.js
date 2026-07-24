@@ -1,6 +1,9 @@
-import { createHash } from 'crypto'
 import { createClient } from '@supabase/supabase-js'
 import { recordAndNotify } from '@/lib/cameraRecord'
+import { execFile } from 'child_process'
+import { readFile, unlink } from 'fs/promises'
+import { tmpdir } from 'os'
+import { join } from 'path'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -12,34 +15,21 @@ const supabaseStorage = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
 
-async function fetchWithDigestAuth(url, username, password) {
-  const opts = { signal: AbortSignal.timeout(8000) }
-  const res1 = await fetch(url, opts)
-  if (res1.ok) return res1
-
-  const wwwAuth = res1.headers.get('WWW-Authenticate') || ''
-  if (/^basic /i.test(wwwAuth)) {
-    return fetch(url, { headers: { Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}` }, ...opts })
-  }
-  if (!/^digest /i.test(wwwAuth)) throw new Error(`camera auth: ${wwwAuth.slice(0, 40)}`)
-
-  const p = k => (wwwAuth.match(new RegExp(`${k}="([^"]*)"`, 'i'))?.[1] ?? '')
-  const realm = p('realm'), nonce = p('nonce')
-  const qop   = p('qop') || (wwwAuth.toLowerCase().includes('qop=') ? 'auth' : '')
-  const uri   = new URL(url).pathname + new URL(url).search
-  const ha1   = createHash('md5').update(`${username}:${realm}:${password}`).digest('hex')
-  const ha2   = createHash('md5').update(`GET:${uri}`).digest('hex')
-
-  let authHeader
-  if (qop) {
-    const nc = '00000001', cnonce = createHash('md5').update(String(Date.now())).digest('hex').slice(0, 8)
-    const resp = createHash('md5').update(`${ha1}:${nonce}:${nc}:${cnonce}:${qop}:${ha2}`).digest('hex')
-    authHeader = `Digest username="${username}", realm="${realm}", nonce="${nonce}", uri="${uri}", qop=${qop}, nc=${nc}, cnonce="${cnonce}", response="${resp}"`
-  } else {
-    const resp = createHash('md5').update(`${ha1}:${nonce}:${ha2}`).digest('hex')
-    authHeader = `Digest username="${username}", realm="${realm}", nonce="${nonce}", uri="${uri}", response="${resp}"`
-  }
-  return fetch(url, { headers: { Authorization: authHeader }, ...opts })
+async function captureRTSP(cameraIp, username, password) {
+  const rtspUrl = `rtsp://${username}:${password}@${cameraIp}/cam/realmonitor?channel=1&subtype=0`
+  const outPath = join(tmpdir(), `snap_${Date.now()}.jpg`)
+  await new Promise((resolve, reject) => {
+    execFile('ffmpeg', [
+      '-y', '-rtsp_transport', 'tcp', '-timeout', '10000000',
+      '-i', rtspUrl,
+      '-frames:v', '1', '-q:v', '2', '-update', '1', outPath,
+    ], { timeout: 15000 }, (err) => {
+      if (err) reject(err); else resolve()
+    })
+  })
+  const buf = await readFile(outPath)
+  await unlink(outPath).catch(() => {})
+  return buf
 }
 
 async function uploadSnapshot(buffer, filename, contentType) {
@@ -83,17 +73,11 @@ export async function POST(req) {
     if (!s.telegram_chat_id)   return Response.json({ ok: false, reason: 'no telegram chat_id' })
 
     if (mode === 'snapshot') {
-      const imgRes = await fetchWithDigestAuth(
-        `http://${s.camera_ip}/cgi-bin/snapshot.cgi?channel=1`,
-        s.camera_username || 'admin', s.camera_password || ''
-      )
-      if (!imgRes.ok) return Response.json({ ok: false, reason: `camera ${imgRes.status}` })
-      const imgBuffer   = await imgRes.arrayBuffer()
-      const contentType = imgRes.headers.get('content-type') || 'image/jpeg'
+      const imgBuffer   = await captureRTSP(s.camera_ip, s.camera_username || 'admin', s.camera_password || '')
       const filename    = `${Date.now()}.jpg`
-      const publicUrl   = await uploadSnapshot(imgBuffer, filename, contentType).catch(() => null)
+      const publicUrl   = await uploadSnapshot(imgBuffer, filename, 'image/jpeg').catch(() => null)
       if (publicUrl) await saveSnapshotToLog(publicUrl)
-      await sendPhotoToTelegram(s.telegram_bot_token, s.telegram_chat_id, imgBuffer, contentType, filename, caption)
+      await sendPhotoToTelegram(s.telegram_bot_token, s.telegram_chat_id, imgBuffer, 'image/jpeg', filename, caption)
       return Response.json({ ok: true, mode: 'snapshot' })
     }
 

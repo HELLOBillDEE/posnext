@@ -1,10 +1,14 @@
 'use client'
 import { useState, useEffect } from 'react'
+import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
 import { fmt, fmtDate } from '@/lib/utils'
 import { printViaBridge, buildReceiptESCPOS, buildLabelTSPL, buildLabelESCPOS, kickDrawerViaBridge } from '@/lib/printBridge'
 import { useAuth } from '@/components/AuthProvider'
 import { savePinCredentials, hasPinCredentials, clearPinCredentials } from '@/lib/pinAuth'
+import { hasFaceId, isFaceIdAvailable, registerFaceId, clearFaceId, getFaceIdData } from '@/lib/faceAuth'
+
+const MapPicker = dynamic(() => import('@/components/MapPicker'), { ssr: false })
 
 const SETTING_FIELDS = [
   { key:'shop_name',       label:'ชื่อร้าน',                         placeholder:'ร้านของฉัน' },
@@ -21,6 +25,7 @@ const SETTING_FIELDS = [
   { key:'admin_pin',            label:'PIN เข้าโหมดแอดมิน (8 หลัก)',     placeholder:'ตัวเลข 8 หลัก' },
   { key:'line_channel_token',   label:'LINE Channel Access Token',         placeholder:'วาง Long-lived token จาก LINE Developers' },
   { key:'line_group_id',        label:'LINE Group ID (บันทึกอัตโนมัติ)',   placeholder:'C... (ระบบกรอกให้เองเมื่อเพิ่ม Bot เข้ากลุ่ม)' },
+  { key:'telegram_bot_token',    label:'Telegram Bot Token',                placeholder:'123456789:AAxxxxxx (จาก @BotFather)' },
   { key:'telegram_chat_id',     label:'Telegram Chat ID (กลุ่ม)',          placeholder:'-1001234567890 (ดูจาก @getidsbot)' },
 ]
 
@@ -169,6 +174,9 @@ export default function AdminPage() {
   const [leaveTab, setLeaveTab]           = useState(null) // employee id for leave detail view
   const [logoUploading, setLogoUploading]         = useState(false)
   const [qrUploading, setQrUploading]             = useState(false)
+  const [qrAccounts, setQrAccounts]               = useState([]) // [{id,name,promptpay_id,bank,qr_image_url}]
+  const [qrAcctForm, setQrAcctForm]               = useState({ name: '', promptpay_id: '', bank: '', qr_image_url: '' })
+  const [qrAcctImgUploading, setQrAcctImgUploading] = useState(null) // id หรือ 'new'
   const [lineQrUploading, setLineQrUploading]     = useState(false)
   const [displayVideoUploading, setDisplayVideoUploading] = useState(null) // null | 1..5
   const [displayImgUploading, setDisplayImgUploading]     = useState(null) // null | 1 | 2 | 3
@@ -179,6 +187,7 @@ export default function AdminPage() {
   const [approvalModal, setApprovalModal]     = useState(null) // {type,id,loading,result}
   const [pendingItems, setPendingItems]       = useState([])
   const [pendingLoading, setPendingLoading]   = useState(false)
+  const [showShopMap, setShowShopMap]         = useState(false)
 
   useEffect(() => {
     const p = new URLSearchParams(window.location.search)
@@ -228,7 +237,11 @@ export default function AdminPage() {
 
   async function loadAll() {
     const { data: cfg } = await supabase.from('settings').select('*')
-    if (cfg) setSettings(Object.fromEntries(cfg.map(r => [r.key, r.value])))
+    if (cfg) {
+      const s = Object.fromEntries(cfg.map(r => [r.key, r.value]))
+      setSettings(s)
+      try { setQrAccounts(JSON.parse(s.payment_qr_accounts || '[]')) } catch { setQrAccounts([]) }
+    }
     if (tab === 2) {
       const { data } = await supabase.from('suppliers').select('*').order('name')
       setSuppliers(data || [])
@@ -309,21 +322,94 @@ export default function AdminPage() {
   async function uploadLogo(file) {
     setLogoUploading(true)
     try {
-      const ext  = file.name.split('.').pop()
-      const path = `shop-logo.${ext}`
-      const { error: upErr } = await supabase.storage.from('shop-assets').upload(path, file, { upsert: true })
-      if (upErr) throw upErr
-      const { data } = supabase.storage.from('shop-assets').getPublicUrl(path)
-      const url = data.publicUrl + '?t=' + Date.now()
-      const { error: setErr } = await supabase.from('settings').upsert({ key: 'shop_logo', value: url }, { onConflict: 'key' })
-      if (setErr) throw setErr
-      setSettings(p => ({ ...p, shop_logo: url }))
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch('/api/upload-logo', { method: 'POST', body: form })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'upload failed')
+      setSettings(p => ({ ...p, shop_logo: json.url }))
       alert('อัปโหลดโลโก้สำเร็จ')
     } catch (e) {
       alert('อัปโหลดไม่สำเร็จ: ' + e.message)
     } finally {
       setLogoUploading(false)
     }
+  }
+
+  // อ่านค่าจาก QR image แล้ว extract เบอร์พร้อมเพย์ถ้ามี
+  async function decodeQrFile(file) {
+    if (!('BarcodeDetector' in window)) return null
+    try {
+      const detector = new window.BarcodeDetector({ formats: ['qr_code'] })
+      const bitmap = await createImageBitmap(file)
+      const results = await detector.detect(bitmap)
+      if (!results.length) return null
+      const raw = results[0].rawValue
+      // PromptPay phone (0x-xxxx-xxxx, 10 digits) หรือ เลขผู้เสียภาษี 13 หลัก
+      const phone = raw.match(/0[6-9]\d{8}/)
+      if (phone) return { type: 'phone', value: phone[0] }
+      const taxId = raw.match(/\d{13}/)
+      if (taxId) return { type: 'tax', value: taxId[0] }
+      return { type: 'other', value: raw }
+    } catch { return null }
+  }
+
+  async function saveQrAccounts(accounts) {
+    await supabase.from('settings').upsert({ key: 'payment_qr_accounts', value: JSON.stringify(accounts) }, { onConflict: 'key' })
+    setQrAccounts(accounts)
+  }
+
+  function addQrAccount() {
+    const { name, promptpay_id, bank, qr_image_url } = qrAcctForm
+    if (!name) return alert('กรุณากรอกชื่อบัญชี')
+    if (!promptpay_id && !qr_image_url) return alert('กรุณากรอกเบอร์พร้อมเพย์ หรืออัปโหลดรูป QR')
+    const next = [...qrAccounts, { id: Date.now().toString(), name, promptpay_id, bank, qr_image_url }]
+    saveQrAccounts(next)
+    setQrAcctForm({ name: '', promptpay_id: '', bank: '', qr_image_url: '' })
+  }
+
+  async function uploadQrAcctImg(file, acctId) {
+    setQrAcctImgUploading(acctId)
+    try {
+      // อ่าน QR ก่อน — ถ้าเป็นพร้อมเพย์จะดึงเบอร์ออกมาเติมให้
+      const decoded = await decodeQrFile(file)
+
+      const ext  = file.name.split('.').pop()
+      const path = `qr-account-${acctId}.${ext}`
+      const { error: upErr } = await supabase.storage.from('shop-assets').upload(path, file, { upsert: true })
+      if (upErr) throw upErr
+      const { data } = supabase.storage.from('shop-assets').getPublicUrl(path)
+      const url = data.publicUrl + '?t=' + Date.now()
+
+      if (acctId === 'new') {
+        setQrAcctForm(p => ({
+          ...p,
+          qr_image_url: url,
+          promptpay_id: (decoded?.type === 'phone' || decoded?.type === 'tax') ? decoded.value : p.promptpay_id,
+        }))
+        if (decoded?.type === 'phone') alert(`✓ อ่าน QR ได้ — เบอร์พร้อมเพย์: ${decoded.value}\nระบบจะสร้าง QR ล็อคยอดได้อัตโนมัติ`)
+        else if (decoded?.type === 'tax') alert(`✓ อ่าน QR ได้ — เลขผู้เสียภาษี: ${decoded.value}\nระบบจะสร้าง QR ล็อคยอดได้อัตโนมัติ`)
+        else if (decoded) alert('อ่าน QR ได้ แต่ไม่พบเบอร์พร้อมเพย์ — จะใช้เป็น Static QR')
+      } else {
+        const next = qrAccounts.map(a => {
+          if (a.id !== acctId) return a
+          const updated = { ...a, qr_image_url: url }
+          if (decoded?.type === 'phone' || decoded?.type === 'tax') updated.promptpay_id = decoded.value
+          return updated
+        })
+        await saveQrAccounts(next)
+        if (decoded?.type === 'phone') alert(`✓ อ่าน QR ได้ — เบอร์พร้อมเพย์: ${decoded.value}`)
+        else if (decoded?.type === 'tax') alert(`✓ อ่าน QR ได้ — เลขผู้เสียภาษี: ${decoded.value}`)
+      }
+    } catch (e) {
+      alert('อัปโหลดไม่สำเร็จ: ' + e.message)
+    } finally {
+      setQrAcctImgUploading(null)
+    }
+  }
+
+  function removeQrAccount(id) {
+    saveQrAccounts(qrAccounts.filter(a => a.id !== id))
   }
 
   async function uploadQR(file) {
@@ -740,9 +826,60 @@ export default function AdminPage() {
             </div>
           </div>
 
+          {/* QR PromptPay accounts */}
+          <div>
+            <label className="text-xs font-semibold text-slate-500 block mb-2">บัญชีรับโอน / PromptPay (พนักงานเลือกได้ตอนขาย)</label>
+            {qrAccounts.length > 0 && (
+              <div className="space-y-3 mb-3">
+                {qrAccounts.map(a => (
+                  <div key={a.id} className="bg-slate-50 rounded-xl border border-slate-200 overflow-hidden">
+                    <div className="flex items-center gap-2 px-3 py-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-slate-800 truncate">{a.name}</p>
+                        <p className="text-xs text-slate-500">{a.promptpay_id || 'Static QR'}{a.bank ? ` · ${a.bank}` : ''}</p>
+                      </div>
+                      <button onClick={() => removeQrAccount(a.id)} className="text-red-400 hover:text-red-600 text-lg leading-none px-1 flex-shrink-0">×</button>
+                    </div>
+                    <div className="border-t border-slate-200 px-3 py-2 flex items-center gap-3">
+                      {a.qr_image_url
+                        ? <img src={a.qr_image_url} alt="QR" className="w-16 h-16 object-contain rounded-lg border border-slate-200 bg-white" />
+                        : <div className="w-16 h-16 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center text-slate-300 text-2xl">QR</div>
+                      }
+                      <label className="btn-outline text-xs py-1.5 px-3 cursor-pointer">
+                        {qrAcctImgUploading === a.id ? 'กำลังอัปโหลด...' : a.qr_image_url ? 'เปลี่ยนรูป QR' : '+ อัปโหลดรูป QR'}
+                        <input type="file" accept="image/*" className="hidden" onChange={e => e.target.files[0] && uploadQrAcctImg(e.target.files[0], a.id)} />
+                      </label>
+                      {a.qr_image_url && <p className="text-[10px] text-green-600">✓ มีรูป QR แล้ว</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="space-y-2 bg-slate-50 rounded-xl p-3 border border-dashed border-slate-300">
+              <p className="text-[11px] text-slate-400 font-semibold">เพิ่มบัญชีใหม่</p>
+              <input value={qrAcctForm.name} onChange={e => setQrAcctForm(p => ({ ...p, name: e.target.value }))}
+                placeholder="ชื่อบัญชี เช่น บัญชีร้าน K SHOP" className="field w-full text-sm" />
+              <input value={qrAcctForm.bank} onChange={e => setQrAcctForm(p => ({ ...p, bank: e.target.value }))}
+                placeholder="ธนาคาร (ไม่บังคับ) เช่น กสิกร / SCB" className="field w-full text-sm" />
+              <input value={qrAcctForm.promptpay_id} onChange={e => setQrAcctForm(p => ({ ...p, promptpay_id: e.target.value }))}
+                placeholder="เบอร์พร้อมเพย์ (ถ้ามี — สร้าง QR ล็อคยอดได้)" className="field w-full text-sm" inputMode="numeric" />
+              <div className="flex items-center gap-3">
+                {qrAcctForm.qr_image_url
+                  ? <img src={qrAcctForm.qr_image_url} alt="QR preview" className="w-14 h-14 object-contain rounded-lg border border-slate-200 bg-white" />
+                  : <div className="w-14 h-14 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center text-slate-300 text-xl">QR</div>
+                }
+                <label className="btn-outline text-xs py-1.5 px-3 cursor-pointer flex-1 text-center">
+                  {qrAcctImgUploading === 'new' ? 'กำลังอัปโหลด...' : qrAcctForm.qr_image_url ? '✓ มีรูป QR · เปลี่ยน' : '+ อัปโหลดรูป QR (K SHOP / Static)'}
+                  <input type="file" accept="image/*" className="hidden" onChange={e => e.target.files[0] && uploadQrAcctImg(e.target.files[0], 'new')} />
+                </label>
+              </div>
+              <button onClick={addQrAccount} className="btn-primary w-full text-sm py-2">+ เพิ่มบัญชี</button>
+            </div>
+          </div>
+
           {/* QR payment upload */}
           <div>
-            <label className="text-xs font-semibold text-slate-500 block mb-1.5">QR รับเงิน (แสดงตอนเลือกจ่ายด้วย QR)</label>
+            <label className="text-xs font-semibold text-slate-500 block mb-1.5">QR รับเงิน รูปภาพ (เก่า — ใช้ถ้าไม่ใช้ PromptPay)</label>
             <div className="flex items-center gap-3">
               {settings.payment_qr && (
                 <img src={settings.payment_qr} alt="QR" className="h-20 w-20 object-contain border border-slate-200 rounded-xl bg-white p-1" />
@@ -764,6 +901,29 @@ export default function AdminPage() {
                 readOnly={f.key === 'line_group_id' && !!settings.line_group_id} />
             </div>
           ))}
+
+          {/* ── ตำแหน่งร้าน + ค่าจัดส่ง ── */}
+          <div className="rounded-xl border border-slate-200 p-4 space-y-3 bg-slate-50">
+            <p className="font-semibold text-sm text-slate-700">📍 ตำแหน่งร้าน (สำหรับคำนวณค่าจัดส่ง)</p>
+            <div className="flex items-center gap-3">
+              <div className="flex-1 text-xs text-slate-500 space-y-0.5">
+                {settings.shop_lat && settings.shop_lng
+                  ? <><p>lat: {settings.shop_lat}</p><p>lng: {settings.shop_lng}</p></>
+                  : <p className="text-amber-500">ยังไม่ได้ตั้งพิกัดร้าน</p>
+                }
+              </div>
+              <button onClick={() => setShowShopMap(true)}
+                className="bg-blue-600 text-white text-sm font-semibold px-4 py-2 rounded-xl active:scale-95 transition-transform">
+                🗺️ เลือกจากแผนที่
+              </button>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 block mb-1.5">อัตราค่าจัดส่ง (฿ / กม.)</label>
+              <input type="number" min="0" value={settings.delivery_fee_rate || '10'}
+                onChange={e => setSettings(p => ({ ...p, delivery_fee_rate: e.target.value }))}
+                className="field w-full" placeholder="10" />
+            </div>
+          </div>
 
           {/* Telegram Webhook */}
           <TelegramWebhookSetup />
@@ -1127,6 +1287,16 @@ export default function AdminPage() {
       {/* ── พนักงาน / Payroll ── */}
       {tab === 5 && (
         <div className="space-y-4 max-w-3xl">
+          <div className="card-pad flex flex-col items-center gap-4 py-10 text-center">
+            <p className="text-5xl">👥</p>
+            <p className="font-bold text-slate-700 text-lg">จัดการพนักงานและค่าแรง</p>
+            <p className="text-slate-400 text-sm">ย้ายไปที่หน้าพนักงาน แล้ว — รวมทุกอย่างไว้ที่เดียว</p>
+            <a href="/employees" className="bg-brand text-white px-6 py-3 rounded-xl font-semibold text-sm shadow hover:opacity-90 transition-opacity">
+              ไปหน้าพนักงาน →
+            </a>
+          </div>
+          {false && (
+        <div className="space-y-4 max-w-3xl _hidden">
           {/* Period selector */}
           <div className="flex items-center gap-3 flex-wrap">
             <h2 className="font-heading font-semibold text-slate-800">เงินเดือนพนักงาน</h2>
@@ -1345,6 +1515,8 @@ export default function AdminPage() {
           )}
         </div>
       )}
+        </div>
+      )}
 
       {/* ── ประกาศ ── */}
       {tab === 6 && (
@@ -1447,6 +1619,15 @@ export default function AdminPage() {
       {/* ── Pending Approvals ── */}
       {tab === 7 && (
         <div className="space-y-3 max-w-xl">
+          <div className="card-pad flex flex-col items-center gap-4 py-10 text-center">
+            <p className="text-5xl">📋</p>
+            <p className="font-bold text-slate-700 text-lg">คำขอรออนุมัติ</p>
+            <p className="text-slate-400 text-sm">ย้ายไปที่หน้าพนักงาน แท็บ "รออนุมัติ" แล้ว</p>
+            <a href="/employees" className="bg-brand text-white px-6 py-3 rounded-xl font-semibold text-sm shadow hover:opacity-90 transition-opacity">
+              ไปหน้าพนักงาน →
+            </a>
+          </div>
+          {false && <div className="space-y-3 max-w-xl _hidden">
           <div className="flex items-center justify-between mb-1">
             <h2 className="font-heading font-semibold text-slate-700 text-base">คำขอรออนุมัติ</h2>
             <button onClick={loadPending} disabled={pendingLoading}
@@ -1517,6 +1698,7 @@ export default function AdminPage() {
               </div>
             )
           })}
+          </div>}
         </div>
       )}
 
@@ -1587,6 +1769,21 @@ export default function AdminPage() {
       {tab === 8 && (
         <DeviceSettings />
       )}
+
+      {showShopMap && (
+        <MapPicker
+          shopLat={parseFloat(settings.shop_lat || '14.8462')}
+          shopLng={parseFloat(settings.shop_lng || '102.6816')}
+          initialLat={settings.shop_lat ? parseFloat(settings.shop_lat) : null}
+          initialLng={settings.shop_lng ? parseFloat(settings.shop_lng) : null}
+          initialAddress={settings.shop_address || ''}
+          onConfirm={({ lat, lng }) => {
+            setSettings(p => ({ ...p, shop_lat: String(lat), shop_lng: String(lng) }))
+            setShowShopMap(false)
+          }}
+          onClose={() => setShowShopMap(false)}
+        />
+      )}
     </div>
   )
 }
@@ -1611,13 +1808,47 @@ function DeviceSettings() {
   const [pinStatus, setPinStatus] = useState(() => hasPinCredentials() ? 'saved' : 'none') // 'none'|'saved'|'done'
   const [pinErr, setPinErr]       = useState('')
 
+  // Face ID setup
+  const [faceStatus, setFaceStatus] = useState(() => hasFaceId() ? 'on' : 'off') // 'off'|'on'
+  const [faceAvail, setFaceAvail]   = useState(false)
+  const [facePin, setFacePin]       = useState('')
+  const [faceErr, setFaceErr]       = useState('')
+  const [faceLoading, setFaceLoading] = useState(false)
+
+  useEffect(() => {
+    isFaceIdAvailable().then(setFaceAvail)
+  }, [])
+
+  async function enableFaceId() {
+    if (facePin.length < 4) { setFaceErr('กรอก PIN ก่อน'); return }
+    setFaceErr(''); setFaceLoading(true)
+    try {
+      await registerFaceId(facePin)
+      // Sync credential ID + pin to Supabase so PWA can fetch it
+      const faceData = getFaceIdData()
+      if (faceData) {
+        await supabase.from('settings').upsert({ key: 'device_face_data', value: JSON.stringify(faceData) }, { onConflict: 'key' })
+      }
+      setFaceStatus('on'); setFacePin('')
+    } catch (e) {
+      setFaceErr(e?.name === 'NotAllowedError' ? 'ยกเลิก Face ID' : 'ไม่สำเร็จ: ' + (e?.message || ''))
+    }
+    setFaceLoading(false)
+  }
+
+  function disableFaceId() {
+    clearFaceId(); setFaceStatus('off'); setFacePin(''); setFaceErr('')
+  }
+
   async function savePin() {
     if (pinNew.length < 4) { setPinErr('PIN ต้องมีอย่างน้อย 4 หลัก'); return }
     if (!pinPass)          { setPinErr('กรอกรหัสผ่านก่อน'); return }
     const email = auth?.user?.email
     if (!email)            { setPinErr('ไม่พบบัญชี'); return }
     setPinErr('')
-    await savePinCredentials(pinNew, email, pinPass)
+    const encrypted = await savePinCredentials(pinNew, email, pinPass)
+    // Sync to Supabase so any device can fetch it (cross-device PIN sync)
+    await supabase.from('settings').upsert({ key: 'device_pin_data', value: JSON.stringify(encrypted) }, { onConflict: 'key' })
     setPinNew(''); setPinPass('')
     setPinStatus('done')
   }
@@ -1687,6 +1918,42 @@ function DeviceSettings() {
           </div>
         )}
       </div>
+
+      {/* Face ID setup — show whenever PIN is set */}
+      {(pinStatus === 'saved' || pinStatus === 'done') && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-700">🪪 Face ID เข้าระบบ</p>
+            <p className="text-xs text-slate-400 mt-0.5">เข้าระบบด้วยใบหน้าโดยไม่ต้องกด PIN</p>
+          </div>
+          {faceStatus === 'on' ? (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5">
+                <span className="text-emerald-600">✓</span>
+                <span className="text-sm text-emerald-700 font-semibold">Face ID เปิดอยู่</span>
+              </div>
+              <button onClick={disableFaceId}
+                className="w-full py-2 rounded-xl text-xs text-red-500 border border-red-100 bg-red-50 active:scale-95 transition-all">
+                ปิดใช้ Face ID
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-500 block mb-1">ยืนยัน PIN ของคุณ</label>
+                <input value={facePin} onChange={e => setFacePin(e.target.value.replace(/\D/g,'').slice(0,8))}
+                  type="text" inputMode="numeric" placeholder="กรอก PIN เพื่อเปิด Face ID"
+                  className="w-full border-2 border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand focus:outline-none" />
+              </div>
+              {faceErr && <p className="text-xs text-red-500">{faceErr}</p>}
+              <button onClick={enableFaceId} disabled={facePin.length < 4 || faceLoading}
+                className="w-full py-2.5 rounded-xl text-sm font-bold btn-primary disabled:opacity-40">
+                {faceLoading ? 'กำลังลงทะเบียน...' : 'เปิดใช้ Face ID'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="bg-slate-50 rounded-2xl border border-slate-200 p-4 space-y-2">
         <p className="text-xs font-semibold text-slate-500">เครื่องพิมพ์ใบเสร็จ (ปัจจุบัน)</p>

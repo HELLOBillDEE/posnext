@@ -28,6 +28,9 @@ export async function POST(req) {
 
     const prevDate   = new Date(year, month - 2, 1)
     const prevPeriod = prevDate.toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 7)
+    const nextMonth  = month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, '0')}`
+    const startISO   = `${currentPeriod}-01T00:00:00.000+07:00`
+    const endISO     = `${nextMonth}-01T00:00:00.000+07:00`
 
     const displayName = emp.nickname || emp.name
 
@@ -38,8 +41,8 @@ export async function POST(req) {
       { data: installments },
       { data: settlement },
       { data: prevSettlement },
-      { data: repairItems },
       { data: bonuses },
+      { data: salesInPeriod },
     ] = await Promise.all([
       supabase.from('attendance').select('date, check_in, check_out')
         .eq('employee_id', emp.id).gte('date', dateFrom).lte('date', dateTo),
@@ -54,13 +57,24 @@ export async function POST(req) {
         .eq('employee_id', emp.id).eq('period', currentPeriod).maybeSingle(),
       supabase.from('payroll_settlements').select('carry_forward_out')
         .eq('employee_id', emp.id).eq('period', prevPeriod).maybeSingle(),
-      supabase.from('sale_items').select('name, price, qty, created_at')
-        .ilike('name', '%ซ่อม%').eq('technician_name', displayName)
-        .gte('created_at', dateFrom + 'T00:00:00').lte('created_at', dateTo + 'T23:59:59')
-        .order('created_at', { ascending: false }),
       supabase.from('employee_bonus').select('amount, note')
         .eq('employee_id', emp.id).eq('period', currentPeriod),
+      supabase.from('sales').select('id')
+        .gte('created_at', startISO).lt('created_at', endISO).neq('status', 'voided'),
     ])
+
+    // ดึง sale_items ค่าซ่อมที่ tag ชื่อช่าง
+    let repairItems = []
+    const saleIds = (salesInPeriod || []).map(s => s.id)
+    if (saleIds.length) {
+      const { data: items } = await supabase.from('sale_items')
+        .select('product_name, price, qty')
+        .in('sale_id', saleIds)
+        .ilike('product_name', '%ค่าซ่อม%')
+        .eq('technician_name', displayName)
+        .not('technician_name', 'is', null)
+      repairItems = items || []
+    }
 
     // คำนวณวันทำงาน
     let daysWorked = 0

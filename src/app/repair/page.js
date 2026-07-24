@@ -404,6 +404,7 @@ export default function RepairPage() {
   const [printerCfg, setPrinterCfg]       = useState({ receipt: null, barcode: null })
   const [employees, setEmployees]         = useState([])
   const [isEmp, setIsEmp]                 = useState(false)
+  const [embed, setEmbed]                 = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -432,6 +433,9 @@ export default function RepairPage() {
   useEffect(() => { load() }, [load])
   useEffect(() => {
     setIsEmp(document.cookie.includes('pos_emp=1'))
+  }, [])
+  useEffect(() => {
+    setEmbed(new URLSearchParams(window.location.search).get('embed') === '1')
   }, [])
   useEffect(() => {
     const onSynced = () => load()
@@ -907,12 +911,14 @@ export default function RepairPage() {
                               style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.65)' }}>
                               📋 รายการ
                             </button>
+                            {!embed && (
                             <button
                               onClick={e => { e.stopPropagation(); window.location.href = '/pos' }}
                               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95"
                               style={{ background: 'linear-gradient(135deg,#1d4ed8,#60a5fa)', color: '#fff', boxShadow: '0 2px 8px rgba(29,78,216,0.4)' }}>
                               💳 ชำระที่ POS
                             </button>
+                            )}
                           </>
                         ) : (
                           <button
@@ -1037,10 +1043,12 @@ export default function RepairPage() {
                   )}
                 </div>
 
+                {!embed && (
                 <button onClick={() => setQuoteItems(prev => [...prev, { product_id: null, product_name: 'ค่าแรง', qty: 1, price: 0, cost: 0, unit: 'ครั้ง', is_labor: true, tech_id: quoteJob?.technician_id || null, tech_name: quoteJob?.technician_name || '' }])}
                   className="mt-2 text-xs text-white/40 hover:text-white/70 transition-colors">
                   + เพิ่มรายการเอง
                 </button>
+                )}
               </div>
 
               {/* Summary */}
@@ -1100,11 +1108,13 @@ export default function RepairPage() {
                   style={{ background: 'rgba(124,58,237,0.3)', border: '1px solid rgba(124,58,237,0.5)' }}>
                   {quoteSaving ? 'กำลังบันทึก...' : '💾 บันทึก'}
                 </button>
+                {!embed && (
                 <button onClick={() => saveQuote(true)} disabled={quoteSaving || quoteItems.length === 0}
                   className="flex-[2] py-3 rounded-xl text-sm font-bold text-white transition-all active:scale-95 disabled:opacity-50"
                   style={{ background: 'linear-gradient(135deg,#1d4ed8,#60a5fa)', boxShadow: '0 4px 14px rgba(29,78,216,0.4)' }}>
                   {quoteSaving ? '...' : `💳 ชำระที่ POS ฿${fmt(quoteTotal)}`}
                 </button>
+                )}
               </div>
             </div>
           </div>

@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/components/AuthProvider'
 import { fmt, todayISO } from '@/lib/utils'
 import { getNextDocNo } from '@/lib/docBuilder'
 
@@ -273,36 +274,73 @@ const CAT_COLOR = {
 function catColor(c) { return CAT_COLOR[c] || 'bg-slate-100 text-slate-600' }
 
 export default function ExpensesPage() {
-  const [expenses, setExpenses]   = useState([])
-  const [payslips, setPayslips]   = useState([])
-  const [loading, setLoading]     = useState(false)
-  const [showModal, setShowModal] = useState(false)
-  const [voucherExp, setVoucherExp] = useState(null)
-  const [dateFrom, setDateFrom]   = useState(todayISO().slice(0,7) + '-01')
-  const [dateTo, setDateTo]       = useState(todayISO())
-  const [activeTab, setActiveTab] = useState('expenses') // 'expenses' | 'payroll'
+  const auth = useAuth()
+  const isAdmin = auth?.role === 'admin'
+
+  const [expenses, setExpenses]       = useState([])
+  const [settlements, setSettlements] = useState([])
+  const [purchaseOrders, setPOs]      = useState([])
+  const [salesTotal, setSalesTotal]   = useState(0)
+  const [loading, setLoading]         = useState(false)
+  const [showModal, setShowModal]     = useState(false)
+  const [voucherExp, setVoucherExp]   = useState(null)
+  const [dateFrom, setDateFrom]       = useState(todayISO().slice(0,7) + '-01')
+  const [dateTo, setDateTo]           = useState(todayISO())
+  const [activeTab, setActiveTab]     = useState('expenses')
 
   useEffect(() => { loadData() }, [dateFrom, dateTo])
 
   async function loadData() {
     setLoading(true)
-    const [{ data: exp }, { data: pay }] = await Promise.all([
+    const from = dateFrom + 'T00:00:00'
+    const to   = dateTo   + 'T23:59:59'
+    const fromPeriod = dateFrom.slice(0, 7)
+    const toPeriod   = dateTo.slice(0, 7)
+    const [{ data: exp }, { data: attendRows }, { data: pos }, { data: salesRows }] = await Promise.all([
       supabase.from('expenses')
         .select('*').gte('expense_date', dateFrom).lte('expense_date', dateTo)
         .order('expense_date', { ascending: false }),
-      supabase.from('payslips')
-        .select('*, employees(name,position)')
-        .order('period_year', { ascending: false }).order('period_month', { ascending: false })
-        .limit(50),
+      supabase.from('attendance')
+        .select('employee_id, date, employees(id,name,position,daily_rate)')
+        .gte('date', dateFrom).lte('date', dateTo),
+      supabase.from('purchase_orders')
+        .select('id,po_no,total,status,created_at,suppliers(name)')
+        .gte('created_at', from).lte('created_at', to)
+        .neq('status', 'cancelled')
+        .order('created_at', { ascending: false }),
+      supabase.from('sales')
+        .select('total')
+        .gte('created_at', from).lte('created_at', to)
+        .neq('status', 'voided'),
     ])
     setExpenses(exp || [])
-    setPayslips(pay || [])
+
+    // รวมวันทำงานต่อพนักงาน → คำนวณค่าแรง
+    const empMap = {}
+    for (const a of (attendRows || [])) {
+      const e = a.employees
+      if (!e) continue
+      if (!empMap[e.id]) empMap[e.id] = { name: e.name, position: e.position, daily_rate: Number(e.daily_rate || 0), days: 0 }
+      empMap[e.id].days += 1
+    }
+    const settleCalc = Object.values(empMap).map(e => ({
+      id: e.name, employee_id: null, period: `${dateFrom} – ${dateTo}`,
+      days_worked: e.days, daily_rate: e.daily_rate,
+      net_pay_due: e.days * e.daily_rate, commission: 0,
+      employees: { name: e.name, position: e.position },
+    }))
+    setSettlements(settleCalc)
+
+    setPOs(pos || [])
+    setSalesTotal((salesRows || []).reduce((s, r) => s + Number(r.total || 0), 0))
     setLoading(false)
   }
 
-  const totalExp     = expenses.reduce((s, e) => s + Number(e.amount), 0)
-  const totalPayroll = payslips.reduce((s, p) => s + Number(p.net_pay || 0), 0)
-  const totalBonus   = payslips.reduce((s, p) => s + Number(p.bonus || 0), 0)
+  const totalExp      = expenses.reduce((s, e) => s + Number(e.amount), 0)
+  const totalPayroll  = settlements.reduce((s, p) => s + Number(p.net_pay_due || 0), 0)
+  const totalPO       = purchaseOrders.reduce((s, p) => s + Number(p.total || 0), 0)
+  const totalOutflow  = totalExp + totalPayroll + totalPO
+  const cashFlow      = salesTotal - totalOutflow
 
   // Group by category
   const byCategory = expenses.reduce((acc, e) => {
@@ -337,43 +375,45 @@ export default function ExpensesPage() {
       </div>
 
       {/* KPI cards */}
-      <div className="grid grid-cols-3 gap-3 mb-4">
+      <div className="grid grid-cols-2 gap-3 mb-3">
         <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
-          <p className="text-[11px] text-slate-400 font-semibold uppercase mb-1">ค่าใช้จ่าย</p>
+          <p className="text-[11px] text-slate-400 font-semibold mb-1">ค่าใช้จ่ายทั่วไป</p>
           <p className="text-xl font-bold text-red-500">฿{fmt(totalExp)}</p>
           <p className="text-xs text-slate-400 mt-1">{expenses.length} รายการ</p>
         </div>
-        <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
-          <p className="text-[11px] text-slate-400 font-semibold uppercase mb-1">เงินเดือน</p>
-          <p className="text-xl font-bold text-brand">฿{fmt(totalPayroll)}</p>
-          <p className="text-xs text-slate-400 mt-1">ทุกพนักงาน</p>
-        </div>
-        <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
-          <p className="text-[11px] text-slate-400 font-semibold uppercase mb-1">รวมทั้งหมด</p>
-          <p className="text-xl font-bold text-slate-700">฿{fmt(totalExp + totalPayroll)}</p>
-          <p className="text-xs text-slate-400 mt-1">ค่าใช้จ่าย + เงินเดือน</p>
-        </div>
+        {isAdmin && <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
+          <p className="text-[11px] text-slate-400 font-semibold mb-1">ค่าแรงพนักงาน</p>
+          <p className="text-xl font-bold text-orange-500">฿{fmt(totalPayroll)}</p>
+          <p className="text-xs text-slate-400 mt-1">{settlements.length} คน · {settlements[0]?.period || '—'}</p>
+        </div>}
+        {isAdmin && <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
+          <p className="text-[11px] text-slate-400 font-semibold mb-1">บิลซื้อ (PO)</p>
+          <p className="text-xl font-bold text-purple-600">฿{fmt(totalPO)}</p>
+          <p className="text-xs text-slate-400 mt-1">{purchaseOrders.length} ใบ</p>
+        </div>}
+        {isAdmin && <div className={`rounded-2xl p-4 border shadow-sm ${cashFlow >= 0 ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'}`}>
+          <p className="text-[11px] text-slate-500 font-semibold mb-1">CASH FLOW</p>
+          <p className={`text-xl font-bold ${cashFlow >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+            {cashFlow >= 0 ? '+' : ''}฿{fmt(cashFlow)}
+          </p>
+          <p className="text-[10px] text-slate-400 mt-1">รับ ฿{fmt(salesTotal)} − จ่าย ฿{fmt(totalOutflow)}</p>
+        </div>}
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 mb-3">
+      <div className="flex gap-2 mb-3 flex-wrap">
         <button onClick={() => setActiveTab('expenses')}
           className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-colors ${activeTab==='expenses' ? 'bg-brand text-white border-brand' : 'bg-white text-gray-500 border-gray-200'}`}>
           💸 ค่าใช้จ่าย ({expenses.length})
         </button>
-        <button onClick={() => setActiveTab('payroll')}
-          className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-colors ${activeTab==='payroll' ? 'bg-brand text-white border-brand' : 'bg-white text-gray-500 border-gray-200'}`}>
-          👷 เงินเดือน ({payslips.length})
-        </button>
-        {activeTab === 'expenses' && Object.keys(byCategory).length > 0 && (
-          <div className="flex-1 flex flex-wrap gap-1 items-center justify-end">
-            {Object.entries(byCategory).sort((a,b) => b[1]-a[1]).slice(0,3).map(([c,v]) => (
-              <span key={c} className={`text-[10px] px-2 py-1 rounded-full font-semibold ${catColor(c)}`}>
-                {c} ฿{fmt(v)}
-              </span>
-            ))}
-          </div>
-        )}
+        {isAdmin && <button onClick={() => setActiveTab('payroll')}
+          className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-colors ${activeTab==='payroll' ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-500 border-gray-200'}`}>
+          👷 ค่าแรง ({settlements.length})
+        </button>}
+        {isAdmin && <button onClick={() => setActiveTab('po')}
+          className={`px-4 py-2 rounded-xl text-sm font-semibold border transition-colors ${activeTab==='po' ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-gray-500 border-gray-200'}`}>
+          📦 บิลซื้อ ({purchaseOrders.length})
+        </button>}
       </div>
 
       {/* Content */}
@@ -405,24 +445,53 @@ export default function ExpensesPage() {
 
       {!loading && activeTab === 'payroll' && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          {payslips.length === 0 ? (
+          {settlements.length === 0 ? (
             <div className="text-center py-16 text-slate-400 text-sm">
               <p className="text-4xl mb-3">👷</p>
-              <p>ยังไม่มีข้อมูลเงินเดือน</p>
-              <a href="/employees" className="mt-2 block text-brand text-xs underline">ไปจัดการพนักงาน →</a>
+              <p>ยังไม่มีข้อมูลค่าแรงในช่วงนี้</p>
+              <a href="/payroll" className="mt-2 block text-brand text-xs underline">ไปปิดบัญชีค่าแรง →</a>
             </div>
           ) : (
             <div className="divide-y divide-gray-50">
-              {payslips.map(p => (
+              {settlements.map(p => (
                 <div key={p.id} className="px-4 py-3 flex justify-between items-center">
                   <div>
                     <p className="font-semibold text-sm text-slate-800">{p.employees?.name || '—'}</p>
-                    <p className="text-xs text-slate-400">{p.employees?.position} · {p.period_month}/{p.period_year}</p>
-                    {p.bonus > 0 && <span className="text-[10px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded-full font-semibold">โบนัส ฿{fmt(p.bonus)}</span>}
+                    <p className="text-xs text-slate-400">{p.employees?.position} · {p.period}</p>
+                    <p className="text-xs text-slate-400">{p.days_worked} วัน × ฿{fmt(p.daily_rate)}/วัน{p.commission > 0 ? ` + ค่าคอม ฿${fmt(p.commission)}` : ''}</p>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-brand text-sm">฿{fmt(p.net_pay)}</p>
-                    <p className="text-[10px] text-slate-400">สุทธิ</p>
+                    <p className="font-bold text-orange-500 text-sm">฿{fmt(p.net_pay_due)}</p>
+                    <p className="text-[10px] text-slate-400">สุทธิจ่าย</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {!loading && activeTab === 'po' && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          {purchaseOrders.length === 0 ? (
+            <div className="text-center py-16 text-slate-400 text-sm">
+              <p className="text-4xl mb-3">📦</p>
+              <p>ไม่มีบิลซื้อในช่วงนี้</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-50">
+              {purchaseOrders.map(po => (
+                <div key={po.id} className="px-4 py-3 flex justify-between items-center">
+                  <div>
+                    <p className="font-semibold text-sm text-slate-800">{po.po_no}</p>
+                    <p className="text-xs text-slate-400">{po.suppliers?.name || '—'}</p>
+                    <p className="text-xs text-slate-400">{po.created_at?.slice(0,10)}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-bold text-purple-600 text-sm">฿{fmt(po.total)}</p>
+                    <span className={`text-[10px] font-semibold ${po.status === 'received' ? 'text-green-500' : 'text-amber-500'}`}>
+                      {po.status === 'received' ? 'รับแล้ว' : po.status === 'partial' ? 'บางส่วน' : 'รอรับ'}
+                    </span>
                   </div>
                 </div>
               ))}

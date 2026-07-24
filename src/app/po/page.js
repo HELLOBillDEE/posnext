@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { fmt, fmtDate, genPONo } from '@/lib/utils'
 
@@ -57,6 +57,9 @@ export default function POPage() {
   const [aiResult, setAiResult]      = useState(null)
   const [aiReview, setAiReview]      = useState([])
   const [aiDone, setAiDone]          = useState([])     // items ที่ save แล้ว สำหรับปริ้น
+  const [poScanVal, setPoScanVal]    = useState('')
+  const [poScanFlash, setPoScanFlash] = useState(false)
+  const poScanRef = useRef(null)
 
   useEffect(() => { loadAll() }, [])
 
@@ -127,6 +130,24 @@ export default function POPage() {
       }
       return n
     })
+  }
+
+  function handlePoScan(barcode) {
+    const code = barcode.trim()
+    if (!code) return
+    const prod = products.find(p => p.barcode === code)
+    setPoScanVal('')
+    if (!prod) { setPoScanFlash(false); alert(`ไม่พบสินค้าบาร์โค้ด: ${code}`); return }
+    const newRow = addItemRow()
+    const idx = items.length
+    setItems(prev => {
+      const cost = parseFloat(prod.cost) || 0
+      const minP = cost ? Math.ceil(cost * (1 + minMargin / 100)) : ''
+      return [...prev, { ...newRow, product_id: String(prod.id), product_name: prod.name, barcode: prod.barcode||'', unit: prod.unit||'', cost: String(prod.cost||''), price: String(prod.price || minP || '') }]
+    })
+    setPoScanFlash(true)
+    setTimeout(() => setPoScanFlash(false), 800)
+    setTimeout(() => poScanRef.current?.focus(), 50)
   }
 
   const poTotal = items.reduce((s, i) => s + parseFloat(i.qty||0) * parseFloat(i.cost||0), 0)
@@ -946,9 +967,22 @@ export default function POPage() {
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden mb-3">
-        <div className="px-4 py-3 border-b border-gray-100 flex justify-between">
+        <div className="px-4 py-3 border-b border-gray-100 flex flex-wrap items-center gap-2 justify-between">
           <span className="font-semibold text-sm text-gray-700">รายการสินค้า</span>
-          <button onClick={() => setItems(p => [...p, addItemRow()])} className="text-brand text-sm">+ เพิ่มแถว</button>
+          <div className="flex items-center gap-2">
+            <div className={`flex items-center gap-1 border rounded-xl px-2 py-1 transition-colors ${poScanFlash ? 'border-green-400 bg-green-50' : 'border-gray-200 bg-white'}`}>
+              <span className="text-xs text-gray-400">🔍</span>
+              <input
+                ref={poScanRef}
+                value={poScanVal}
+                onChange={e => setPoScanVal(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { handlePoScan(poScanVal); e.preventDefault() } }}
+                placeholder="สแกนบาร์โค้ด"
+                className="text-xs w-28 outline-none bg-transparent"
+              />
+            </div>
+            <button onClick={() => setItems(p => [...p, addItemRow()])} className="text-brand text-sm shrink-0">+ เพิ่มแถว</button>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

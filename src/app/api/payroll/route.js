@@ -168,7 +168,7 @@ export async function GET(req) {
       const dailyRate    = Number(emp.daily_rate || 0)
       const grossPay     = daysWorked * dailyRate
       const manualBonus  = empBonus.reduce((s, b) => s + Number(b.amount), 0)
-      const totalEarned  = grossPay + streakBonus + manualBonus
+      const totalEarned  = grossPay + streakBonus + commission + manualBonus
       const totalWithdrawn = empAdv.reduce((s, a) => s + Number(a.amount), 0)
       const netPayDue    = totalEarned - totalWithdrawn - installmentDeduct - carryForwardIn
       // carryForwardIn > 0 = employee owes shop (debt from last month)

@@ -1,166 +1,730 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
-import { fmt, fmtDate, MONTHS_TH } from '@/lib/utils'
+import { useAuth } from '@/components/AuthProvider'
 
-const now = new Date()
-const EMPTY_EMP = { code:'', name:'', nickname:'', position:'', salary:'', ot_rate:'', social_security:'750', bank_account:'', bank_name:'', start_date:'', pin:'', can_login:true, active:true, repair_commission_pct:'0' }
-const EMPTY_SLIP = { ot_hours:'0', ot_rate:'', bonus:'0', allowance:'0', absent_days:'0', other_deduct:'0', note:'' }
+const MONTH_TH = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.']
+const fmt = n => Number(n || 0).toLocaleString('th-TH')
+function fmtDate(d) {
+  if (!d) return ''
+  return new Date(d).toLocaleDateString('th-TH', { day:'numeric', month:'short', year:'2-digit', timeZone:'Asia/Bangkok' })
+}
 
+const EMPTY_EMP = {
+  code:'', name:'', nickname:'', position:'', daily_rate:'', salary:'',
+  ot_rate:'', social_security:'750', bank_account:'', bank_name:'',
+  start_date:'', pin:'', can_login:true, active:true, repair_commission_pct:'0',
+}
+
+// ── Installment Modal ──────────────────────────────────────────────────
+function InstallmentModal({ empId, empName, onClose, onSaved }) {
+  const [list, setList]     = useState([])
+  const [form, setForm]     = useState({ name:'', amount_per_day:'', total_days:'', start_date:'' })
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    fetch(`/api/payroll/installment?employee_id=${empId}`)
+      .then(r => r.json()).then(d => setList(Array.isArray(d) ? d : []))
+  }, [empId])
+
+  async function add() {
+    if (!form.name || !form.amount_per_day || !form.total_days) return
+    setSaving(true)
+    const res = await fetch('/api/payroll/installment', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ employee_id:empId, ...form, amount_per_day:Number(form.amount_per_day), total_days:Number(form.total_days), start_date:form.start_date||null }),
+    })
+    const data = await res.json()
+    if (!data.error) { setList(p=>[...p,data]); setForm({name:'',amount_per_day:'',total_days:'',start_date:''}); onSaved() }
+    setSaving(false)
+  }
+
+  async function toggle(inst) {
+    await fetch('/api/payroll/installment', {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ id:inst.id, active:!inst.active }),
+    })
+    setList(p => p.map(i => i.id===inst.id ? {...i,active:!i.active} : i))
+    onSaved()
+  }
+
+  async function remove(id) {
+    if (!confirm('ลบรายการผ่อนนี้?')) return
+    await fetch(`/api/payroll/installment?id=${id}`, { method:'DELETE' })
+    setList(p => p.filter(i => i.id!==id))
+    onSaved()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
+        <div className="bg-violet-600 text-white px-4 py-3 flex justify-between items-center">
+          <h3 className="font-bold">💳 รายการผ่อน — {empName}</h3>
+          <button onClick={onClose} className="text-xl opacity-70">×</button>
+        </div>
+        <div className="p-4 space-y-3 max-h-[70vh] overflow-y-auto">
+          {list.length===0 && <p className="text-slate-400 text-sm text-center py-4">ยังไม่มีรายการผ่อน</p>}
+          {list.map(inst => {
+            const remaining = inst.total_days - inst.paid_days
+            const pct = Math.round((inst.paid_days/inst.total_days)*100)
+            return (
+              <div key={inst.id} className={`border rounded-xl p-3 ${inst.active?'border-violet-200 bg-violet-50':'border-slate-100 bg-slate-50 opacity-60'}`}>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="font-semibold text-sm text-slate-800">{inst.name}</p>
+                    <p className="text-xs text-slate-500">฿{fmt(inst.amount_per_day)}/วัน × {inst.total_days} วัน</p>
+                    {inst.start_date && <p className="text-xs text-slate-400">เริ่ม {new Date(inst.start_date+'T00:00:00').toLocaleDateString('th-TH',{day:'numeric',month:'short',year:'2-digit'})}</p>}
+                  </div>
+                  <div className="flex gap-1.5">
+                    <button onClick={()=>toggle(inst)} className={`text-xs px-2 py-0.5 rounded-full ${inst.active?'bg-slate-200 text-slate-600':'bg-emerald-100 text-emerald-600'}`}>
+                      {inst.active?'หยุด':'เปิด'}
+                    </button>
+                    <button onClick={()=>remove(inst.id)} className="text-xs text-red-400 hover:text-red-600">✕</button>
+                  </div>
+                </div>
+                <div className="mt-2">
+                  <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+                    <span>ชำระแล้ว {inst.paid_days} วัน</span>
+                    <span>เหลือ {remaining} วัน ({pct}%)</span>
+                  </div>
+                  <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                    <div className="h-full bg-violet-500 rounded-full" style={{width:`${pct}%`}} />
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+          <div className="border-t pt-3">
+            <p className="text-xs font-semibold text-slate-500 mb-2">+ เพิ่มรายการผ่อนใหม่</p>
+            <input placeholder="ชื่อรายการ (เช่น ผ่อนโทรศัพท์)" value={form.name}
+              onChange={e=>setForm(p=>({...p,name:e.target.value}))}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm mb-2 focus:outline-none focus:border-violet-400" />
+            <div className="flex gap-2 mb-2">
+              <div className="flex-1">
+                <label className="text-[10px] text-slate-400">ตัดต่อวัน (บาท)</label>
+                <input type="number" placeholder="50" value={form.amount_per_day}
+                  onChange={e=>setForm(p=>({...p,amount_per_day:e.target.value}))}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-violet-400" />
+              </div>
+              <div className="flex-1">
+                <label className="text-[10px] text-slate-400">จำนวนวัน</label>
+                <input type="number" placeholder="80" value={form.total_days}
+                  onChange={e=>setForm(p=>({...p,total_days:e.target.value}))}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-violet-400" />
+              </div>
+            </div>
+            <div className="mb-2">
+              <label className="text-[10px] text-slate-400">วันเริ่มผ่อน (ไม่บังคับ)</label>
+              <input type="date" value={form.start_date}
+                onChange={e=>setForm(p=>({...p,start_date:e.target.value}))}
+                className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-violet-400" />
+            </div>
+            <button onClick={add} disabled={saving||!form.name||!form.amount_per_day||!form.total_days}
+              className="w-full py-2 bg-violet-600 text-white rounded-xl text-sm font-semibold disabled:opacity-40">
+              {saving?'...':'+ เพิ่มรายการ'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Bonus Modal ────────────────────────────────────────────────────────
+function BonusModal({ empId, empName, period, onClose, onSaved }) {
+  const [list, setList]       = useState([])
+  const [amount, setAmount]   = useState('')
+  const [note, setNote]       = useState('')
+  const [paidCash, setPaidCash] = useState(false)
+  const [saving, setSaving]   = useState(false)
+
+  useEffect(() => {
+    fetch(`/api/payroll/bonus?employee_id=${empId}&period=${period}`)
+      .then(r=>r.json()).then(d=>setList(Array.isArray(d)?d:[]))
+  }, [empId, period])
+
+  async function add() {
+    if (!amount||isNaN(Number(amount))||Number(amount)<=0) return
+    setSaving(true)
+    const res = await fetch('/api/payroll/bonus', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ employee_id:empId, period, amount:Number(amount), note:note.trim()||null, paid_cash:paidCash }),
+    })
+    const data = await res.json()
+    if (!data.error) { setList(p=>[...p,data]); setAmount(''); setNote(''); setPaidCash(false); onSaved() }
+    setSaving(false)
+  }
+
+  async function remove(id) {
+    if (!confirm('ลบโบนัสนี้?')) return
+    await fetch(`/api/payroll/bonus?id=${id}`, { method:'DELETE' })
+    setList(p=>p.filter(b=>b.id!==id))
+    onSaved()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
+        <div className="bg-amber-500 text-white px-4 py-3 flex justify-between items-center">
+          <h3 className="font-bold">🎁 โบนัส — {empName}</h3>
+          <button onClick={onClose} className="text-xl opacity-70">×</button>
+        </div>
+        <div className="p-4 space-y-3 max-h-[70vh] overflow-y-auto">
+          {list.length===0 && <p className="text-slate-400 text-sm text-center py-4">ยังไม่มีโบนัสเดือนนี้</p>}
+          {list.map(b => (
+            <div key={b.id} className="flex items-center justify-between border border-amber-100 bg-amber-50 rounded-xl px-3 py-2">
+              <div>
+                <p className="text-sm font-semibold text-slate-800">{b.note||'โบนัสพิเศษ'}</p>
+                <p className="text-xs text-emerald-600 font-bold">+฿{fmt(b.amount)}</p>
+              </div>
+              <button onClick={()=>remove(b.id)} className="text-xs text-red-400 hover:text-red-600 ml-3">✕</button>
+            </div>
+          ))}
+          <div className="border-t pt-3 space-y-2">
+            <p className="text-xs font-semibold text-slate-500">+ เพิ่มโบนัส</p>
+            <input type="number" placeholder="จำนวนเงิน (บาท)" value={amount}
+              onChange={e=>setAmount(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-400" />
+            <input placeholder="หมายเหตุ เช่น โบนัส 10 วันติด" value={note}
+              onChange={e=>setNote(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-400" />
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input type="checkbox" checked={paidCash} onChange={e=>setPaidCash(e.target.checked)} className="w-4 h-4 rounded accent-amber-500" />
+              <span className="text-sm text-slate-600">รับเงินสดไปแล้ว (หักออกจากยอดจ่าย)</span>
+            </label>
+            <button onClick={add} disabled={saving||!amount}
+              className="w-full py-2 bg-amber-500 text-white rounded-xl text-sm font-semibold disabled:opacity-40">
+              {saving?'...':'+ เพิ่มโบนัส'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── EmpCard (Payroll) ─────────────────────────────────────────────────
+function EmpCard({ emp, period, onSettled }) {
+  const [settling, setSettling]     = useState(false)
+  const [unsettling, setUnsettling] = useState(false)
+  const [showInst, setShowInst]     = useState(false)
+  const [showBonus, setShowBonus]   = useState(false)
+  const [expanded, setExpanded]     = useState(false)
+  const [editRate, setEditRate]     = useState(false)
+  const [rateVal, setRateVal]       = useState(String(emp.daily_rate||''))
+  const isSettled = !!emp.settled
+
+  async function saveRate() {
+    const rate = parseFloat(rateVal)
+    if (isNaN(rate)||rate<0) return
+    await fetch('/api/payroll', {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ employee_id:emp.id, daily_rate:rate }),
+    })
+    setEditRate(false); onSettled()
+  }
+
+  async function unsettle() {
+    if (!confirm(`ยกเลิกปิดบัญชีของ ${emp.nickname||emp.name}?\nรายการผ่อนจะถูกคืนกลับด้วย`)) return
+    setUnsettling(true)
+    await fetch(`/api/payroll/settle?employee_id=${emp.id}&period=${period}`, { method:'DELETE' })
+    setUnsettling(false); onSettled()
+  }
+
+  async function settle() {
+    if (!confirm(`ปิดบัญชีเดือนนี้ให้ ${emp.nickname||emp.name}?\nพนักงานได้รับเงิน ฿${fmt(Math.max(0,emp.netPayDue))}`)) return
+    setSettling(true)
+    const installment_updates = emp.installmentDetail.filter(i=>i.thisMonth>0).map(i=>({id:i.id,days_to_add:i.thisMonth}))
+    await fetch('/api/payroll/settle', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        employee_id:emp.id, period,
+        days_worked:emp.daysWorked, daily_rate:emp.daily_rate, gross_pay:emp.grossPay,
+        streak_bonus:emp.streakBonus, commission:emp.commission,
+        total_withdrawn:emp.totalWithdrawn, installment_deduct:emp.installmentDeduct,
+        carry_forward_in:emp.carryForwardIn, net_pay_due:emp.netPayDue,
+        settled_by:'admin', installment_updates,
+      }),
+    })
+    setSettling(false); onSettled()
+  }
+
+  function printPayslip() {
+    const [y,mo] = period.split('-').map(Number)
+    const monthLabel = `${MONTH_TH[mo-1]} ${y}`
+    const name = emp.nickname||emp.name
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>สลิปค่าแรง ${name}</title>
+<style>body{font-family:Arial,sans-serif;max-width:320px;margin:0 auto;padding:16px;font-size:13px}
+h2{text-align:center;margin:0 0 4px;font-size:16px}.sub{text-align:center;color:#666;margin-bottom:12px;font-size:12px}
+.row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dashed #eee}
+.row.total{border-top:2px solid #333;border-bottom:none;font-weight:bold;font-size:14px;margin-top:4px}
+.deduct{color:#dc2626}.earn{color:#16a34a}.net{color:#2563eb;font-size:16px}
+footer{text-align:center;color:#999;font-size:10px;margin-top:16px}
+</style></head><body>
+<h2>สลิปค่าแรง</h2><div class="sub">${name} · ${monthLabel}</div>
+<div class="row"><span>วันทำงาน</span><span>${emp.daysWorked} วัน</span></div>
+<div class="row"><span>ค่าแรง (${fmt(emp.daily_rate)}/วัน)</span><span class="earn">฿${fmt(emp.grossPay)}</span></div>
+${emp.streakBonus>0?`<div class="row"><span>โบนัส 10 วันติด</span><span class="earn">+฿${fmt(emp.streakBonus)}</span></div>`:''}
+${(emp.bonusDetail||[]).map(b=>`<div class="row"><span>${b.note||'โบนัสพิเศษ'}</span><span class="earn">+฿${fmt(b.amount)}</span></div>`).join('')}
+<div class="row"><span>รวมรายได้</span><span class="earn">฿${fmt(emp.totalEarned)}</span></div>
+<div style="height:8px"></div>
+${emp.totalWithdrawn>0?`<div class="row"><span>เบิกไปแล้ว</span><span class="deduct">-฿${fmt(emp.totalWithdrawn)}</span></div>`:''}
+${emp.installmentDetail.filter(i=>i.deductAmount>0).map(i=>`<div class="row"><span>${i.name} (${i.thisMonth} วัน)</span><span class="deduct">-฿${fmt(i.deductAmount)}</span></div>`).join('')}
+${emp.carryForwardIn>0?`<div class="row"><span>ทบจากเดือนก่อน</span><span class="deduct">-฿${fmt(emp.carryForwardIn)}</span></div>`:''}
+<div class="row total"><span>${emp.netPayDue>=0?'คงเหลือจ่าย':'ทบเดือนหน้า'}</span><span class="${emp.netPayDue>=0?'net':'deduct'}">${emp.netPayDue<0?'−':''}฿${fmt(Math.abs(emp.netPayDue))}</span></div>
+<footer>พิมพ์ ${new Date().toLocaleDateString('th-TH')}</footer></body></html>`
+    const w = window.open('','_blank','width=380,height=600')
+    w.document.write(html); w.document.close(); w.print()
+  }
+
+  return (
+    <>
+      {showInst  && <InstallmentModal empId={emp.id} empName={emp.nickname||emp.name} onClose={()=>setShowInst(false)}  onSaved={onSettled} />}
+      {showBonus && <BonusModal empId={emp.id} empName={emp.nickname||emp.name} period={period} onClose={()=>setShowBonus(false)} onSaved={onSettled} />}
+      <div className={`bg-white rounded-2xl shadow-sm border overflow-hidden ${isSettled?'border-emerald-200':'border-slate-100'}`}>
+        {/* Header */}
+        <div className={`px-4 py-3 flex items-center justify-between ${isSettled?'bg-emerald-50':'bg-slate-50'}`}>
+          <div className="flex-1 min-w-0">
+            <p className="font-bold text-slate-800">{emp.nickname||emp.name}</p>
+            {editRate ? (
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className="text-xs text-slate-400">฿</span>
+                <input autoFocus type="number" value={rateVal} onChange={e=>setRateVal(e.target.value)}
+                  onKeyDown={e=>{if(e.key==='Enter')saveRate();if(e.key==='Escape')setEditRate(false)}}
+                  className="w-24 text-xs border border-slate-300 rounded px-1.5 py-0.5 focus:outline-none focus:border-brand" />
+                <span className="text-xs text-slate-400">/วัน</span>
+                <button onClick={saveRate} className="text-xs text-emerald-600 font-semibold">บันทึก</button>
+                <button onClick={()=>setEditRate(false)} className="text-xs text-slate-400">ยกเลิก</button>
+              </div>
+            ) : (
+              <button onClick={()=>{setRateVal(String(emp.daily_rate||''));setEditRate(true)}}
+                className="text-xs text-slate-500 hover:text-brand text-left">
+                {emp.position}{emp.position?' · ':''}
+                <span className={emp.daily_rate?'text-slate-600':'text-red-400 font-medium'}>
+                  {emp.daily_rate?`฿${fmt(emp.daily_rate)}/วัน`:'⚠️ ยังไม่ตั้งค่าแรง'}
+                </span>
+                <span className="text-slate-300 ml-1">✎</span>
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {isSettled && <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">✅ ปิดแล้ว</span>}
+            <button onClick={()=>setExpanded(p=>!p)} className="text-slate-400 text-lg w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-200">
+              {expanded?'▲':'▼'}
+            </button>
+          </div>
+        </div>
+
+        {/* Summary */}
+        <div className="px-4 py-3 grid grid-cols-4 gap-2 text-center border-b border-slate-50">
+          <div><p className="text-[10px] text-slate-400">วันทำงาน</p><p className="font-bold text-slate-800">{emp.daysWorked}</p></div>
+          <div><p className="text-[10px] text-slate-400">รายได้รวม</p><p className="font-bold text-emerald-600">฿{fmt(emp.totalEarned)}</p></div>
+          <div><p className="text-[10px] text-slate-400">เบิก+หัก</p><p className="font-bold text-red-500">฿{fmt(emp.totalWithdrawn+emp.installmentDeduct+emp.carryForwardIn)}</p></div>
+          <div>
+            <p className="text-[10px] text-slate-400">{emp.netPayDue>=0?'คงเหลือ':'ทบเดือนหน้า'}</p>
+            <p className={`font-bold ${emp.netPayDue>=0?'text-blue-600':'text-orange-500'}`}>
+              {emp.netPayDue<0?'−':''}฿{fmt(Math.abs(emp.netPayDue))}
+            </p>
+          </div>
+        </div>
+
+        {/* Detail */}
+        {expanded && (
+          <div className="px-4 py-3 space-y-1.5 text-sm border-b border-slate-50">
+            <div className="flex justify-between text-slate-600">
+              <span>ค่าแรง ({emp.daysWorked} วัน × ฿{fmt(emp.daily_rate)})</span>
+              <span className="text-emerald-600">+฿{fmt(emp.grossPay)}</span>
+            </div>
+            {emp.streakBonus>0 && (
+              <div className="flex justify-between text-slate-600">
+                <span>โบนัส 10 วันติด</span>
+                <span className="text-emerald-600">+฿{fmt(emp.streakBonus)}</span>
+              </div>
+            )}
+            {(emp.bonusDetail||[]).map((b,i) => (
+              <div key={i} className="flex justify-between text-slate-600">
+                <span>{b.note||'โบนัสพิเศษ'}</span>
+                <span className="text-emerald-600">+฿{fmt(b.amount)}</span>
+              </div>
+            ))}
+            <div className="flex justify-between font-semibold text-slate-700 border-t border-dashed pt-1.5">
+              <span>รายได้รวม</span><span className="text-emerald-700">฿{fmt(emp.totalEarned)}</span>
+            </div>
+            {emp.totalWithdrawn>0 && (
+              <div className="flex justify-between text-slate-600">
+                <span>เบิกค่าแรง (รวม {emp.advances.length} ครั้ง)</span>
+                <span className="text-red-500">−฿{fmt(emp.totalWithdrawn)}</span>
+              </div>
+            )}
+            {emp.installmentDetail.filter(i=>i.thisMonth>0).map(inst => (
+              <div key={inst.id} className="flex justify-between text-slate-600">
+                <span>{inst.name} ({inst.thisMonth} วัน · เหลือ {inst.remaining-inst.thisMonth} วัน)</span>
+                <span className="text-red-500">−฿{fmt(inst.deductAmount)}</span>
+              </div>
+            ))}
+            {emp.carryForwardIn>0 && (
+              <div className="flex justify-between text-slate-600">
+                <span>ทบจากเดือนก่อน</span>
+                <span className="text-orange-500">−฿{fmt(emp.carryForwardIn)}</span>
+              </div>
+            )}
+            <div className={`flex justify-between font-bold border-t-2 border-slate-200 pt-1.5 ${emp.netPayDue>=0?'text-blue-700':'text-orange-600'}`}>
+              <span>{emp.netPayDue>=0?'คงเหลือต้องจ่าย':'ขาด → ทบเดือนหน้า'}</span>
+              <span>{emp.netPayDue<0?'−':''}฿{fmt(Math.abs(emp.netPayDue))}</span>
+            </div>
+            {emp.advances.length>0 && (
+              <div className="mt-2 pt-2 border-t border-dashed">
+                <p className="text-[10px] text-slate-400 mb-1.5">ประวัติเบิก</p>
+                {emp.advances.map((a,i) => (
+                  <div key={i} className="flex justify-between text-xs text-slate-500 py-0.5">
+                    <span>{fmtDate(a.requested_at)}</span>
+                    <span className="text-red-500">−฿{fmt(a.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="px-4 py-3 space-y-2">
+          <div className="flex gap-2">
+            <button onClick={()=>setShowInst(true)}
+              className="flex-1 py-2 border border-violet-200 text-violet-600 rounded-xl text-sm font-medium hover:bg-violet-50">
+              💳 ผ่อน
+            </button>
+            <button onClick={()=>setShowBonus(true)}
+              className="flex-1 py-2 border border-amber-200 text-amber-600 rounded-xl text-sm font-medium hover:bg-amber-50">
+              🎁 โบนัส
+            </button>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={printPayslip}
+              className="flex-1 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-50">
+              🖨️ สลิป
+            </button>
+            {!isSettled ? (
+              <button onClick={settle} disabled={settling}
+                className="flex-1 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-40">
+                {settling?'...':'✅ ปิดบัญชี'}
+              </button>
+            ) : (
+              <button onClick={unsettle} disabled={unsettling}
+                className="flex-1 py-2 border border-red-200 text-red-500 rounded-xl text-sm font-medium hover:bg-red-50 disabled:opacity-40">
+                {unsettling?'...':'↩ ยกเลิกปิด'}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
+// ── Employee form field helper ─────────────────────────────────────────
+function EmpField({ label, k, form, setForm, type='text', placeholder='' }) {
+  return (
+    <div>
+      <label className="text-xs text-slate-500 block mb-1">{label}</label>
+      <input type={type} value={form[k]||''} onChange={e=>setForm(p=>({...p,[k]:e.target.value}))}
+        placeholder={placeholder}
+        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:border-brand outline-none" />
+    </div>
+  )
+}
+
+// ── Main Page ─────────────────────────────────────────────────────────
 export default function EmployeesPage() {
-  const [employees, setEmployees] = useState([])
-  const [payslips, setPayslips]   = useState([])
-  const [settings, setSettings]   = useState({})
-  const [tab, setTab]             = useState('list')
-  const [modal, setModal]         = useState(null)
-  const [form, setForm]           = useState(EMPTY_EMP)
-  const [slipForm, setSlipForm]   = useState(EMPTY_SLIP)
-  const [slipEmp, setSlipEmp]     = useState(null)
-  const [slipPeriod, setSlipPeriod] = useState({ year: now.getFullYear(), month: now.getMonth() + 1 })
-  const [saving, setSaving]       = useState(false)
-  const [histEmp, setHistEmp]     = useState(null)
-  const [empHistory, setEmpHistory] = useState([])
+  useAuth()
+  const now = new Date()
+  const [activeTab, setActiveTab] = useState(0)
 
-  useEffect(() => { loadAll() }, [])
+  // Tab 1 — Employee list
+  const [employees, setEmployees]   = useState([])
+  const [modal, setModal]           = useState(null)
+  const [form, setForm]             = useState(EMPTY_EMP)
+  const [saving, setSaving]         = useState(false)
 
-  async function loadAll() {
-    const [{ data: e }, { data: p }, { data: s }] = await Promise.all([
-      supabase.from('employees').select('*').order('name'),
-      supabase.from('payslips').select('*, employees(name)').order('created_at', { ascending: false }).limit(30),
-      supabase.from('settings').select('*'),
-    ])
-    setEmployees(e || [])
-    setPayslips(p || [])
-    if (s) setSettings(Object.fromEntries(s.map(r => [r.key, r.value])))
+  // Tab 2 — Payroll
+  const [period, setPeriod]         = useState(now.toLocaleDateString('sv-SE',{timeZone:'Asia/Bangkok'}).slice(0,7))
+  const [payrollData, setPayrollData] = useState(null)
+  const [payrollLoading, setPayrollLoading] = useState(false)
+
+  // Tab 3 — Approvals
+  const [pendingItems, setPendingItems] = useState([])
+  const [pendingLoading, setPendingLoading] = useState(false)
+
+  useEffect(() => { loadEmployees() }, [])
+
+  const loadPayroll = useCallback(async () => {
+    setPayrollLoading(true)
+    try {
+      const res  = await fetch(`/api/payroll?period=${period}`)
+      const json = await res.json()
+      setPayrollData(json)
+    } catch {}
+    setPayrollLoading(false)
+  }, [period])
+
+  useEffect(() => { if (activeTab===1) loadPayroll() }, [activeTab, loadPayroll])
+  useEffect(() => { if (activeTab===2) loadPending() }, [activeTab])
+
+  async function loadEmployees() {
+    const { data } = await supabase.from('employees').select('*').order('name')
+    setEmployees(data || [])
+  }
+
+  async function loadPending() {
+    setPendingLoading(true)
+    try {
+      const [{ data: leaves }, { data: advances }, { data: drawers }] = await Promise.all([
+        supabase.from('leave_requests').select('id,employee_name,date_from,date_to,period,leave_type,note,created_at').eq('status','pending').order('created_at',{ascending:false}),
+        supabase.from('salary_advances').select('id,employee_name,amount,note,created_at').eq('status','pending').order('created_at',{ascending:false}),
+        supabase.from('drawer_requests').select('id,employee_name,note,amount,created_at').eq('status','pending').order('created_at',{ascending:false}),
+      ])
+      const items = [
+        ...(leaves  ||[]).map(r=>({...r,_type:'leave'})),
+        ...(advances||[]).map(r=>({...r,_type:'advance'})),
+        ...(drawers ||[]).map(r=>({...r,_type:'drawer'})),
+      ].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))
+      setPendingItems(items)
+    } finally { setPendingLoading(false) }
+  }
+
+  async function handlePendingAction(action, type, id) {
+    setPendingItems(prev=>prev.map(p=>p.id===id&&p._type===type?{...p,_acting:action}:p))
+    try {
+      await fetch('/api/push/action', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ action, type, id }),
+      })
+      setPendingItems(prev=>prev.filter(p=>!(p.id===id&&p._type===type)))
+    } catch {
+      setPendingItems(prev=>prev.map(p=>p.id===id&&p._type===type?{...p,_acting:null}:p))
+    }
   }
 
   function openAdd() { setForm(EMPTY_EMP); setModal('add') }
-  function openEdit(e) { setForm({ ...e, salary: String(e.salary||''), ot_rate: String(e.ot_rate||''), social_security: String(e.social_security||750), repair_commission_pct: String(e.repair_commission_pct||'0') }); setModal({ type:'edit', id: e.id }) }
+  function openEdit(e) {
+    setForm({
+      ...e,
+      daily_rate: String(e.daily_rate||''),
+      salary: String(e.salary||''),
+      ot_rate: String(e.ot_rate||''),
+      social_security: String(e.social_security||750),
+      repair_commission_pct: String(e.repair_commission_pct||'0'),
+    })
+    setModal({ type:'edit', id:e.id })
+  }
 
   async function saveEmployee() {
     if (!form.name) return alert('กรุณากรอกชื่อพนักงาน')
     setSaving(true)
     const payload = {
-      code: form.code || null, name: form.name, nickname: form.nickname || null, position: form.position,
-      salary: parseFloat(form.salary) || 0,
-      ot_rate: parseFloat(form.ot_rate) || parseFloat(settings.ot_rate) || 75,
-      social_security: parseFloat(form.social_security) || 750,
-      bank_account: form.bank_account, bank_name: form.bank_name,
-      pin: form.pin || null, can_login: form.can_login !== false,
-      start_date: form.start_date || null, active: form.active,
-      repair_commission_pct: parseFloat(form.repair_commission_pct) || 0,
+      code: form.code||null, name:form.name, nickname:form.nickname||null,
+      position:form.position,
+      daily_rate: parseFloat(form.daily_rate)||null,
+      salary: parseFloat(form.salary)||0,
+      ot_rate: parseFloat(form.ot_rate)||75,
+      social_security: parseFloat(form.social_security)||750,
+      bank_account:form.bank_account, bank_name:form.bank_name,
+      pin:form.pin||null, can_login:form.can_login!==false,
+      start_date:form.start_date||null, active:form.active,
+      repair_commission_pct:parseFloat(form.repair_commission_pct)||0,
     }
     try {
-      if (modal === 'add') {
-        await supabase.from('employees').insert(payload)
-      } else {
-        await supabase.from('employees').update(payload).eq('id', modal.id)
-      }
-      setModal(null); loadAll()
+      if (modal==='add') { await supabase.from('employees').insert(payload) }
+      else { await supabase.from('employees').update(payload).eq('id',modal.id) }
+      setModal(null); loadEmployees()
     } catch (e) { alert(e.message) } finally { setSaving(false) }
   }
 
-  function openSlip(emp) {
-    setSlipEmp(emp)
-    setSlipForm({ ...EMPTY_SLIP, ot_rate: String(emp.ot_rate || settings.ot_rate || 75) })
-    setTab('slip')
+  const [y, mo] = period.split('-').map(Number)
+  const monthLabel = `${MONTH_TH[mo-1]} ${y}`
+  function changeMonth(delta) {
+    const d = new Date(y, mo-1+delta, 1)
+    setPeriod(d.toLocaleDateString('sv-SE',{timeZone:'Asia/Bangkok'}).slice(0,7))
   }
 
-  async function openHistory(emp) {
-    setHistEmp(emp)
-    const { data } = await supabase.from('payslips').select('*').eq('employee_id', emp.id).order('period_year', { ascending: false }).order('period_month', { ascending: false })
-    setEmpHistory(data || [])
-    setTab('history')
-  }
+  const totalNetPay = (payrollData?.employees||[]).reduce((s,e)=>s+Math.max(0,e.netPayDue),0)
+  const pendingCount = pendingItems.length
 
-  function calcSlip() {
-    const baseSalary    = parseFloat(slipEmp?.salary || 0)
-    const otHours       = parseFloat(slipForm.ot_hours || 0)
-    const otRate        = parseFloat(slipForm.ot_rate || 0)
-    const otAmount      = otHours * otRate
-    const bonus         = parseFloat(slipForm.bonus || 0)
-    const allowance     = parseFloat(slipForm.allowance || 0)
-    const absentDays    = parseFloat(slipForm.absent_days || 0)
-    const dailyRate     = baseSalary / 30
-    const absentDeduct  = absentDays * dailyRate
-    const socialSec     = parseFloat(slipEmp?.social_security || 750)
-    const otherDeduct   = parseFloat(slipForm.other_deduct || 0)
-    const income        = baseSalary + otAmount + bonus + allowance
-    const deductions    = absentDeduct + socialSec + otherDeduct
-    const netPay        = income - deductions
-    return { baseSalary, otHours, otRate, otAmount, bonus, allowance, absentDays, absentDeduct, socialSec, otherDeduct, income, deductions, netPay }
-  }
+  // Pending helpers
+  const leaveTypeMap  = { holiday:'วันหยุด', sick:'ลาป่วย', personal:'ธุระส่วนตัว', other:'อื่นๆ' }
+  const periodMap     = { full:'เต็มวัน', morning:'ครึ่งเช้า', afternoon:'ครึ่งบ่าย' }
+  const fmtD = d => d ? new Date(d+'T00:00:00').toLocaleDateString('th-TH',{day:'numeric',month:'short'}) : ''
 
-  async function saveSlip() {
-    if (!slipEmp) return
-    const c = calcSlip()
-    setSaving(true)
-    try {
-      const { data: existing } = await supabase.from('payslips')
-        .select('id').eq('employee_id', slipEmp.id).eq('period_year', slipPeriod.year).eq('period_month', slipPeriod.month).single()
-      if (existing && !confirm('มีสลิปเดือนนี้แล้ว ต้องการเขียนทับ?')) { setSaving(false); return }
-      if (existing) {
-        await supabase.from('payslips').update({
-          salary: c.baseSalary, ot_hours: c.otHours, ot_rate: c.otRate, ot_amount: c.otAmount,
-          bonus: c.bonus, allowance: c.allowance, absent_days: c.absentDays, absent_deduct: c.absentDeduct,
-          social_security: c.socialSec, other_deduct: c.otherDeduct, net_pay: c.netPay, note: slipForm.note,
-        }).eq('id', existing.id)
-      } else {
-        await supabase.from('payslips').insert({
-          employee_id: slipEmp.id, period_year: slipPeriod.year, period_month: slipPeriod.month,
-          salary: c.baseSalary, ot_hours: c.otHours, ot_rate: c.otRate, ot_amount: c.otAmount,
-          bonus: c.bonus, allowance: c.allowance, absent_days: c.absentDays, absent_deduct: c.absentDeduct,
-          social_security: c.socialSec, other_deduct: c.otherDeduct, net_pay: c.netPay, note: slipForm.note,
-        })
-      }
-      loadAll()
-      printSlip(slipEmp, slipPeriod, c, settings)
-    } catch (e) { alert(e.message) } finally { setSaving(false) }
-  }
-
-  const slip = slipEmp ? calcSlip() : null
-
-  // ===== List tab =====
-  if (tab === 'list') return (
-    <div className="max-w-4xl mx-auto px-3 py-4">
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-        <h1 className="font-heading font-bold text-xl text-brand">👥 พนักงาน</h1>
-        <div className="flex gap-2">
-          <button onClick={() => setTab('history_all')} className="border border-gray-300 text-gray-600 px-3 py-2 rounded-xl text-sm">📄 ประวัติสลิป</button>
-          <button onClick={openAdd} className="bg-brand text-white px-4 py-2 rounded-xl text-sm font-medium shadow active:scale-95 transition-transform">+ เพิ่มพนักงาน</button>
+  return (
+    <div className="min-h-screen bg-slate-50 pb-20">
+      {/* Header + tabs */}
+      <div className="bg-brand text-white px-4 pt-12 pb-0">
+        <h1 className="text-lg font-bold mb-3">👥 พนักงาน</h1>
+        <div className="flex">
+          {[['👥 พนักงาน', 0], ['💰 ค่าแรง', 1], ['📋 รออนุมัติ', 2]].map(([label, idx]) => (
+            <button key={idx} onClick={()=>setActiveTab(idx)}
+              className={`flex-1 py-2.5 text-sm font-semibold rounded-t-xl transition-colors relative ${
+                activeTab===idx ? 'bg-slate-50 text-brand' : 'text-white/70 hover:text-white'
+              }`}>
+              {label}
+              {idx===2 && pendingCount>0 && (
+                <span className="absolute top-1 right-2 min-w-[16px] h-4 bg-red-500 rounded-full text-[9px] text-white flex items-center justify-center font-bold px-0.5">
+                  {pendingCount>9?'9+':pendingCount}
+                </span>
+              )}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="grid gap-3">
-        {employees.map(e => (
-          <div key={e.id} className="bg-white rounded-2xl border border-gray-200 p-4 shadow-sm flex items-center gap-4">
-            <div className="w-12 h-12 rounded-full bg-brand/10 flex items-center justify-center text-2xl font-bold text-brand shrink-0">
-              {e.name.charAt(0)}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-0.5">
-                <p className="font-semibold text-gray-800">{e.name}</p>
-                {!e.active && <span className="text-[9px] bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded-full">ไม่ใช้งาน</span>}
-              </div>
-              <p className="text-xs text-gray-400">{e.position || 'ไม่ระบุตำแหน่ง'} · เงินเดือน ฿{fmt(e.salary)}</p>
-            </div>
-            <div className="flex gap-2 shrink-0">
-              <button onClick={() => openSlip(e)} className="bg-emerald-600 text-white px-3 py-2 rounded-xl text-xs font-medium active:scale-95">💰 สลิป</button>
-              <button onClick={() => openHistory(e)} className="border border-gray-200 text-gray-600 px-3 py-2 rounded-xl text-xs active:bg-gray-50">ประวัติ</button>
-              <button onClick={() => openEdit(e)} className="border border-gray-200 text-gray-600 px-3 py-2 rounded-xl text-xs active:bg-gray-50">แก้ไข</button>
-            </div>
+      {/* ── Tab 1: Employee list ──────────────────────────────── */}
+      {activeTab===0 && (
+        <div className="px-4 py-4 max-w-2xl mx-auto">
+          <div className="flex justify-end mb-3">
+            <button onClick={openAdd} className="bg-brand text-white px-4 py-2 rounded-xl text-sm font-medium shadow">
+              + เพิ่มพนักงาน
+            </button>
           </div>
-        ))}
-        {employees.length === 0 && <div className="text-center py-12 text-gray-400">ยังไม่มีพนักงาน</div>}
-      </div>
+          <div className="space-y-3">
+            {employees.map(e => (
+              <div key={e.id} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex items-center gap-4">
+                <div className="w-11 h-11 rounded-full bg-brand/10 flex items-center justify-center text-xl font-bold text-brand shrink-0">
+                  {e.name.charAt(0)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-semibold text-slate-800">{e.name}</p>
+                    {e.nickname && <span className="text-xs text-slate-400">({e.nickname})</span>}
+                    {!e.active && <span className="text-[9px] bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded-full">ไม่ใช้งาน</span>}
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {e.position||'ไม่ระบุตำแหน่ง'}
+                    {e.daily_rate ? ` · ค่าแรง ฿${fmt(e.daily_rate)}/วัน` : ''}
+                    {e.salary ? ` · เงินเดือน ฿${fmt(e.salary)}` : ''}
+                  </p>
+                </div>
+                <button onClick={()=>openEdit(e)} className="border border-slate-200 text-slate-600 px-3 py-2 rounded-xl text-xs shrink-0 hover:bg-slate-50">
+                  แก้ไข
+                </button>
+              </div>
+            ))}
+            {employees.length===0 && <div className="text-center py-12 text-slate-400">ยังไม่มีพนักงาน</div>}
+          </div>
+        </div>
+      )}
 
-      {/* Add/Edit Modal */}
+      {/* ── Tab 2: Payroll ───────────────────────────────────── */}
+      {activeTab===1 && (
+        <div>
+          <div className="bg-white px-4 py-3 flex items-center justify-center gap-3 border-b border-slate-100 shadow-sm">
+            <button onClick={()=>changeMonth(-1)} className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-xl text-slate-600">‹</button>
+            <p className="text-base font-bold text-slate-800 w-28 text-center">{monthLabel}</p>
+            <button onClick={()=>changeMonth(1)} className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-xl text-slate-600">›</button>
+            <button onClick={loadPayroll} className="text-slate-400 text-sm ml-2">↻</button>
+          </div>
+          {!payrollLoading && payrollData && (
+            <p className="text-center text-slate-400 text-sm py-2">
+              รวมต้องจ่าย ฿{fmt(totalNetPay)} · {payrollData.employees?.length||0} คน
+            </p>
+          )}
+          <div className="px-4 py-3 space-y-3 max-w-lg mx-auto">
+            {payrollLoading && (
+              <div className="py-16 text-center text-slate-400">
+                <div className="w-8 h-8 border-2 border-brand border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                <p className="text-sm">กำลังคำนวณ...</p>
+              </div>
+            )}
+            {!payrollLoading && payrollData?.employees?.length===0 && (
+              <div className="py-16 text-center text-slate-400">
+                <p className="text-4xl mb-3">👥</p>
+                <p className="text-sm">ไม่มีพนักงาน active</p>
+              </div>
+            )}
+            {!payrollLoading && payrollData?.employees?.map(emp => (
+              <EmpCard key={emp.id} emp={emp} period={period} onSettled={loadPayroll} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Tab 3: Approvals ─────────────────────────────────── */}
+      {activeTab===2 && (
+        <div className="px-4 py-4 space-y-3 max-w-xl mx-auto">
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="font-bold text-slate-700">คำขอรออนุมัติ</h2>
+            <button onClick={loadPending} disabled={pendingLoading}
+              className="text-xs text-brand border border-brand/30 px-3 py-1.5 rounded-lg active:bg-brand/5">
+              {pendingLoading?'⏳':'🔄 รีเฟรช'}
+            </button>
+          </div>
+
+          {pendingLoading && pendingItems.length===0 && (
+            <p className="text-center text-slate-400 py-10 text-sm">⏳ กำลังโหลด...</p>
+          )}
+          {!pendingLoading && pendingItems.length===0 && (
+            <div className="text-center py-16">
+              <p className="text-4xl mb-3">✅</p>
+              <p className="text-slate-400 text-sm font-semibold">ไม่มีคำขอรออนุมัติ</p>
+            </div>
+          )}
+
+          {pendingItems.map(item => {
+            const typeInfo = {
+              leave:   { emoji:'🏖', label:'คำขอลา',          borderCls:'border-l-amber-400',  bgCls:'bg-amber-50',  badgeCls:'bg-amber-100 text-amber-700' },
+              advance: { emoji:'💵', label:'คำขอเบิก',         borderCls:'border-l-orange-400', bgCls:'bg-orange-50', badgeCls:'bg-orange-100 text-orange-700' },
+              drawer:  { emoji:'🔓', label:'คำขอเปิดลิ้นชัก', borderCls:'border-l-violet-400', bgCls:'bg-violet-50', badgeCls:'bg-violet-100 text-violet-700' },
+            }[item._type] || { emoji:'📋', label:'คำขอ', borderCls:'border-l-slate-400', bgCls:'bg-slate-50', badgeCls:'bg-slate-100 text-slate-700' }
+
+            const details = item._type==='leave' ? [
+              `📅 ${item.date_from===item.date_to ? fmtD(item.date_from) : `${fmtD(item.date_from)} – ${fmtD(item.date_to)}`}`,
+              `⏰ ${periodMap[item.period]||item.period||'เต็มวัน'}  ·  🏷 ${leaveTypeMap[item.leave_type]||item.leave_type||'วันหยุด'}`,
+              ...(item.note?[`📝 ${item.note}`]:[]),
+            ] : item._type==='advance' ? [
+              `💰 ฿${Number(item.amount||0).toLocaleString('th-TH')}`,
+              ...(item.note?[`📝 ${item.note}`]:[]),
+            ] : [
+              ...(item.amount?[`💰 ฿${Number(item.amount).toLocaleString('th-TH')}`]:[]),
+              ...(item.note?[`📝 ${item.note}`]:[]),
+            ]
+
+            const timeStr = new Date(item.created_at).toLocaleTimeString('th-TH',{timeZone:'Asia/Bangkok',hour:'2-digit',minute:'2-digit'})
+            const dateStr = new Date(item.created_at).toLocaleDateString('th-TH',{timeZone:'Asia/Bangkok',day:'numeric',month:'short'})
+            const acting  = item._acting
+
+            return (
+              <div key={`${item._type}-${item.id}`}
+                className={`rounded-2xl border-l-4 ${typeInfo.borderCls} ${typeInfo.bgCls} p-4 shadow-sm`}>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xl">{typeInfo.emoji}</span>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${typeInfo.badgeCls}`}>{typeInfo.label}</span>
+                  <span className="ml-auto text-xs text-slate-400">{dateStr} {timeStr}</span>
+                </div>
+                <p className="font-semibold text-slate-800 text-sm mb-1.5">{item.employee_name}</p>
+                <div className="space-y-0.5 mb-3">
+                  {details.map((d,i) => <p key={i} className="text-xs text-slate-600">{d}</p>)}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={()=>handlePendingAction('reject',item._type,item.id)} disabled={!!acting}
+                    className="flex-1 py-2.5 rounded-xl bg-red-50 text-red-600 font-semibold text-sm border border-red-200 active:scale-95 disabled:opacity-40">
+                    {acting==='reject'?'⏳':'❌ ปฏิเสธ'}
+                  </button>
+                  <button onClick={()=>handlePendingAction('approve',item._type,item.id)} disabled={!!acting}
+                    className="flex-1 py-2.5 rounded-xl bg-green-50 text-green-700 font-semibold text-sm border border-green-200 active:scale-95 disabled:opacity-40">
+                    {acting==='approve'?'⏳':'✅ อนุมัติ'}
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* ── Add/Edit Employee Modal ───────────────────────────── */}
       {modal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-end md:items-center justify-center p-3">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="bg-brand text-white px-4 py-3 flex justify-between items-center">
-              <h2 className="font-heading font-bold">{modal === 'add' ? 'เพิ่มพนักงาน' : 'แก้ไขพนักงาน'}</h2>
-              <button onClick={() => setModal(null)} className="text-2xl opacity-80">×</button>
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl max-h-[92vh] overflow-y-auto">
+            <div className="bg-brand text-white px-4 py-3 flex justify-between items-center sticky top-0">
+              <h2 className="font-bold">{modal==='add'?'เพิ่มพนักงาน':'แก้ไขพนักงาน'}</h2>
+              <button onClick={()=>setModal(null)} className="text-2xl opacity-80">×</button>
             </div>
             <div className="p-4 space-y-3">
               <EmpField label="รหัสพนักงาน" k="code" form={form} setForm={setForm} placeholder="EMP001" />
@@ -168,12 +732,12 @@ export default function EmployeesPage() {
               <EmpField label="ชื่อเล่น (แสดงบนใบเสร็จ)" k="nickname" form={form} setForm={setForm} placeholder="เช่น แนน, อ้อม" />
               <EmpField label="ตำแหน่ง" k="position" form={form} setForm={setForm} placeholder="พนักงานขาย" />
               <div className="grid grid-cols-2 gap-3">
+                <EmpField label="ค่าแรง/วัน (บาท)" k="daily_rate" form={form} setForm={setForm} type="number" placeholder="300" />
                 <EmpField label="เงินเดือน (บาท)" k="salary" form={form} setForm={setForm} type="number" placeholder="15000" />
-                <EmpField label="ค่า OT/ชม. (บาท)" k="ot_rate" form={form} setForm={setForm} type="number" placeholder="75" />
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <EmpField label="🔧 คอมค่าซ่อม (%)" k="repair_commission_pct" form={form} setForm={setForm} type="number" placeholder="0" />
-                <div className="flex items-end pb-1"><p className="text-xs text-gray-400">% ของค่าแรงซ่อมในแต่ละงาน<br/>คำนวณรายเดือนที่หน้า คอมช่าง</p></div>
+                <EmpField label="ค่า OT/ชม. (บาท)" k="ot_rate" form={form} setForm={setForm} type="number" placeholder="75" />
+                <EmpField label="คอมค่าซ่อม (%)" k="repair_commission_pct" form={form} setForm={setForm} type="number" placeholder="0" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <EmpField label="ประกันสังคม/เดือน" k="social_security" form={form} setForm={setForm} type="number" placeholder="750" />
@@ -182,28 +746,27 @@ export default function EmployeesPage() {
               <div className="grid grid-cols-2 gap-3">
                 <EmpField label="ธนาคาร" k="bank_name" form={form} setForm={setForm} placeholder="กสิกร" />
                 <EmpField label="เลขบัญชี" k="bank_account" form={form} setForm={setForm} placeholder="xxx-x-xxxxx-x" />
-                <div>
-                  <label className="text-xs text-gray-500 block mb-1">PIN เข้าระบบ (4 หลัก)</label>
-                  <input value={form.pin||''} onChange={e => setForm(p=>({...p,pin:e.target.value.replace(/\D/g,'').slice(0,4)}))}
-                    type="text" inputMode="numeric" maxLength={4} placeholder="ไม่กรอก = ไม่ต้องใส่ PIN"
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:border-brand outline-none font-mono tracking-widest" />
-                  <p className="text-[10px] text-gray-400 mt-0.5">พนักงานใช้ PIN นี้ล็อกอินในแท็บ "พนักงาน"</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input type="checkbox" id="can_login" checked={form.can_login !== false}
-                    onChange={e => setForm(p=>({...p,can_login:e.target.checked}))}
-                    className="w-4 h-4 rounded accent-brand" />
-                  <label htmlFor="can_login" className="text-xs text-gray-600">อนุญาตให้ Login ได้</label>
-                </div>
               </div>
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input type="checkbox" checked={form.active} onChange={e => setForm(p=>({...p,active:e.target.checked}))} className="w-4 h-4 accent-brand" />
-                พนักงานยังทำงานอยู่
-              </label>
+              <div>
+                <label className="text-xs text-slate-500 block mb-1">PIN เข้าระบบ (4 หลัก)</label>
+                <input value={form.pin||''} onChange={e=>setForm(p=>({...p,pin:e.target.value.replace(/\D/g,'').slice(0,4)}))}
+                  type="text" inputMode="numeric" maxLength={4} placeholder="ไม่กรอก = ไม่ต้องใส่ PIN"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:border-brand outline-none font-mono tracking-widest" />
+              </div>
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input type="checkbox" checked={form.can_login!==false} onChange={e=>setForm(p=>({...p,can_login:e.target.checked}))} className="w-4 h-4 rounded accent-brand" />
+                  อนุญาตให้ Login
+                </label>
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input type="checkbox" checked={form.active} onChange={e=>setForm(p=>({...p,active:e.target.checked}))} className="w-4 h-4 accent-brand" />
+                  ยังทำงานอยู่
+                </label>
+              </div>
               <div className="flex gap-2 pt-1">
-                <button onClick={() => setModal(null)} className="flex-1 border border-gray-300 text-gray-600 py-3 rounded-xl text-sm">ยกเลิก</button>
+                <button onClick={()=>setModal(null)} className="flex-1 border border-slate-300 text-slate-600 py-3 rounded-xl text-sm">ยกเลิก</button>
                 <button onClick={saveEmployee} disabled={saving} className="flex-1 bg-brand text-white py-3 rounded-xl text-sm font-bold disabled:opacity-50 shadow">
-                  {saving ? 'บันทึก...' : '💾 บันทึก'}
+                  {saving?'บันทึก...':'💾 บันทึก'}
                 </button>
               </div>
             </div>
@@ -212,215 +775,4 @@ export default function EmployeesPage() {
       )}
     </div>
   )
-
-  // ===== Slip tab =====
-  if (tab === 'slip' && slipEmp && slip) return (
-    <div className="max-w-2xl mx-auto px-3 py-4">
-      <div className="flex items-center gap-3 mb-4">
-        <button onClick={() => setTab('list')} className="text-gray-400 text-xl">←</button>
-        <h1 className="font-heading font-bold text-xl text-brand">💰 ออกสลิปเงินเดือน</h1>
-      </div>
-
-      <div className="bg-white rounded-2xl border border-gray-200 p-4 shadow-sm mb-3">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-12 h-12 rounded-full bg-brand/10 flex items-center justify-center text-2xl font-bold text-brand">
-            {slipEmp.name.charAt(0)}
-          </div>
-          <div>
-            <p className="font-bold text-gray-800">{slipEmp.name}</p>
-            <p className="text-xs text-gray-400">{slipEmp.position}</p>
-          </div>
-        </div>
-
-        {/* Period */}
-        <div className="grid grid-cols-2 gap-3 mb-4">
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">ปี</label>
-            <select value={slipPeriod.year} onChange={e => setSlipPeriod(p=>({...p,year:parseInt(e.target.value)}))}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm">
-              {[now.getFullYear()-1, now.getFullYear(), now.getFullYear()+1].map(y => <option key={y} value={y}>{y + 543}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">เดือน</label>
-            <select value={slipPeriod.month} onChange={e => setSlipPeriod(p=>({...p,month:parseInt(e.target.value)}))}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm">
-              {MONTHS_TH.slice(1).map((m,i) => <option key={i+1} value={i+1}>{m}</option>)}
-            </select>
-          </div>
-        </div>
-
-        {/* Income */}
-        <div className="mb-3">
-          <p className="text-xs font-semibold text-green-700 mb-2 uppercase tracking-wide">รายได้</p>
-          <div className="bg-gray-50 rounded-xl p-3 space-y-2">
-            <SlipRow label="เงินเดือน" val={`฿${fmt(slipEmp.salary)}`} />
-            <div className="grid grid-cols-2 gap-2">
-              <SlipInput label="OT (ชั่วโมง)" val={slipForm.ot_hours} onChange={v => setSlipForm(p=>({...p,ot_hours:v}))} />
-              <SlipInput label="อัตรา OT/ชม." val={slipForm.ot_rate} onChange={v => setSlipForm(p=>({...p,ot_rate:v}))} />
-            </div>
-            {parseFloat(slipForm.ot_hours || 0) > 0 && <SlipRow label="รวม OT" val={`฿${fmt(slip.otAmount)}`} />}
-            <SlipInput label="โบนัส (บาท)" val={slipForm.bonus} onChange={v => setSlipForm(p=>({...p,bonus:v}))} />
-            <SlipInput label="เบี้ยเลี้ยง / ค่าน้ำมัน (บาท)" val={slipForm.allowance} onChange={v => setSlipForm(p=>({...p,allowance:v}))} />
-            <SlipRow label="รวมรายได้" val={`฿${fmt(slip.income)}`} bold />
-          </div>
-        </div>
-
-        {/* Deductions */}
-        <div className="mb-3">
-          <p className="text-xs font-semibold text-red-600 mb-2 uppercase tracking-wide">รายหัก</p>
-          <div className="bg-red-50 rounded-xl p-3 space-y-2">
-            <SlipInput label="ขาด/ลา (วัน)" val={slipForm.absent_days} onChange={v => setSlipForm(p=>({...p,absent_days:v}))} />
-            {parseFloat(slipForm.absent_days || 0) > 0 && <SlipRow label="หักขาด/ลา" val={`฿${fmt(slip.absentDeduct)}`} cls="text-red-500" />}
-            <SlipRow label="ประกันสังคม" val={`฿${fmt(slip.socialSec)}`} cls="text-red-500" />
-            <SlipInput label="หักอื่นๆ (บาท)" val={slipForm.other_deduct} onChange={v => setSlipForm(p=>({...p,other_deduct:v}))} />
-            <SlipRow label="รวมหัก" val={`฿${fmt(slip.deductions)}`} bold cls="text-red-600" />
-          </div>
-        </div>
-
-        {/* Net */}
-        <div className="bg-brand rounded-2xl p-4 text-white text-center">
-          <p className="text-sm opacity-80">เงินเดือนสุทธิ</p>
-          <p className="font-heading font-bold text-4xl">฿{fmt(slip.netPay)}</p>
-          <p className="text-xs opacity-70 mt-1">{slipEmp.bank_name} {slipEmp.bank_account}</p>
-        </div>
-
-        <input value={slipForm.note} onChange={e => setSlipForm(p=>({...p,note:e.target.value}))}
-          placeholder="หมายเหตุ"
-          className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm mt-3 focus:border-brand outline-none" />
-      </div>
-
-      <div className="flex gap-2">
-        <button onClick={() => setTab('list')} className="flex-1 border border-gray-300 text-gray-600 py-3 rounded-xl text-sm">ยกเลิก</button>
-        <button onClick={saveSlip} disabled={saving} className="flex-1 bg-brand text-white py-3 rounded-xl text-sm font-bold disabled:opacity-50 shadow active:scale-95 transition-transform">
-          {saving ? 'กำลังบันทึก...' : '🖨️ บันทึก + พิมพ์สลิป'}
-        </button>
-      </div>
-    </div>
-  )
-
-  // ===== History tab =====
-  if (tab === 'history' && histEmp) return (
-    <div className="max-w-3xl mx-auto px-3 py-4">
-      <div className="flex items-center gap-3 mb-4">
-        <button onClick={() => setTab('list')} className="text-gray-400 text-xl">←</button>
-        <h1 className="font-heading font-bold text-xl text-brand">ประวัติสลิป: {histEmp.name}</h1>
-      </div>
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-        <table className="w-full text-sm">
-          <thead><tr className="bg-gray-50 text-xs text-gray-500">
-            <th className="text-left px-4 py-2 font-medium">งวด</th>
-            <th className="text-right px-3 py-2 font-medium">เงินเดือน</th>
-            <th className="text-right px-3 py-2 font-medium">OT</th>
-            <th className="text-right px-3 py-2 font-medium">หัก</th>
-            <th className="text-right px-4 py-2 font-medium">สุทธิ</th>
-            <th className="w-12 py-2"></th>
-          </tr></thead>
-          <tbody className="divide-y divide-gray-50">
-            {empHistory.map(p => (
-              <tr key={p.id} className="hover:bg-gray-50">
-                <td className="px-4 py-2 font-medium text-gray-800">{MONTHS_TH[p.period_month]} {p.period_year + 543}</td>
-                <td className="px-3 py-2 text-right text-gray-600">฿{fmt(p.salary)}</td>
-                <td className="px-3 py-2 text-right text-gray-600">฿{fmt(p.ot_amount)}</td>
-                <td className="px-3 py-2 text-right text-red-500">-฿{fmt(Number(p.absent_deduct)+Number(p.social_security)+Number(p.other_deduct))}</td>
-                <td className="px-4 py-2 text-right font-bold text-brand">฿{fmt(p.net_pay)}</td>
-                <td className="px-2 py-2">
-                  <button onClick={() => {
-                    const c = {
-                      baseSalary: p.salary, otHours: p.ot_hours, otRate: p.ot_rate, otAmount: p.ot_amount,
-                      bonus: p.bonus, allowance: p.allowance, absentDays: p.absent_days, absentDeduct: p.absent_deduct,
-                      socialSec: p.social_security, otherDeduct: p.other_deduct,
-                      income: Number(p.salary)+Number(p.ot_amount)+Number(p.bonus)+Number(p.allowance),
-                      deductions: Number(p.absent_deduct)+Number(p.social_security)+Number(p.other_deduct),
-                      netPay: p.net_pay,
-                    }
-                    printSlip(histEmp, { year: p.period_year, month: p.period_month }, c, settings)
-                  }} className="text-xs text-brand underline">พิมพ์</button>
-                </td>
-              </tr>
-            ))}
-            {empHistory.length === 0 && <tr><td colSpan={6} className="text-center py-8 text-gray-400">ยังไม่มีประวัติสลิป</td></tr>}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-
-  // Fallback
-  return null
-}
-
-function EmpField({ label, k, form, setForm, type='text', placeholder='' }) {
-  return (
-    <div>
-      <label className="text-xs text-gray-500 block mb-1">{label}</label>
-      <input type={type} value={form[k]||''} onChange={e => setForm(p=>({...p,[k]:e.target.value}))}
-        placeholder={placeholder}
-        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:border-brand outline-none" />
-    </div>
-  )
-}
-
-function SlipRow({ label, val, bold, cls='' }) {
-  return (
-    <div className={`flex justify-between text-sm ${bold ? 'font-bold' : ''} ${cls}`}>
-      <span className="text-gray-600">{label}</span>
-      <span>{val}</span>
-    </div>
-  )
-}
-
-function SlipInput({ label, val, onChange }) {
-  return (
-    <div>
-      <label className="text-[10px] text-gray-500 block mb-0.5">{label}</label>
-      <input type="number" value={val} onChange={e => onChange(e.target.value)} min="0"
-        className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-right focus:border-brand outline-none bg-white" />
-    </div>
-  )
-}
-
-function printSlip(emp, period, c, settings) {
-  const win = window.open('', '_blank', 'width=460,height=700')
-  if (!win) return
-  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
-  <style>
-    *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:'Kanit',sans-serif;font-size:13px;max-width:10cm;margin:auto;padding:10mm;border:1px solid #ccc}
-    h2{font-size:16px;text-align:center;margin-bottom:4px}
-    h3{font-size:13px;color:#1a4731;border-bottom:1px solid #1a4731;padding-bottom:3px;margin:10px 0 6px}
-    .center{text-align:center;font-size:11px;color:#555;margin-bottom:8px}
-    .row{display:flex;justify-content:space-between;padding:3px 0;font-size:12px}
-    .row.bold{font-weight:bold;font-size:14px;color:#1a4731}
-    .row.deduct{color:#c0392b}
-    .net{background:#1a4731;color:white;padding:10px;text-align:center;border-radius:8px;margin-top:10px}
-    .net h4{font-size:11px;opacity:.8;margin-bottom:2px}
-    .net p{font-size:24px;font-weight:bold}
-    .sig{display:flex;justify-content:space-between;margin-top:20px;text-align:center;font-size:11px;color:#888}
-    .sig div hr{width:100px;margin:0 auto 4px}
-    @media print{body{border:none;padding:5mm;margin:0}}
-  </style></head><body>
-  <h2>${settings.shop_name || 'ร้านค้า'}</h2>
-  <p class="center">สลิปเงินเดือน ${MONTHS_TH[period.month]} ${period.year + 543}</p>
-  <p class="center">พนักงาน: <b>${emp.name}</b> · ${emp.position || ''}</p>
-  ${emp.bank_name ? `<p class="center">ธนาคาร${emp.bank_name} · ${emp.bank_account}</p>` : ''}
-  <h3>รายได้</h3>
-  <div class="row"><span>เงินเดือน</span><span>฿${fmt(c.baseSalary)}</span></div>
-  ${c.otHours > 0 ? `<div class="row"><span>OT ${c.otHours} ชม. × ฿${fmt(c.otRate)}</span><span>฿${fmt(c.otAmount)}</span></div>` : ''}
-  ${c.bonus > 0 ? `<div class="row"><span>โบนัส</span><span>฿${fmt(c.bonus)}</span></div>` : ''}
-  ${c.allowance > 0 ? `<div class="row"><span>เบี้ยเลี้ยง</span><span>฿${fmt(c.allowance)}</span></div>` : ''}
-  <div class="row bold"><span>รวมรายได้</span><span>฿${fmt(c.income)}</span></div>
-  <h3>รายหัก</h3>
-  ${c.absentDays > 0 ? `<div class="row deduct"><span>หักขาด/ลา ${c.absentDays} วัน</span><span>-฿${fmt(c.absentDeduct)}</span></div>` : ''}
-  <div class="row deduct"><span>ประกันสังคม</span><span>-฿${fmt(c.socialSec)}</span></div>
-  ${c.otherDeduct > 0 ? `<div class="row deduct"><span>หักอื่นๆ</span><span>-฿${fmt(c.otherDeduct)}</span></div>` : ''}
-  <div class="row bold deduct"><span>รวมหัก</span><span>-฿${fmt(c.deductions)}</span></div>
-  <div class="net"><h4>เงินเดือนสุทธิ</h4><p>฿${fmt(c.netPay)}</p></div>
-  <div class="sig">
-    <div><hr><p>ผู้จ่าย</p></div>
-    <div><hr><p>ผู้รับ</p></div>
-  </div>
-  <script>window.onload=()=>window.print()</script>
-  </body></html>`)
-  win.document.close()
 }

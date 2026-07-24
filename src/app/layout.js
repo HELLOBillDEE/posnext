@@ -61,7 +61,7 @@ export default function RootLayout({ children }) {
           <StaffGuard />
           <div className="flex min-h-screen">
             <LayoutNav />
-            <main className="flex-1 nav-main min-h-screen pb-[72px] md:pb-0">
+            <main className="nav-main min-h-screen pb-[72px] md:pb-0 overflow-x-hidden" style={{ width: 'calc(100vw - var(--nav-w))' }}>
               {children}
             </main>
           </div>

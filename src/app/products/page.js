@@ -12,7 +12,7 @@ const LABEL_SIZES = [
   { id:'40x25',    label:'40×25 mm · 1 ดวง/แถว',  pw:40,  ph:25, cols:1, lw:36, hGap:0, vGap:2, mx:2, my:2 },
 ]
 
-const EMPTY_PROD = { barcode:'', name:'', category_id:'', unit:'ชิ้น', cost:'', price:'', stock:'', min_stock:'5', active:true }
+const EMPTY_PROD = { barcode:'', name:'', category_id:'', unit:'ชิ้น', cost:'', price:'', stock:'', min_stock:'5', search_tags:'', active:true }
 
 function genCKBarcode() {
   return 'CK' + Math.floor(Math.random() * 100000000).toString().padStart(8, '0')
@@ -84,12 +84,23 @@ export default function ProductsPage() {
   useEffect(() => { setVisibleCount(20) }, [search, filterCat, filterStock, filterMargin])
 
   async function load() {
-    const [{ data: p }, { data: c }, { data: cfgRows }] = await Promise.all([
-      supabase.from('products').select('*, categories(name)').order('name'),
+    const [{ data: c }, { data: cfgRows }] = await Promise.all([
       supabase.from('categories').select('*').order('name'),
       supabase.from('settings').select('key,value').in('key', ['label_size', 'printer_barcode']),
     ])
-    setProducts(p || [])
+    // ดึงสินค้าทีละ 1000 จนครบ (Supabase max_rows = 1000)
+    let allProducts = []
+    let from = 0
+    while (true) {
+      const { data: batch } = await supabase
+        .from('products').select('*, categories(name)').order('name')
+        .range(from, from + 999)
+      if (!batch || batch.length === 0) break
+      allProducts = allProducts.concat(batch)
+      if (batch.length < 1000) break
+      from += 1000
+    }
+    setProducts(allProducts)
     setCategories(c || [])
     const cfgMap = Object.fromEntries((cfgRows || []).map(r => [r.key, r.value]))
     if (cfgMap.label_size) setLabelSize(cfgMap.label_size)
@@ -102,7 +113,8 @@ export default function ProductsPage() {
   const marginPct = p => p.cost > 0 && p.price > 0 ? (p.price - p.cost) / p.cost * 100 : null
 
   const filtered = products.filter(p => {
-    const matchSearch  = !search || p.name.toLowerCase().includes(search.toLowerCase()) || (p.barcode||'').includes(search)
+    const q = search.toLowerCase()
+    const matchSearch  = !search || p.name.toLowerCase().includes(q) || (p.barcode||'').toLowerCase().includes(q) || (p.alt_barcode||'').toLowerCase().includes(q) || (p.search_tags||'').toLowerCase().includes(q)
     const matchCat     = !filterCat || String(p.category_id) === filterCat
     const matchStock   = filterStock === 'all' || (filterStock === 'low' && p.stock <= p.min_stock) || (filterStock === 'out' && p.stock <= 0)
     const m            = marginPct(p)
@@ -110,14 +122,23 @@ export default function ProductsPage() {
     return matchSearch && matchCat && matchStock && matchMargin
   })
 
-  // สถิติกำไรทั้งร้าน (เฉพาะสินค้าที่มีทุนและราคาขาย)
+  // สถิติกำไรทั้งร้าน — ใช้ค่าจาก bulkEdits ถ้าอยู่ใน bulk mode
   const marginStats = (() => {
-    const withCost = products.filter(p => p.cost > 0 && p.price > 0)
+    const eff = p => {
+      const e = bulkMode && bulkEdits[p.id]
+      return {
+        cost:  e ? (parseFloat(e.cost)  ?? p.cost)  : p.cost,
+        price: e ? (parseFloat(e.price) ?? p.price) : p.price,
+        stock: e ? (parseFloat(e.stock) ?? p.stock) : p.stock,
+      }
+    }
+    const withCost = products.filter(p => { const v = eff(p); return v.cost > 0 && v.price > 0 })
     if (!withCost.length) return null
-    const totalRevenue = withCost.reduce((s, p) => s + p.price * Math.max(p.stock, 0), 0)
-    const totalCost    = withCost.reduce((s, p) => s + p.cost  * Math.max(p.stock, 0), 0)
-    const avgMargin    = withCost.reduce((s, p) => s + marginPct(p), 0) / withCost.length
-    const belowThreshold = products.filter(p => { const m = marginPct(p); return m !== null && m < 35 }).length
+    // ถ่วงน้ำหนักด้วย cost (ไม่ใช่ stock) เพื่อให้ทุกสินค้ามีน้ำหนัก แม้ stock ติดลบหรือ 0
+    const totalRevenue   = withCost.reduce((s, p) => { const v = eff(p); return s + v.price }, 0)
+    const totalCost      = withCost.reduce((s, p) => { const v = eff(p); return s + v.cost  }, 0)
+    const avgMargin      = withCost.reduce((s, p) => { const v = eff(p); return s + (v.price - v.cost) / v.cost * 100 }, 0) / withCost.length
+    const belowThreshold = products.filter(p => { const v = eff(p); const m = v.cost > 0 ? (v.price - v.cost) / v.cost * 100 : null; return m !== null && m < 35 }).length
     const weightedMargin = totalCost > 0 ? (totalRevenue - totalCost) / totalCost * 100 : 0
     return { avgMargin, weightedMargin, belowThreshold, total: withCost.length }
   })()
@@ -141,7 +162,7 @@ export default function ProductsPage() {
     setModal('add')
   }
   function openEdit(p) {
-    setForm({ barcode: p.barcode||'', name: p.name, category_id: String(p.category_id||''), unit: p.unit||'ชิ้น', cost: String(p.cost||''), price: String(p.price||''), stock: String(p.stock||''), min_stock: String(p.min_stock||5), active: p.active })
+    setForm({ barcode: p.barcode||'', name: p.name, category_id: String(p.category_id||''), unit: p.unit||'ชิ้น', cost: String(p.cost||''), price: String(p.price||''), stock: String(p.stock||''), min_stock: String(p.min_stock||5), search_tags: p.search_tags||'', active: p.active })
     setModal({ type:'edit', id: p.id })
   }
 
@@ -157,6 +178,7 @@ export default function ProductsPage() {
       price: parseFloat(form.price),
       stock: parseFloat(form.stock) || 0,
       min_stock: parseFloat(form.min_stock) || 5,
+      search_tags: form.search_tags?.trim() || null,
       active: form.active,
     }
     try {
@@ -205,8 +227,10 @@ export default function ProductsPage() {
     try {
       const { buildLabelTSPL, buildLabelESCPOS, printViaBridge } = await import('@/lib/printBridge')
       const lang  = cfg.lang || 'tspl'
+      // TSPL expects items with .qty (total labels per product), not an expanded array
+      const tsplItems = products.filter(p => selected.has(p.id)).map(p => ({ ...p, qty: parseInt(printQtys[p.id] || 1) }))
       const bytes = lang === 'tspl'
-        ? await buildLabelTSPL(items, size)
+        ? await buildLabelTSPL(tsplItems, size)
         : await buildLabelESCPOS(items, size, parseInt(cfg.paper_width) || 100)
 
       // ลองพิมที่ IP ที่บันทึกไว้ก่อน
@@ -291,7 +315,7 @@ export default function ProductsPage() {
   // ── Bulk Mode ──
   function enterBulkMode() {
     const edits = {}
-    products.forEach(p => { edits[p.id] = { stock: String(p.stock ?? ''), price: String(p.price ?? ''), cost: String(p.cost ?? '') } })
+    products.forEach(p => { edits[p.id] = { stock: String(p.stock ?? ''), price: String(p.price ?? ''), cost: String(p.cost ?? ''), category_id: p.category_id ?? '' } })
     setBulkEdits(edits)
     setSelected(new Set())
     setBulkMode(true)
@@ -307,7 +331,7 @@ export default function ProductsPage() {
     const changed = products.filter(p => {
       const e = bulkEdits[p.id]
       if (!e) return false
-      return parseFloat(e.stock) !== p.stock || parseFloat(e.price) !== p.price || parseFloat(e.cost) !== p.cost
+      return parseFloat(e.stock) !== p.stock || parseFloat(e.price) !== p.price || parseFloat(e.cost) !== p.cost || String(p.category_id ?? '') !== String(e.category_id ?? '')
     })
     if (changed.length === 0) { exitBulkMode(); return }
     setBulkSaving(true)
@@ -318,6 +342,7 @@ export default function ProductsPage() {
           stock: parseFloat(e.stock) || 0,
           price: parseFloat(e.price) || 0,
           cost:  parseFloat(e.cost)  || 0,
+          category_id: e.category_id ? parseInt(e.category_id) : null,
           updated_at: new Date().toISOString(),
         }).eq('id', p.id)
       }))
@@ -490,7 +515,7 @@ export default function ProductsPage() {
             <p className={`text-xl font-bold ${marginStats.weightedMargin >= 35 ? 'text-green-600' : 'text-amber-500'}`}>
               {marginStats.weightedMargin.toFixed(1)}%
             </p>
-            <p className="text-[10px] text-slate-400">ตามมูลค่าสต็อก</p>
+            <p className="text-[10px] text-slate-400">ถ่วงตามราคาทุน</p>
           </div>
           <button
             onClick={() => setFilterMargin(f => f === 'low' ? 'all' : 'low')}
@@ -558,8 +583,8 @@ export default function ProductsPage() {
                 <th className="text-left px-3 py-3 font-semibold hidden md:table-cell">บาร์โค้ด</th>
                 <th className="text-left px-3 py-3 font-semibold hidden sm:table-cell">หมวด</th>
                 <th className="text-right px-3 py-3 font-semibold">ราคาขาย</th>
-                <th className="text-right px-3 py-3 font-semibold hidden sm:table-cell">ทุน</th>
-                <th className="text-right px-3 py-3 font-semibold hidden sm:table-cell">%กำไร</th>
+                {role === 'admin' && <th className="text-right px-3 py-3 font-semibold hidden sm:table-cell">ทุน</th>}
+                {role === 'admin' && <th className="text-right px-3 py-3 font-semibold hidden sm:table-cell">%กำไร</th>}
                 <th className="text-right px-3 py-3 font-semibold">สต็อก</th>
                 <th className="text-center px-3 py-3 font-semibold">สถานะ</th>
                 <th className="w-20 py-3 pr-3"></th>
@@ -568,7 +593,7 @@ export default function ProductsPage() {
             <tbody className="divide-y divide-slate-50">
               {paginated.map(p => {
                 const e = bulkEdits[p.id] || {}
-                const changed = bulkMode && (String(p.stock) !== e.stock || String(p.price) !== e.price || String(p.cost) !== e.cost)
+                const changed = bulkMode && (String(p.stock) !== e.stock || String(p.price) !== e.price || String(p.cost) !== e.cost || String(p.category_id ?? '') !== String(e.category_id ?? ''))
                 return (
                 <tr key={p.id} className={`transition-colors ${bulkMode && selected.has(p.id) ? 'bg-red-50' : changed ? 'bg-amber-50' : 'hover:bg-slate-50/70'}`}>
                   <td className="pl-3 py-2.5">
@@ -579,7 +604,15 @@ export default function ProductsPage() {
                     <p className="text-[10px] text-slate-400 md:hidden">{p.barcode || '—'}</p>
                   </td>
                   <td className="px-3 py-2.5 text-slate-400 text-xs hidden md:table-cell font-mono">{p.barcode || '—'}</td>
-                  <td className="px-3 py-2.5 text-xs text-slate-500 hidden sm:table-cell">{p.categories?.name || '—'}</td>
+                  <td className="px-3 py-2.5 text-xs text-slate-500 hidden sm:table-cell">
+                    {bulkMode
+                      ? <select value={e.category_id ?? ''} onChange={ev => setBulkField(p.id, 'category_id', ev.target.value)}
+                          className="border border-gray-200 rounded px-1.5 py-1 text-xs focus:border-brand outline-none bg-white max-w-[120px]">
+                          <option value="">— ไม่มี —</option>
+                          {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                      : p.categories?.name || '—'}
+                  </td>
                   <td className="px-2 py-1.5 text-right">
                     {bulkMode
                       ? <input type="number" value={e.price ?? ''} onChange={ev => setBulkField(p.id,'price',ev.target.value)}
@@ -772,6 +805,7 @@ export default function ProductsPage() {
                 <Field label="สต็อกปัจจุบัน" value={form.stock} onChange={v => setForm(p=>({...p,stock:v}))} type="number" placeholder="0" />
                 <Field label="สต็อกขั้นต่ำ" value={form.min_stock} onChange={v => setForm(p=>({...p,min_stock:v}))} type="number" placeholder="5" />
               </div>
+              <Field label="คำค้นหาเพิ่มเติม" value={form.search_tags} onChange={v => setForm(p=>({...p,search_tags:v}))} placeholder="เช่น สายน้ำ, ท่อยาง (คั่นด้วยจุลภาค)" />
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <input type="checkbox" checked={form.active} onChange={e => setForm(p=>({...p,active:e.target.checked}))} className="w-4 h-4 accent-brand" />
                 แสดงในหน้าขาย

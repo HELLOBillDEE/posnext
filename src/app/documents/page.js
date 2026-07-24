@@ -1,18 +1,27 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/components/AuthProvider'
 import { fmt, fmtDT, todayISO, PAY_LABEL } from '@/lib/utils'
 import { buildFormalDocHTML, commitNextDocNo } from '@/lib/docBuilder'
-import { buildReceiptESCPOS, printViaBridge } from '@/lib/printBridge'
+import { buildReceiptESCPOS, buildDeliverySlipESCPOS, buildMapSnapshotESCPOS, printViaBridge } from '@/lib/printBridge'
 import { cacheSet, cacheGet } from '@/lib/offlineQueue'
+import { getTerminalId, getTerminalName } from '@/lib/deviceConfig'
 
-const TABS = ['ใบเสร็จขาย', 'ใบสั่งซื้อ (PO)', 'ลูกหนี้ AR', 'เจ้าหนี้ AP']
+const TABS = ['ใบเสร็จขาย', 'ใบสั่งซื้อ (PO)', 'ลูกหนี้ AR', 'เจ้าหนี้ AP', 'ใบส่งของ']
 
 export default function DocumentsPage() {
+  const auth = useAuth()
+  const isAdmin = auth?.role === 'admin'
+  const visibleTabs = TABS.filter((_, i) => (i !== 1 && i !== 3) || isAdmin)
+
   const [tab, setTab]         = useState(0)
   const [sales, setSales]     = useState([])
   const [pos, setPOs]         = useState([])
   const [suppliers, setSuppliers] = useState([])
+  const [arQuotes, setArQuotes]   = useState([])   // ใบส่งของ/แจ้งหนี้ รอชำระ
+  const [arCredits, setArCredits] = useState([])   // ยอดขายเชื่อ
+  const [deliveryHistory, setDeliveryHistory] = useState([]) // ประวัติใบส่งของทั้งหมด
   const [settings, setSettings] = useState({})
   const [dateFrom, setDateFrom] = useState(todayISO())
   const [dateTo, setDateTo]   = useState(todayISO())
@@ -23,8 +32,11 @@ export default function DocumentsPage() {
   const [printDocType, setPrintDocType] = useState('receipt')
   const [printDate, setPrintDate] = useState(new Date().toISOString().slice(0, 10))
   const [blankDate, setBlankDate] = useState(false)
+  const [terminalFilter, setTerminalFilter] = useState('mine') // 'mine' | 'all'
+  const thisTerminalId   = typeof window !== 'undefined' ? getTerminalId()   : ''
+  const thisTerminalName = typeof window !== 'undefined' ? getTerminalName() : ''
 
-  useEffect(() => { loadData() }, [tab, dateFrom, dateTo])
+  useEffect(() => { loadData() }, [tab, dateFrom, dateTo, terminalFilter])
 
   async function loadData() {
     setLoading(true)
@@ -44,10 +56,12 @@ export default function DocumentsPage() {
     const from = dateFrom + 'T00:00:00'
     const to   = dateTo   + 'T23:59:59'
     if (tab === 0) {
-      const { data } = await supabase.from('sales')
+      let q = supabase.from('sales')
         .select('*, customers(name)')
         .gte('created_at', from).lte('created_at', to)
         .order('created_at', { ascending: false })
+      if (terminalFilter === 'mine' && thisTerminalId) q = q.eq('terminal_id', thisTerminalId)
+      const { data } = await q
       setSales(data || [])
       cacheSet('docs_tab0', data || [])
     }
@@ -58,6 +72,31 @@ export default function DocumentsPage() {
         .order('created_at', { ascending: false })
       setPOs(data || [])
       cacheSet('docs_tab1', data || [])
+    }
+    if (tab === 2) {
+      const [{ data: quotes }, { data: credits }] = await Promise.all([
+        supabase.from('quotations')
+          .select('id,doc_no,doc_type,customer_name,customer_phone,customer_address,total,items,note,created_at')
+          .in('doc_type', ['delivery_invoice', 'invoice'])
+          .eq('status', 'pending')
+          .order('created_at', { ascending: false }),
+        supabase.from('sales')
+          .select('id,receipt_no,total,created_at,customer_id,customers(name,phone)')
+          .eq('payment_method', 'credit')
+          .neq('status', 'voided')
+          .order('created_at', { ascending: false }),
+      ])
+      setArQuotes(quotes || [])
+      setArCredits(credits || [])
+    }
+    if (tab === 4) {
+      const { data } = await supabase.from('quotations')
+        .select('id,doc_no,doc_type,status,customer_name,customer_phone,customer_address,total,subtotal,discount,delivery_fee,distance_km,map_snapshot_url,items,note,created_at,customer_id')
+        .eq('doc_type', 'delivery_invoice')
+        .gte('created_at', from).lte('created_at', to)
+        .order('created_at', { ascending: false })
+        .limit(200)
+      setDeliveryHistory(data || [])
     }
     if (tab === 3) {
       const { data: poAll } = await supabase.from('purchase_orders')
@@ -168,11 +207,14 @@ export default function DocumentsPage() {
       <h1 className="font-heading font-bold text-xl text-brand mb-4">🧾 เอกสาร</h1>
 
       <div className="flex gap-1 mb-4 overflow-x-auto scroll-hidden">
-        {TABS.map((t, i) => (
-          <button key={i} onClick={() => { setTab(i); setDetail(null) }}
-            className={`shrink-0 px-4 py-2 rounded-xl text-sm font-medium border transition-colors
-              ${tab === i ? 'bg-brand text-white border-brand' : 'bg-white text-gray-600 border-gray-200'}`}>{t}</button>
-        ))}
+        {visibleTabs.map((t) => {
+          const i = TABS.indexOf(t)
+          return (
+            <button key={i} onClick={() => { setTab(i); setDetail(null) }}
+              className={`shrink-0 px-4 py-2 rounded-xl text-sm font-medium border transition-colors
+                ${tab === i ? 'bg-brand text-white border-brand' : 'bg-white text-gray-600 border-gray-200'}`}>{t}</button>
+          )
+        })}
       </div>
 
       <div className="flex flex-wrap gap-2 mb-3">
@@ -186,6 +228,21 @@ export default function DocumentsPage() {
         <button onClick={() => { setDateFrom(todayISO()); setDateTo(todayISO()) }}
           className="text-xs text-brand underline px-2">วันนี้</button>
       </div>
+
+      {tab === 0 && thisTerminalId && (
+        <div className="flex gap-2 mb-3">
+          <button onClick={() => setTerminalFilter('mine')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all
+              ${terminalFilter === 'mine' ? 'bg-brand text-white border-brand' : 'bg-white text-slate-500 border-slate-200'}`}>
+            💻 {thisTerminalName || 'เครื่องนี้'}
+          </button>
+          <button onClick={() => setTerminalFilter('all')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all
+              ${terminalFilter === 'all' ? 'bg-brand text-white border-brand' : 'bg-white text-slate-500 border-slate-200'}`}>
+            🏪 ทุกเครื่อง
+          </button>
+        </div>
+      )}
 
       <div className="grid md:grid-cols-2 gap-4">
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
@@ -229,11 +286,47 @@ export default function DocumentsPage() {
             </div>
           )}
 
-          {tab === 2 && (
-            <div className="text-center py-12 text-gray-400 text-sm">
-              <p className="text-3xl mb-2">📥</p>
-              <p>ลูกหนี้ (AR)</p>
-              <p className="text-xs mt-1">เปิดจากบิลขายที่มีการจ่ายแบบ "เชื่อ"</p>
+          {tab === 2 && !loading && (
+            <div className="divide-y divide-gray-50">
+              {/* ใบส่งของ/แจ้งหนี้ รอชำระ */}
+              {arQuotes.filter(q => !search || q.doc_no.includes(search) || (q.customer_name||'').includes(search)).map(q => (
+                <div key={q.id} onClick={() => setDetail({ type: 'ar_quote', data: q })}
+                  className={`px-4 py-3 cursor-pointer active:bg-gray-50 flex justify-between items-center ${detail?.data?.id === q.id ? 'bg-blue-50' : ''}`}>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-sm text-gray-800">{q.doc_no}</p>
+                      <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full font-semibold">ส่งของ</span>
+                    </div>
+                    <p className="text-xs text-gray-400">{q.customer_name || '—'}{q.customer_phone ? ` · ${q.customer_phone}` : ''}</p>
+                    <p className="text-xs text-gray-400">{fmtDT(q.created_at)}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-semibold text-sm text-blue-600">฿{fmt(q.total)}</p>
+                    <span className="text-[10px] text-amber-500 font-semibold">รอชำระ</span>
+                  </div>
+                </div>
+              ))}
+              {/* ยอดขายเชื่อ */}
+              {arCredits.filter(s => !search || s.receipt_no.includes(search) || (s.customers?.name||'').includes(search)).map(s => (
+                <div key={s.id} onClick={() => setDetail({ type: 'ar_credit', data: s })}
+                  className={`px-4 py-3 cursor-pointer active:bg-gray-50 flex justify-between items-center ${detail?.data?.id === s.id ? 'bg-amber-50' : ''}`}>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-sm text-gray-800">{s.receipt_no}</p>
+                      <span className="text-[10px] bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full font-semibold">เชื่อ</span>
+                    </div>
+                    <p className="text-xs text-gray-400">{s.customers?.name || '—'}{s.customers?.phone ? ` · ${s.customers.phone}` : ''}</p>
+                    <p className="text-xs text-gray-400">{fmtDT(s.created_at)}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-semibold text-sm text-amber-600">฿{fmt(s.total)}</p>
+                    <span className="text-[10px] text-amber-500 font-semibold">เชื่อ</span>
+                  </div>
+                </div>
+              ))}
+              {arQuotes.length === 0 && arCredits.length === 0 && (
+                <div className="text-center py-12 text-gray-400 text-sm">ไม่มีลูกหนี้ค้างชำระ 🎉</div>
+              )}
             </div>
           )}
 
@@ -263,6 +356,40 @@ export default function DocumentsPage() {
               {suppliers.length === 0 && <div className="text-center py-12 text-gray-400 text-sm">ไม่มี PO ในระบบ</div>}
             </div>
           )}
+
+          {tab === 4 && !loading && (
+            <div className="divide-y divide-gray-50">
+              {deliveryHistory
+                .filter(q => !search || q.doc_no.includes(search) || (q.customer_name||'').includes(search))
+                .map(q => {
+                  const isCancelled = q.status === 'cancelled'
+                  const isPaid = q.status === 'paid'
+                  return (
+                  <div key={q.id} onClick={() => setDetail({ type: 'delivery_hist', data: q })}
+                    className={`px-4 py-3 cursor-pointer active:bg-gray-50 flex justify-between items-center ${
+                      detail?.data?.id === q.id ? 'bg-blue-50' : ''} ${isCancelled ? 'opacity-50' : ''}`}>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className={`font-medium text-sm ${isCancelled ? 'line-through text-gray-400' : 'text-gray-800'}`}>{q.doc_no}</p>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
+                          isPaid ? 'bg-green-100 text-green-600'
+                          : isCancelled ? 'bg-gray-100 text-gray-400'
+                          : 'bg-amber-100 text-amber-600'
+                        }`}>{isPaid ? 'สำเร็จ' : isCancelled ? 'ยกเลิก' : 'ค้างจ่าย'}</span>
+                      </div>
+                      <p className="text-xs text-gray-500">{q.customer_name || '—'}{q.customer_phone ? ` · ${q.customer_phone}` : ''}</p>
+                      {q.customer_address && <p className="text-xs text-gray-400">📍 {q.customer_address}</p>}
+                      <p className="text-xs text-gray-400">{fmtDT(q.created_at)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className={`font-semibold text-sm ${isCancelled ? 'text-gray-300 line-through' : 'text-blue-600'}`}>฿{fmt(q.total)}</p>
+                    </div>
+                  </div>
+                )}
+              )}
+              {deliveryHistory.length === 0 && <div className="text-center py-12 text-gray-400 text-sm">ไม่มีใบส่งของในช่วงนี้</div>}
+            </div>
+          )}
         </div>
 
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
@@ -284,6 +411,17 @@ export default function DocumentsPage() {
           )}
           {detail?.type === 'po' && <PODetail d={detail.data} onPrint={printDetail} />}
           {detail?.type === 'supplier' && <SupplierAPDetail d={detail.data} />}
+          {detail?.type === 'ar_quote' && (
+            <ARQuoteDetail d={detail.data} settings={settings}
+              onCancelled={() => { setDetail(null); loadData() }} />
+          )}
+          {detail?.type === 'ar_credit' && (
+            <ARCreditDetail d={detail.data} />
+          )}
+          {detail?.type === 'delivery_hist' && (
+            <ARQuoteDetail d={detail.data} settings={settings}
+              onCancelled={() => { setDetail(null); loadData() }} />
+          )}
         </div>
       </div>
 
@@ -336,6 +474,122 @@ async function printReceiptSmall(d, settings) {
       window.open(URL.createObjectURL(blob))
     }
   } catch (e) { alert('พิมไม่สำเร็จ: ' + e.message) }
+}
+
+// ── ลูกหนี้: ใบส่งของ/แจ้งหนี้ รอชำระ ────────────────────────────────────────
+function ARQuoteDetail({ d, settings, onCancelled }) {
+  const [cancelling, setCancelling] = useState(false)
+
+  async function cancelQuote() {
+    if (!confirm(`ยกเลิกใบ ${d.doc_no}?`)) return
+    setCancelling(true)
+    await supabase.from('quotations').update({ status: 'cancelled' }).eq('id', d.id)
+    setCancelling(false)
+    onCancelled()
+  }
+
+  async function reprint() {
+    const cfg = JSON.parse(settings.printer_receipt || localStorage.getItem('printer_receipt') || '{}')
+    if (!cfg.ip) return alert('ไม่ได้ตั้งค่าเครื่องพิมพ์')
+    const paperW = parseInt(cfg.paper_width) || 80
+    const slipBytes = await buildDeliverySlipESCPOS({
+      doc_no: d.doc_no,
+      shopName: settings.shop_name, shopAddress: settings.shop_address,
+      shopPhone: settings.shop_phone,
+      customer_name: d.customer_name, customer_phone: d.customer_phone,
+      customer_address: d.customer_address,
+      items: d.items || [], subtotal: d.subtotal || d.total, discount: d.discount || 0,
+      delivery_fee: d.delivery_fee || 0, total: d.total,
+      note: d.note, created_at: d.created_at,
+    }, paperW)
+    if (d.map_snapshot_url) {
+      const mapDetails = {
+        customer_name: d.customer_name, customer_phone: d.customer_phone,
+        customer_address: d.customer_address,
+        delivery_fee: d.delivery_fee, distance_km: d.distance_km,
+      }
+      const mapBytes = await buildMapSnapshotESCPOS(d.map_snapshot_url, paperW, mapDetails).catch(() => null)
+      if (mapBytes) {
+        // slip (2 ใบ + cut) → แผนที่ (header + ภาพ + cut) ส่งเป็น job เดียว
+        const combined = new Uint8Array(slipBytes.length + mapBytes.length)
+        combined.set(slipBytes, 0); combined.set(mapBytes, slipBytes.length)
+        await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, combined)
+          .catch(e => { alert('พิมไม่สำเร็จ: ' + e.message) })
+        return
+      }
+    }
+    await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, slipBytes)
+      .catch(e => { alert('พิมไม่สำเร็จ: ' + e.message) })
+  }
+
+  const isCancelled = d.status === 'cancelled'
+
+  return (
+    <div className="p-4 space-y-3">
+      <div className="flex justify-between items-start">
+        <div>
+          <p className="font-bold text-base text-blue-700">{d.doc_no}</p>
+          <p className="text-xs text-gray-400">ใบส่งของ/แจ้งหนี้ · {fmtDT(d.created_at)}</p>
+          {isCancelled && <span className="text-xs font-semibold text-red-400">ยกเลิกแล้ว</span>}
+        </div>
+        <span className={`font-bold text-lg ${isCancelled ? 'text-gray-300 line-through' : 'text-blue-700'}`}>฿{fmt(d.total)}</span>
+      </div>
+      <div className="bg-blue-50 rounded-xl p-3 text-sm space-y-1">
+        <p className="font-semibold">{d.customer_name || '—'}</p>
+        {d.customer_phone && <p className="text-xs text-gray-500">📞 {d.customer_phone}</p>}
+        {d.customer_address && <p className="text-xs text-gray-500">📍 {d.customer_address}</p>}
+        {d.distance_km && <p className="text-xs text-blue-500">🛣️ {Number(d.distance_km).toFixed(1)} กม. · ค่าส่ง ฿{fmt(d.delivery_fee || 0)}</p>}
+      </div>
+      {d.map_snapshot_url && (
+        <div className="rounded-xl overflow-hidden border border-blue-100">
+          <img src={d.map_snapshot_url} alt="แผนที่" className="w-full object-cover max-h-48" />
+          <p className="text-[10px] text-center text-gray-400 py-1">แผนที่ตำแหน่งจัดส่ง</p>
+        </div>
+      )}
+      <div className="divide-y divide-gray-50">
+        {(d.items || []).map((i, idx) => (
+          <div key={idx} className="flex justify-between py-2 text-sm">
+            <span>{i.name} ×{i.qty}</span>
+            <span className="font-medium">฿{fmt(i.subtotal)}</span>
+          </div>
+        ))}
+      </div>
+      {d.note && <p className="text-xs text-gray-400 italic">หมายเหตุ: {d.note}</p>}
+      <div className={`gap-2 pt-1 ${isCancelled ? 'flex' : 'grid grid-cols-2'}`}>
+        <button onClick={reprint}
+          className="flex-1 py-2 rounded-xl border border-blue-200 text-blue-600 text-sm font-semibold active:bg-blue-50">
+          🖨️ พิมซ้ำ
+        </button>
+        {!isCancelled && (
+          <button onClick={cancelQuote} disabled={cancelling}
+            className="py-2 rounded-xl border border-red-200 text-red-500 text-sm font-semibold active:bg-red-50 disabled:opacity-50">
+            ยกเลิกใบ
+          </button>
+        )}
+      </div>
+      {!isCancelled && <p className="text-xs text-center text-gray-400">หากลูกค้าจ่ายแล้ว → เปิด POS กด "รอชำระ" แล้วเลือกใบนี้</p>}
+    </div>
+  )
+}
+
+// ── ลูกหนี้: ยอดขายเชื่อ ───────────────────────────────────────────────────
+function ARCreditDetail({ d }) {
+  return (
+    <div className="p-4 space-y-3">
+      <div className="flex justify-between items-start">
+        <div>
+          <p className="font-bold text-base text-amber-600">{d.receipt_no}</p>
+          <p className="text-xs text-gray-400">ขายเชื่อ · {fmtDT(d.created_at)}</p>
+        </div>
+        <span className="font-bold text-amber-600 text-lg">฿{fmt(d.total)}</span>
+      </div>
+      <div className="bg-amber-50 rounded-xl p-3 text-sm">
+        <p className="font-semibold">{d.customers?.name || '—'}</p>
+        {d.customers?.phone && <p className="text-xs text-gray-500">📞 {d.customers.phone}</p>}
+      </div>
+      <p className="text-xs text-center text-gray-400">ขายเชื่อ — ตัดสต็อกแล้ว · เก็บเงินเมื่อไหร่ก็ได้</p>
+    </div>
+  )
 }
 
 function SaleDetail({ d, settings, docType, docDate, blankDate, onDocTypeChange, onDocDateChange, onBlankDateChange, onVoid, onPrint, onEdit }) {

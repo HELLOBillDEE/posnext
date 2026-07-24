@@ -1,13 +1,16 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
+import dynamic from 'next/dynamic'
 import { useAuth } from '@/components/AuthProvider'
 import { supabase } from '@/lib/supabase'
 import { convertThaiBarcode, fmt, genReceiptNo } from '@/lib/utils'
-import { printViaBridge, buildReceiptESCPOS, kickDrawerViaBridge, buildDrawerKickESCPOS } from '@/lib/printBridge'
+import { printViaBridge, buildReceiptESCPOS, buildDeliverySlipESCPOS, buildMapSnapshotESCPOS, kickDrawerViaBridge, buildDrawerKickESCPOS } from '@/lib/printBridge'
 import { syncSaleToBillDee } from '@/lib/billdeeSyncClient'
 import { buildFormalDocHTML, previewNextDocNo, commitNextDocNo } from '@/lib/docBuilder'
 import { cacheSet, cacheGet, addToQueue } from '@/lib/offlineQueue'
 import { getTerminalId, getTerminalName, setDeviceConfig } from '@/lib/deviceConfig'
+
+const MapPicker = dynamic(() => import('@/components/MapPicker'), { ssr: false })
 
 // HID keyboard usage-code → ASCII char
 const HID_KEY = {
@@ -68,6 +71,9 @@ export default function POSPage() {
   const [payMethod, setPayMethod]   = useState('cash')
   const [payAmount, setPayAmount]   = useState('')
   const [payMode, setPayMode]       = useState('single') // 'single' | 'mixed'
+  const [qrAccounts, setQrAccounts] = useState([])       // [{id,name,promptpay_id,bank}]
+  const [selectedQrAcct, setSelectedQrAcct] = useState(null)
+  const [generatedQr, setGeneratedQr]       = useState(null) // data URL
   const [mixAmounts, setMixAmounts] = useState({ cash: '', transfer: '', credit: '' })
   const [billDiscount, setBillDiscount] = useState('')
   const [note, setNote]             = useState('')
@@ -78,6 +84,7 @@ export default function POSPage() {
   const [customer, setCustomer]     = useState(null)  // { id, name, phone }
   const [showCustModal, setShowCustModal] = useState(false)
   const [showDocModal, setShowDocModal] = useState(false)
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false)
   const [pendingQuotes, setPendingQuotes]   = useState([])
   const [showPendingQuotes, setShowPendingQuotes] = useState(false)
   const [currentQuoteId, setCurrentQuoteId]     = useState(null)
@@ -101,6 +108,7 @@ export default function POSPage() {
   // Web HID scanner
   const [hidDevice, setHidDevice]   = useState(null)
   const [hidError, setHidError]     = useState('')
+  const [quickAdd, setQuickAdd]     = useState(null) // scanned barcode string | null
   const inputRef      = useRef(null)
   const scannerRef    = useRef(null)
   const textSearchRef = useRef(null)
@@ -112,6 +120,7 @@ export default function POSPage() {
   const showPayRef  = useRef(false)
   const wasPaying   = useRef(false)
   const dispChRef   = useRef(null)
+  const paidUntilRef = useRef(0) // suppress auto-broadcast during paid screen
   useEffect(() => { productsRef.current = products }, [products])
   useEffect(() => { showPayRef.current  = showPay  }, [showPay])
 
@@ -159,11 +168,27 @@ export default function POSPage() {
     wasPaying.current = showPay
   }, [showPay])
 
-  // Printer keepalive — ping ทุก 5 นาทีเพื่อไม่ให้เครื่องพิมหลับ
+  // Printer keepalive — อ่าน config จาก Supabase (persistent) + localStorage (fallback)
   useEffect(() => {
-    function pingPrinters() {
-      const receipt = JSON.parse(localStorage.getItem('printer_receipt') || '{}')
-      const barcode = JSON.parse(localStorage.getItem('printer_barcode') || '{}')
+    async function pingPrinters() {
+      let receipt = JSON.parse(localStorage.getItem('printer_receipt') || '{}')
+      let barcode = JSON.parse(localStorage.getItem('printer_barcode') || '{}')
+      // ถ้า localStorage ว่าง (เช่น เปลี่ยน http→https) ให้โหลดจาก Supabase
+      if (!receipt.ip || !barcode.ip) {
+        try {
+          const { data } = await supabase.from('settings').select('key,value')
+            .in('key', ['printer_receipt', 'printer_barcode'])
+          if (data) {
+            data.forEach(r => {
+              try {
+                const v = JSON.parse(r.value)
+                if (r.key === 'printer_receipt' && !receipt.ip) receipt = v
+                if (r.key === 'printer_barcode' && !barcode.ip) barcode = v
+              } catch {}
+            })
+          }
+        } catch {}
+      }
       if (!receipt.ip && !barcode.ip) return
       fetch('/api/printer-keepalive', {
         method: 'POST',
@@ -171,9 +196,11 @@ export default function POSPage() {
         body: JSON.stringify({ receipt, barcode }),
       }).catch(() => {})
     }
+    function onVisible() { if (document.visibilityState === 'visible') pingPrinters() }
     pingPrinters()
-    const id = setInterval(pingPrinters, 5 * 60 * 1000)
-    return () => clearInterval(id)
+    const id = setInterval(pingPrinters, 2 * 60 * 1000)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { clearInterval(id); document.removeEventListener('visibilitychange', onVisible) }
   }, [])
 
   const payMethodRef = useRef('cash')
@@ -222,19 +249,27 @@ export default function POSPage() {
       const emps  = cacheGet('employees'); if (emps) setEmployees(emps)
       return
     }
-    const [{ data: prods, error: prodErr }, { data: cats }, { data: cfg }, { data: emps }] = await Promise.all([
-      supabase.from('products').select('*, categories(name)').eq('active', true).order('name'),
+    const [{ data: cats }, { data: cfg }, { data: emps }] = await Promise.all([
       supabase.from('categories').select('*').order('name'),
       supabase.from('settings').select('*'),
       supabase.from('employees').select('id,name,nickname').eq('active', true).order('name'),
     ])
     setEmployees(emps || []); cacheSet('employees', emps || [])
-    if (prodErr) console.error('products load error:', prodErr)
-    setProducts(prods || []); cacheSet('products', prods || [])
+    // fetch สินค้าทีละ 1000 จนครบ (Supabase default limit = 1000)
+    let allProds = [], page = 0, done = false
+    while (!done) {
+      const { data, error } = await supabase.from('products').select('*, categories(name)').order('name').range(page * 1000, page * 1000 + 999)
+      if (error) { console.error('products load error:', error); break }
+      allProds = allProds.concat(data || [])
+      if (!data || data.length < 1000) done = true
+      else page++
+    }
+    setProducts(allProds); cacheSet('products', allProds)
     setCategories(cats || []); cacheSet('categories', cats || [])
     if (cfg) {
       const s = Object.fromEntries(cfg.map(r => [r.key, r.value]))
       setSettings(s); cacheSet('settings', s)
+      try { setQrAccounts(JSON.parse(s.payment_qr_accounts || '[]')) } catch { setQrAccounts([]) }
     }
     const tid = getTerminalId()
     const shiftQ = supabase.from('shifts').select('*').eq('status','open').order('opened_at',{ascending:false}).limit(1)
@@ -360,9 +395,15 @@ export default function POSPage() {
   // เรียกจาก global listener — ใช้ productsRef เพื่อไม่ต้อง re-register
   function scannerHit(code) {
     const barcode = convertThaiBarcode(code).toUpperCase()
-    const prod = productsRef.current.find(p => (p.barcode || '').toUpperCase() === barcode)
+    const prod = productsRef.current.find(p =>
+      (p.barcode || '').toUpperCase() === barcode ||
+      (p.alt_barcode || '').toUpperCase() === barcode
+    )
     if (prod) {
       addToCart(prod)
+      setSearch('')
+    } else if (!empMode) {
+      setQuickAdd(convertThaiBarcode(code))
       setSearch('')
     } else {
       setSearch(`❌ ${convertThaiBarcode(code)}`)
@@ -455,6 +496,7 @@ export default function POSPage() {
   useEffect(() => {
     const ch = dispChRef.current
     if (!ch) return
+    if (Date.now() < paidUntilRef.current) return // ให้ paid screen แสดงก่อน
     const isQR = showPay && payMethod === 'transfer' && payMode === 'single'
     const status = showPay ? (isQR ? 'paying_qr' : 'paying') : cart.length > 0 ? 'active' : 'idle'
     ch.send({
@@ -463,37 +505,54 @@ export default function POSPage() {
         status,
         items: cart.map(i => ({ name: i.name, qty: i.qty, price: i.price, subtotal: i.price * i.qty - i.disc })),
         subtotal, discount: totalDisc, total,
+        qr_url: isQR ? (generatedQr || selectedQrAcct?.qr_image_url || null) : null,
       }
     }).catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cart, showPay, payMethod, payMode, subtotal, totalDisc, total])
+  }, [cart, showPay, payMethod, payMode, subtotal, totalDisc, total, generatedQr, selectedQrAcct])
 
-  async function printQRSlip(amount) {
+  // Generate QR เมื่อเลือกบัญชีหรือยอดเปลี่ยน
+  useEffect(() => {
+    if (!selectedQrAcct) { setGeneratedQr(null); return }
+    // Static QR image — ใช้รูปที่อัปโหลดไว้เลย
+    if (selectedQrAcct.qr_image_url && !selectedQrAcct.promptpay_id) {
+      setGeneratedQr(selectedQrAcct.qr_image_url)
+      return
+    }
+    // PromptPay dynamic QR — generate ล็อคยอด
+    if (selectedQrAcct.promptpay_id) {
+      setGeneratedQr(null)
+      fetch(`/api/qr-promptpay?id=${encodeURIComponent(selectedQrAcct.promptpay_id)}&amount=${total}`)
+        .then(r => r.json())
+        .then(d => { if (d.dataUrl) setGeneratedQr(d.dataUrl) })
+        .catch(() => {})
+    }
+  }, [selectedQrAcct, total])
+
+  async function printQRSlip(amount, qrOverride) {
+    const qrSrc = qrOverride || settings.payment_qr
     const cfg = getReceiptCfg()
     if (!cfg.ip) {
-      // fallback — เปิดหน้าต่างพิมพ์
       const html = `<html><body style="text-align:center;font-family:sans-serif;padding:20px">
         <p style="font-size:18px;font-weight:bold">${settings.shop_name || 'ร้านค้า'}</p>
         <p>สแกน QR เพื่อชำระ</p>
-        <img src="${settings.payment_qr}" style="width:200px;height:200px"/>
+        ${qrSrc ? `<img src="${qrSrc}" style="width:200px;height:200px"/>` : ''}
         <p style="font-size:24px;font-weight:bold">฿${fmt(amount)}</p>
         <script>window.print();window.close()<\/script></body></html>`
       const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
       window.open(URL.createObjectURL(blob))
       return
     }
-    // ESC/POS: render QR image + amount as bitmap
     const pw  = (parseInt(cfg.paper_width) || 80) >= 80 ? 576 : 384
     const pad = 10
     const canvas = document.createElement('canvas')
     canvas.width = pw
-    // load QR image first to measure height
     let qrImg = null
-    if (settings.payment_qr) {
+    if (qrSrc) {
       qrImg = await new Promise(res => {
         const img = new Image(); img.crossOrigin = 'anonymous'
         img.onload = () => res(img); img.onerror = () => res(null)
-        img.src = settings.payment_qr
+        img.src = qrSrc
       })
     }
     const maxQR = 460  // จำกัด QR ไม่เกิน 460 dots (~57mm)
@@ -543,6 +602,11 @@ export default function POSPage() {
     } else {
       if (Math.abs(mixRemain) > 0.01) return alert(`ยอดรวมไม่ครบ — ยังขาด ฿${fmt(Math.abs(mixRemain))}`)
       if (mixCredit > 0 && !customer) return alert('กรุณาเลือกลูกค้าสำหรับยอดเชื่อ')
+    }
+
+    // เชื่อแบบ single → ออกใบแจ้งหนี้/รอชำระ แทน complete sale
+    if (payMode === 'single' && payMethod === 'credit') {
+      return completeCreditInvoice()
     }
 
     const cfg = getReceiptCfg()
@@ -600,6 +664,7 @@ export default function POSPage() {
           cashier: currentEmp ? (currentEmp.nickname || currentEmp.name) : '',
           change: Math.max(0, change), vatRate,
           customerName: customer?.name || '', customerPhone: customer?.phone || '',
+          customerAddress: customer?.address || '',
         }
         setLastDone(receipt)
         const cfg = getReceiptCfg()
@@ -608,6 +673,7 @@ export default function POSPage() {
             printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
           ).catch(() => {})
         }
+        paidUntilRef.current = Date.now() + 7000
         dispChRef.current?.send({ type: 'broadcast', event: 'pos', payload: { status: 'paid', total } }).catch(() => {})
         setCart([]); setBillDiscount(''); setPayAmount(''); setNote(''); setCustomer(null)
         setShowPay(false)
@@ -643,6 +709,7 @@ export default function POSPage() {
         cashier: currentEmp ? (currentEmp.nickname || currentEmp.name) : '',
         change: Math.max(0, change), vatRate,
         customerName: customer?.name || '', customerPhone: customer?.phone || '',
+        customerAddress: customer?.address || '',
       }
       setLastDone(receipt)
 
@@ -742,9 +809,11 @@ export default function POSPage() {
         setPendingQuotes(p => p.filter(q => q.id !== currentQuoteId))
         setCurrentQuoteId(null)
       }
+      paidUntilRef.current = Date.now() + 7000
       dispChRef.current?.send({ type: 'broadcast', event: 'pos', payload: { status: 'paid', total } }).catch(() => {})
       setCart([]); setBillDiscount(''); setPayAmount(''); setNote(''); setCustomer(null); setPriceTier(null)
       setPayMode('single'); setPayMethod('cash'); setMixAmounts({ cash:'', transfer:'', credit:'' })
+      setSelectedQrAcct(null); setGeneratedQr(null)
       setShowPay(false)
       // แสดงหน้าเงินทอน (เฉพาะจ่ายเงินสด)
       if (saveMethod === 'cash' && saveChange > 0) {
@@ -755,6 +824,56 @@ export default function POSPage() {
     } finally {
       setSaving(false)
     }
+  }
+
+  async function completeCreditInvoice() {
+    setSaving(true)
+    try {
+      const finalDocNo = await commitNextDocNo('invoice')
+      const docItems = cart.map(i => ({
+        pid: i.pid || null, name: i.name, barcode: i.barcode || '',
+        unit: i.unit || '', price: i.price, cost: i.cost || 0,
+        qty: i.qty, disc: i.disc || 0, note: i.note || null,
+        subtotal: i.price * i.qty - (i.disc || 0),
+      }))
+      const { data: saved, error } = await supabase.from('quotations').insert({
+        doc_no: finalDocNo, doc_type: 'invoice',
+        customer_id:      customer?.id   || null,
+        customer_name:    customer?.name || null,
+        customer_phone:   customer?.phone || null,
+        items:    docItems,
+        subtotal, discount: totalDisc, vat: vatAmt, total,
+        note: note || null,
+        status: 'pending',
+      }).select().single()
+      if (error) throw error
+
+      // พิมใบแจ้งหนี้ยังไม่ชำระ
+      const cfg = getReceiptCfg()
+      if (cfg.ip) {
+        buildDeliverySlipESCPOS({
+          doc_no: finalDocNo,
+          shopName: settings.shop_name, shopAddress: settings.shop_address,
+          shopPhone: settings.shop_phone, shopLogo: settings.shop_logo,
+          customer_name: customer?.name, customer_phone: customer?.phone,
+          customer_address: customer?.address || '',
+          items: docItems, subtotal, discount: totalDisc,
+          delivery_fee: 0, total,
+          note: note || '', created_at: new Date().toISOString(),
+        }, parseInt(cfg.paper_width) || 80).then(bytes =>
+          printViaBridge(cfg.bridge_url || window.location.origin, cfg.ip, cfg.port || 9100, bytes)
+        ).catch(e => console.warn('Credit invoice print error:', e))
+      }
+
+      setPendingQuotes(p => [saved, ...p])
+      setCart([]); setBillDiscount(''); setPayAmount(''); setNote('')
+      setCustomer(null); setPriceTier(null)
+      setPayMode('single'); setPayMethod('cash')
+      setMixAmounts({ cash:'', transfer:'', credit:'' })
+      setShowPay(false)
+    } catch (e) {
+      alert('เกิดข้อผิดพลาด: ' + (e?.message || String(e)))
+    } finally { setSaving(false) }
   }
 
   function holdSale() {
@@ -799,6 +918,13 @@ export default function POSPage() {
       unit: i.unit || '', price: i.price, origPrice: i.price,
       cost: i.cost || 0, qty: i.qty, disc: i.disc || 0, note: i.note || '',
     }))
+    if ((q.delivery_fee || 0) > 0) {
+      cartItems.push({
+        pid: null, name: 'ค่าจัดส่ง', barcode: '', unit: '',
+        price: q.delivery_fee, origPrice: q.delivery_fee,
+        cost: 0, qty: 1, disc: 0, note: '',
+      })
+    }
     setCart(cartItems)
     if (q.customer_name) setCustomer({ id: q.customer_id || null, name: q.customer_name, phone: q.customer_phone || '' })
     setBillDiscount(q.discount > 0 ? String(q.discount) : '')
@@ -843,11 +969,17 @@ export default function POSPage() {
   }
 
   const filtered = products.filter(p => {
+    if (search) {
+      // มีคำค้นหา → ค้นทุกหมวด (ไม่กรอง activeCat)
+      const q = search.toLowerCase()
+      return p.name.toLowerCase().includes(q) ||
+             (p.barcode || '').toLowerCase().includes(q) ||
+             (p.categories?.name || '').toLowerCase().includes(q) ||
+             (p.unit || '').toLowerCase().includes(q) ||
+             (p.search_tags || '').toLowerCase().includes(q)
+    }
     if (activeCat != null && p.category_id !== activeCat) return false
-    if (!search) return true
-    const q = search.toUpperCase()
-    return p.name.toLowerCase().includes(search.toLowerCase()) ||
-           (p.barcode || '').toUpperCase().includes(q)
+    return true
   })
 
   const displayed = filtered.slice(0, visibleCount)
@@ -862,6 +994,22 @@ export default function POSPage() {
   return (
     <div className="flex flex-col h-[100dvh] bg-gray-100 overflow-hidden">
 
+      {/* Quick-add product modal */}
+      {quickAdd !== null && (
+        <QuickAddModal
+          barcode={quickAdd}
+          categories={categories}
+          onClose={() => { setQuickAdd(null); setTimeout(() => scannerRef.current?.focus(), 100) }}
+          onSaved={(prod) => {
+            setProducts(p => [...p, prod])
+            productsRef.current = [...productsRef.current, prod]
+            addToCart(prod)
+            setQuickAdd(null)
+            setTimeout(() => scannerRef.current?.focus(), 100)
+          }}
+        />
+      )}
+
       {/* Top bar */}
       <header className="bg-[#0f1b14] text-white px-4 py-3 flex items-center gap-3 z-10 flex-shrink-0">
         <span className="font-heading font-bold text-base shrink-0 hidden sm:block">🛒 ขาย</span>
@@ -870,9 +1018,9 @@ export default function POSPage() {
           value={search}
           onChange={e => setSearch(e.target.value)}
           onBlur={() => setTimeout(() => {
-            if (document.activeElement === document.body) scannerRef.current?.focus()
-          }, 150)}
-          autoFocus
+            const a = document.activeElement
+            if (!a || a === document.body || a === document.documentElement) scannerRef.current?.focus()
+          }, 500)}
           placeholder="ค้นหาสินค้า (ไทย/ENG)…"
           className="flex-1 bg-white/15 placeholder:text-white/40 text-white border border-white/20 rounded-xl px-4 py-2.5 text-sm outline-none focus:bg-white/20 focus:border-white/40"
         />
@@ -924,7 +1072,7 @@ export default function POSPage() {
       {/* Shift banner */}
       {shift ? (
         <div className="bg-emerald-700 text-white px-4 py-2 flex items-center justify-between text-xs shrink-0 gap-2">
-          <span className="font-semibold">🟢 {terminalName ? terminalName + ' · ' : ''}กะเปิดอยู่ · เงินเริ่มต้น ฿{fmt(shift.opening_cash)} · เปิดเมื่อ {new Date(shift.opened_at).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})}</span>
+          <span className="font-semibold truncate min-w-0">🟢 {terminalName ? terminalName + ' · ' : ''}กะเปิดอยู่ · ฿{fmt(shift.opening_cash)} · {new Date(shift.opened_at).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})}</span>
           <div className="flex items-center gap-2 shrink-0">
             <button onClick={() => setShowHistPanel(true)}
               className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg font-semibold transition-colors">📋 ประวัติ</button>
@@ -982,8 +1130,9 @@ export default function POSPage() {
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 onBlur={() => setTimeout(() => {
-                  if (document.activeElement === document.body) scannerRef.current?.focus()
-                }, 150)}
+                  const a = document.activeElement
+                  if (!a || a === document.body || a === document.documentElement) scannerRef.current?.focus()
+                }, 500)}
                 placeholder="พิมพ์ชื่อสินค้าที่ต้องการค้นหา..."
                 className="w-full pl-9 pr-8 py-2 rounded-lg border border-gray-200 text-sm text-slate-800 placeholder:text-slate-400 outline-none focus:border-brand focus:ring-1 focus:ring-brand/30 bg-gray-50"
               />
@@ -997,7 +1146,7 @@ export default function POSPage() {
           </div>
 
           {/* Product grid */}
-          <div onScroll={handleGridScroll} className="flex-1 overflow-y-auto p-3 grid grid-cols-2 lg:grid-cols-3 gap-3 content-start">
+          <div onScroll={handleGridScroll} className="flex-1 overflow-y-auto p-2 grid grid-cols-3 gap-2 content-start">
             {displayed.map(p => (
               <button key={p.id} onClick={() => addToCart(p)}
                 disabled={false}
@@ -1034,7 +1183,7 @@ export default function POSPage() {
         </div>
 
         {/* ── Cart panel ── */}
-        <div className="w-[300px] md:w-[340px] flex flex-col bg-white border-l border-gray-200 flex-shrink-0 shadow-xl">
+        <div className="w-[220px] md:w-[260px] flex flex-col bg-white border-l border-gray-200 flex-shrink-0 shadow-xl">
           {/* Cart header */}
           <div className="px-4 py-3 border-b border-gray-100 flex justify-between items-center bg-gray-50 gap-2">
             <span className="font-bold text-base text-slate-700 shrink-0">
@@ -1088,9 +1237,9 @@ export default function POSPage() {
             ) : (
               <div className="divide-y divide-gray-50">
                 {cart.map((item, idx) => (
-                  <div key={idx} className="px-4 py-3 hover:bg-gray-50/60 transition-colors">
-                    <div className="flex justify-between items-start mb-2">
-                      <p className="text-sm font-semibold flex-1 leading-snug text-slate-800 pr-2">{item.name}</p>
+                  <div key={idx} className="px-3 py-2 hover:bg-gray-50/60 transition-colors">
+                    <div className="flex justify-between items-start mb-1.5">
+                      <p className="text-xs font-semibold flex-1 leading-snug text-slate-800 pr-1">{item.name}</p>
                       <button onClick={() => setCart(p => p.filter((_,i)=>i!==idx))}
                         className="w-6 h-6 flex items-center justify-center rounded-full text-slate-300 hover:bg-red-100 hover:text-red-400 transition-colors text-sm shrink-0">✕</button>
                     </div>
@@ -1143,7 +1292,7 @@ export default function POSPage() {
           </div>
 
           {/* Summary */}
-          <div className="border-t border-gray-100 p-4 bg-gray-50/80 space-y-2.5">
+          <div className="border-t border-gray-100 p-3 bg-gray-50/80 space-y-2">
             <div className="flex justify-between text-sm text-slate-500"><span>ยอดรวม</span><span className="font-medium text-slate-700">฿{fmt(subtotal)}</span></div>
             {tierDisc > 0 && <div className="flex justify-between text-sm text-violet-500"><span>{PRICE_TIERS.find(t=>t.id===priceTier)?.label} −{tierPct}%</span><span>−฿{fmt(tierDisc)}</span></div>}
             {billDisc > 0 && <div className="flex justify-between text-sm text-red-500"><span>ส่วนลดบิล</span><span>−฿{fmt(billDisc)}</span></div>}
@@ -1156,10 +1305,16 @@ export default function POSPage() {
               className="w-full bg-brand text-white font-bold py-4 rounded-2xl text-base disabled:opacity-40 active:scale-[0.98] transition-transform shadow-lg shadow-brand/25 mt-1">
               ชำระเงิน →
             </button>
-            <button onClick={() => setShowDocModal(true)} disabled={cart.length === 0}
-              className="w-full border border-slate-200 text-slate-600 font-semibold py-2.5 rounded-2xl text-sm disabled:opacity-40 active:scale-[0.98] transition-transform bg-white">
-              📄 ออกเอกสาร (ใบเสนอราคา / ใบแจ้งหนี้ / ใบส่งของ)
-            </button>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setShowDeliveryModal(true)} disabled={cart.length === 0}
+                className="border border-blue-200 bg-blue-50 text-blue-700 font-semibold py-2.5 rounded-2xl text-sm disabled:opacity-40 active:scale-[0.98] transition-transform">
+                🚚 ส่งของ / แจ้งหนี้
+              </button>
+              <button onClick={() => setShowDocModal(true)} disabled={cart.length === 0}
+                className="border border-slate-200 text-slate-600 font-semibold py-2.5 rounded-2xl text-sm disabled:opacity-40 active:scale-[0.98] transition-transform bg-white">
+                📄 ออกเอกสาร
+              </button>
+            </div>
             {lastDone && (
               <div className="flex gap-2">
                 <button onClick={() => openReceipt(lastDone)}
@@ -1178,12 +1333,12 @@ export default function POSPage() {
       {showPay && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-end md:items-center justify-center p-3"
           onClick={e => e.target === e.currentTarget && setShowPay(false)}>
-          <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden fade-in">
-            <div className="bg-[#0f1b14] text-white px-4 py-3.5 flex justify-between items-center">
+          <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden fade-in flex flex-col max-h-[90vh]">
+            <div className="bg-[#0f1b14] text-white px-4 py-3.5 flex justify-between items-center flex-shrink-0">
               <h2 className="font-heading font-bold text-base">ชำระเงิน</h2>
               <button onClick={() => setShowPay(false)} className="text-2xl leading-none opacity-70">×</button>
             </div>
-            <div className="p-4 space-y-3">
+            <div className="p-4 space-y-3 overflow-y-auto flex-1">
               {/* Mode toggle: single / mixed */}
               <div className="flex gap-2">
                 {[['single','จ่ายเดี่ยว'],['mixed','ผสม']].map(([m,l]) => (
@@ -1228,9 +1383,44 @@ export default function POSPage() {
 
                 {/* QR/Transfer */}
                 {payMethod === 'transfer' && (
-                  <div className="flex flex-col items-center gap-2 py-1">
-                    {settings.payment_qr ? (
-                      <>
+                  <div className="flex flex-col gap-2">
+                    {/* เลือกบัญชี */}
+                    {qrAccounts.length > 0 ? (
+                      <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(qrAccounts.length, 2)}, 1fr)` }}>
+                        {qrAccounts.map(a => (
+                          <button key={a.id} onClick={() => setSelectedQrAcct(selectedQrAcct?.id === a.id ? null : a)}
+                            className={`py-2.5 px-3 rounded-xl border-2 text-left transition-all
+                              ${selectedQrAcct?.id === a.id ? 'border-brand bg-brand/5' : 'border-slate-200 bg-white active:bg-slate-50'}`}>
+                            <p className={`text-xs font-bold leading-tight ${selectedQrAcct?.id === a.id ? 'text-brand' : 'text-slate-700'}`}>📱 {a.name}</p>
+                            {a.bank && <p className="text-[10px] text-slate-400 mt-0.5">{a.bank}</p>}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {/* QR code + ยอด */}
+                    {selectedQrAcct ? (
+                      <div className="flex flex-col items-center gap-1.5 pt-1">
+                        {generatedQr ? (
+                          <>
+                            <button onClick={() => printQRSlip(total, generatedQr)} className="relative group">
+                              <img src={generatedQr} alt="QR PromptPay"
+                                className="w-52 h-52 rounded-xl border-2 border-slate-200 object-contain bg-white hover:border-brand transition-colors cursor-pointer" />
+                              <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/10 rounded-xl transition-all">
+                                <span className="opacity-0 group-hover:opacity-100 text-white font-bold text-sm bg-black/60 px-3 py-1 rounded-lg transition-all">🖨️ พิมพ์</span>
+                              </div>
+                            </button>
+                            <p className="text-base font-bold text-brand">฿{fmt(total)}</p>
+                            <p className="text-[11px] text-slate-400 text-center">
+                              {selectedQrAcct.promptpay_id ? 'QR ล็อคยอดอัตโนมัติ' : 'กรอกยอดเองในแอปธนาคาร'} · {selectedQrAcct.name}{selectedQrAcct.bank ? ` · ${selectedQrAcct.bank}` : ''}
+                            </p>
+                          </>
+                        ) : (
+                          <div className="w-52 h-52 rounded-xl border-2 border-slate-100 flex items-center justify-center text-slate-400 text-sm">กำลังสร้าง QR...</div>
+                        )}
+                      </div>
+                    ) : qrAccounts.length === 0 && settings.payment_qr ? (
+                      <div className="flex flex-col items-center gap-2 pt-1">
                         <button onClick={() => printQRSlip(total)} className="relative group">
                           <img src={settings.payment_qr} alt="QR รับเงิน"
                             className="w-52 h-52 rounded-xl border-2 border-slate-200 object-contain bg-white hover:border-brand transition-colors cursor-pointer" />
@@ -1239,9 +1429,11 @@ export default function POSPage() {
                           </div>
                         </button>
                         <p className="text-xs text-slate-500 text-center">กดที่ภาพเพื่อพิมพ์ · ฿{fmt(total)}</p>
-                      </>
+                      </div>
+                    ) : qrAccounts.length === 0 ? (
+                      <p className="text-sm text-amber-600 text-center py-4">ยังไม่ได้ตั้งค่าบัญชีรับโอน<br/><span className="text-xs text-slate-400">ไปที่ แอดมิน → ตั้งค่า → บัญชีรับโอน</span></p>
                     ) : (
-                      <p className="text-sm text-amber-600 text-center py-4">ยังไม่ได้อัปโหลด QR รับเงิน<br/><span className="text-xs text-slate-400">ไปที่ ตั้งค่า → QR รับเงิน</span></p>
+                      <p className="text-xs text-slate-400 text-center py-2">กดเลือกบัญชีด้านบน</p>
                     )}
                   </div>
                 )}
@@ -1353,6 +1545,8 @@ export default function POSPage() {
                 placeholder="หมายเหตุ (ถ้ามี)"
                 className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
 
+            </div>
+            <div className="px-4 pb-4 pt-3 border-t border-slate-100 flex-shrink-0">
               <button onClick={completeSale} disabled={saving}
                 className="w-full bg-brand text-white font-bold py-4 rounded-2xl text-lg disabled:opacity-50 active:scale-[0.98] transition-transform shadow-lg shadow-brand/30">
                 {saving ? '⏳ กำลังบันทึก...' : '✓ ยืนยันชำระเงิน'}
@@ -1360,7 +1554,7 @@ export default function POSPage() {
             </div>
           </div>
         </div>
-      )}
+)}
 
       {/* ── Change Display ── */}
       {changeDisplay && (
@@ -1482,6 +1676,22 @@ export default function POSPage() {
           settings={settings}
           onClose={() => setShowDocModal(false)}
           onSaved={q => setPendingQuotes(p => [q, ...p])}
+        />
+      )}
+
+      {showDeliveryModal && (
+        <DeliverySlipModal
+          cart={cart}
+          totals={{ subtotal, discount: billDisc, vat: vatAmt, total }}
+          settings={settings}
+          currentEmp={currentEmp}
+          customer={customer}
+          onClose={() => setShowDeliveryModal(false)}
+          onSaved={q => {
+            setPendingQuotes(p => [q, ...p])
+            setCart([]); setBillDiscount(''); setNote(''); setCustomer(null); setPriceTier(null)
+            setShowDeliveryModal(false)
+          }}
         />
       )}
 
@@ -2887,6 +3097,309 @@ function CartDocModal({ cart, totals, customer, settings, onClose, onSaved }) {
 
 const fmtQ = n => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
 
+// ── Delivery Slip Modal ───────────────────────────────────────────────────────
+function DeliverySlipModal({ cart, totals, settings, currentEmp, customer, onClose, onSaved }) {
+  const [custName, setCustName]     = useState(customer?.name || '')
+  const [custPhone, setCustPhone]   = useState(customer?.phone || '')
+  const [custAddr, setCustAddr]     = useState(customer?.address || '')
+  const [deliveryFee, setDeliveryFee] = useState('0')
+  const [note, setNote]             = useState('')
+  const [payStatus, setPayStatus]   = useState('cod') // 'cod' | 'paid'
+  const [saving, setSaving]         = useState(false)
+  const [showMap, setShowMap]             = useState(false)
+  const [custLat, setCustLat]             = useState(null)
+  const [custLng, setCustLng]             = useState(null)
+  const [distanceKm, setDistanceKm]       = useState(0)
+  const [mapImageDataUrl, setMapImageDataUrl] = useState(null)
+  const [pastCustomers, setPastCustomers] = useState([])
+  const [suggestions, setSuggestions]     = useState([])
+  const [activeSugField, setActiveSugField] = useState(null) // 'name'|'phone'
+
+  useEffect(() => {
+    supabase.from('quotations')
+      .select('customer_name,customer_phone,customer_address')
+      .not('customer_name', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(300)
+      .then(({ data }) => {
+        if (!data) return
+        const seen = new Set()
+        const uniq = []
+        for (const r of data) {
+          const key = (r.customer_name || '') + '|' + (r.customer_phone || '')
+          if (!seen.has(key)) { seen.add(key); uniq.push(r) }
+        }
+        setPastCustomers(uniq)
+      })
+  }, [])
+
+  function filterSug(field, val) {
+    if (!val.trim()) { setSuggestions([]); return }
+    const q = val.toLowerCase()
+    const hits = pastCustomers.filter(c =>
+      field === 'name'
+        ? (c.customer_name || '').toLowerCase().includes(q)
+        : (c.customer_phone || '').includes(q)
+    ).slice(0, 6)
+    setSuggestions(hits)
+  }
+
+  function pickSug(c) {
+    setCustName(c.customer_name || '')
+    setCustPhone(c.customer_phone || '')
+    setCustAddr(c.customer_address || '')
+    setSuggestions([])
+    setActiveSugField(null)
+  }
+
+  const shopLat = parseFloat(settings.shop_lat || '14.8462')
+  const shopLng = parseFloat(settings.shop_lng || '102.6816')
+  const feeRate  = parseFloat(settings.delivery_fee_rate || '10')
+
+  function onMapConfirm({ lat, lng, address, distanceKm: dist, mapImageDataUrl: img }) {
+    setCustLat(lat); setCustLng(lng); setDistanceKm(dist)
+    setCustAddr(address)
+    if (img) setMapImageDataUrl(img)
+    // ไป-กลับ × อัตราค่าส่ง
+    setDeliveryFee(String(Math.ceil(dist * 2 * feeRate)))
+    setShowMap(false)
+  }
+
+  async function submit() {
+    if (!custName.trim())  return alert('กรุณาใส่ชื่อลูกค้า')
+    if (!custPhone.trim()) return alert('กรุณาใส่เบอร์โทร')
+    if (!custAddr.trim())  return alert('กรุณาใส่ที่อยู่จัดส่ง')
+    setSaving(true)
+    try {
+      const finalDocNo = await commitNextDocNo('delivery_invoice')
+      const fee = parseFloat(deliveryFee) || 0
+      const docItems = cart.map(i => ({
+        pid: i.pid || null, name: i.name, barcode: i.barcode || '',
+        unit: i.unit || '', price: i.price, cost: i.cost || 0,
+        qty: i.qty, disc: i.disc || 0, note: i.note || null,
+        subtotal: i.price * i.qty - (i.disc || 0),
+      }))
+      const grandTotal = totals.total + fee
+
+      // Upload map snapshot to Supabase Storage
+      let mapSnapshotUrl = null
+      if (mapImageDataUrl) {
+        try {
+          const blob = await fetch(mapImageDataUrl).then(r => r.blob())
+          const path = `map-snapshots/${finalDocNo}.jpg`
+          const { error: upErr } = await supabase.storage
+            .from('shop-assets').upload(path, blob, { contentType: 'image/jpeg', upsert: true })
+          if (!upErr) {
+            const { data: { publicUrl } } = supabase.storage.from('shop-assets').getPublicUrl(path)
+            mapSnapshotUrl = publicUrl
+          }
+        } catch (e) { console.warn('Map snapshot upload failed:', e) }
+      }
+
+      const empLabel = currentEmp ? (currentEmp.nickname || currentEmp.name) : null
+      const { data: saved, error } = await supabase.from('quotations').insert({
+        doc_no: finalDocNo, doc_type: 'delivery_invoice',
+        customer_name: custName.trim(),
+        customer_phone: custPhone.trim(),
+        customer_address: custAddr.trim(),
+        items: docItems,
+        subtotal: totals.subtotal,
+        discount: totals.discount || 0,
+        vat: totals.vat || 0,
+        delivery_fee: fee,
+        customer_lat: custLat,
+        customer_lng: custLng,
+        distance_km: distanceKm > 0 ? distanceKm : null,
+        map_snapshot_url: mapSnapshotUrl,
+        total: grandTotal,
+        note: note.trim() || null,
+        status: 'pending',
+      }).select().single()
+      if (error) throw error
+
+      const cfg = JSON.parse(settings.printer_receipt || localStorage.getItem('printer_receipt') || '{}')
+      const paperW = parseInt(cfg.paper_width) || 80
+      if (cfg.ip) {
+        const printImg = mapSnapshotUrl || mapImageDataUrl
+        buildDeliverySlipESCPOS({
+          doc_no: finalDocNo,
+          shopName: settings.shop_name, shopAddress: settings.shop_address,
+          shopPhone: settings.shop_phone, shopLogo: settings.shop_logo,
+          customer_name: custName.trim(), customer_phone: custPhone.trim(),
+          customer_address: custAddr.trim(),
+          items: docItems, subtotal: totals.subtotal,
+          discount: totals.discount || 0, delivery_fee: fee, total: grandTotal,
+          note: note.trim(), created_at: new Date().toISOString(),
+          salesperson: empLabel || undefined,
+          pay_status: payStatus,
+        }, paperW).then(async slipBytes => {
+          if (printImg) {
+            // ใบ 1 + ใบ 2 (slip) → CUT → แผนที่ + header → CUT  (job เดียว)
+            const mapDetails = {
+              customer_name: custName.trim(), customer_phone: custPhone.trim(),
+              customer_address: custAddr.trim(),
+              delivery_fee: fee, distance_km: distanceKm || null,
+            }
+            const mapBytes = await buildMapSnapshotESCPOS(printImg, paperW, mapDetails)
+            const combined = new Uint8Array(slipBytes.length + mapBytes.length)
+            combined.set(slipBytes, 0); combined.set(mapBytes, slipBytes.length)
+            await printViaBridge(cfg.bridge_url || window.location.origin, cfg.ip, cfg.port || 9100, combined)
+          } else {
+            await printViaBridge(cfg.bridge_url || window.location.origin, cfg.ip, cfg.port || 9100, slipBytes)
+          }
+        }).catch(e => console.warn('Delivery slip print error:', e))
+      }
+
+      onSaved(saved)
+    } catch (e) {
+      alert('เกิดข้อผิดพลาด: ' + (e?.message || String(e)))
+    } finally { setSaving(false) }
+  }
+
+  const fee = parseFloat(deliveryFee) || 0
+  const grandTotal = totals.total + fee
+
+  return (
+    <>
+    <div className="fixed inset-0 bg-black/60 z-[60] flex items-end md:items-center justify-center p-3"
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden fade-in">
+        <div className="bg-blue-700 text-white px-4 py-3.5 flex justify-between items-center">
+          <h2 className="font-bold text-base">🚚 ออกใบส่งของ / แจ้งหนี้</h2>
+          <button onClick={onClose} className="text-2xl leading-none opacity-70">×</button>
+        </div>
+        <div className="p-4 space-y-3 max-h-[80vh] overflow-y-auto">
+          <div className="bg-blue-50 rounded-2xl p-3 text-xs text-blue-700">
+            {cart.length} รายการ · ยอดสินค้า <span className="font-bold">฿{totals.total.toLocaleString('th-TH',{minimumFractionDigits:2})}</span>
+            <br/><span className="text-blue-500">ใบส่งของจะไปอยู่ในรอชำระ — ยังไม่ตัดสต็อก</span>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-slate-500 block">ข้อมูลลูกค้า (บังคับ)</label>
+            {currentEmp && (
+              <div className="flex items-center gap-1.5 text-xs text-slate-500 bg-slate-50 rounded-xl px-3 py-2">
+                <span>👤 พนักงานขาย:</span>
+                <span className="font-semibold text-slate-700">{currentEmp.nickname || currentEmp.name}</span>
+              </div>
+            )}
+            {/* ชื่อลูกค้า + autocomplete */}
+            <div className="relative">
+              <input value={custName}
+                onChange={e => { setCustName(e.target.value); setActiveSugField('name'); filterSug('name', e.target.value) }}
+                onFocus={() => { setActiveSugField('name'); filterSug('name', custName) }}
+                onBlur={() => setTimeout(() => setSuggestions([]), 200)}
+                placeholder="ชื่อลูกค้า *"
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-blue-500 outline-none" />
+              {activeSugField === 'name' && suggestions.length > 0 && (
+                <ul className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-50 max-h-48 overflow-y-auto">
+                  {suggestions.map((c, i) => (
+                    <li key={i} onMouseDown={() => pickSug(c)}
+                      className="px-3 py-2.5 text-sm hover:bg-blue-50 cursor-pointer border-b border-slate-100 last:border-0">
+                      <div className="font-semibold text-slate-800">{c.customer_name}</div>
+                      {c.customer_phone && <div className="text-xs text-slate-400">{c.customer_phone}</div>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            {/* เบอร์โทร + autocomplete */}
+            <div className="relative">
+              <input value={custPhone}
+                onChange={e => { setCustPhone(e.target.value); setActiveSugField('phone'); filterSug('phone', e.target.value) }}
+                onFocus={() => { setActiveSugField('phone'); filterSug('phone', custPhone) }}
+                onBlur={() => setTimeout(() => setSuggestions([]), 200)}
+                placeholder="เบอร์โทร *" inputMode="tel"
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-blue-500 outline-none" />
+              {activeSugField === 'phone' && suggestions.length > 0 && (
+                <ul className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-50 max-h-48 overflow-y-auto">
+                  {suggestions.map((c, i) => (
+                    <li key={i} onMouseDown={() => pickSug(c)}
+                      className="px-3 py-2.5 text-sm hover:bg-blue-50 cursor-pointer border-b border-slate-100 last:border-0">
+                      <div className="font-semibold text-slate-800">{c.customer_phone}</div>
+                      {c.customer_name && <div className="text-xs text-slate-400">{c.customer_name}</div>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div className="relative">
+              <textarea value={custAddr} onChange={e => setCustAddr(e.target.value)} placeholder="ที่อยู่จัดส่ง *" rows={2}
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 pr-24 text-sm focus:border-blue-500 outline-none resize-none" />
+              <button type="button" onClick={() => setShowMap(true)}
+                className="absolute right-2 top-2 bg-blue-600 text-white text-xs px-2.5 py-1.5 rounded-lg font-semibold whitespace-nowrap">
+                📍 แผนที่
+              </button>
+            </div>
+            {distanceKm > 0 && (
+              <p className="text-xs text-blue-600">
+                🛣️ ทางถนน {distanceKm.toFixed(1)} กม. ไป-กลับ {(distanceKm * 2).toFixed(1)} กม. × ฿{feeRate} = ฿{Math.ceil(distanceKm * 2 * feeRate).toLocaleString()}
+              </p>
+            )}
+            {mapImageDataUrl && (
+              <div className="relative rounded-xl overflow-hidden border border-blue-200">
+                <img src={mapImageDataUrl} alt="แผนที่" className="w-full h-32 object-cover" />
+                <button onClick={() => setMapImageDataUrl(null)}
+                  className="absolute top-1 right-1 bg-black/50 text-white w-6 h-6 rounded-full text-xs flex items-center justify-center">×</button>
+                <div className="absolute bottom-0 left-0 right-0 bg-black/40 text-white text-[10px] px-2 py-0.5">📍 แผนที่ตำแหน่งลูกค้า (จะพิมพ์ต่อหลังใบส่งของ)</div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <label className="text-xs font-semibold text-slate-500 block mb-1.5">ค่าจัดส่ง (฿)</label>
+              <input type="number" min="0" value={deliveryFee} onChange={e => setDeliveryFee(e.target.value)}
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-blue-500 outline-none" />
+            </div>
+            <div className="flex-1">
+              <label className="text-xs font-semibold text-slate-500 block mb-1.5">หมายเหตุ</label>
+              <input value={note} onChange={e => setNote(e.target.value)} placeholder="ถ้ามี"
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-blue-500 outline-none" />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-slate-500 block mb-1.5">สถานะการชำระ</label>
+            <div className="flex gap-2">
+              {[['cod','📦 เก็บปลายทาง'],['paid','✅ ชำระแล้ว']].map(([v, label]) => (
+                <button key={v} type="button" onClick={() => setPayStatus(v)}
+                  className={`flex-1 py-2.5 rounded-xl text-sm font-semibold border-2 transition-colors ${
+                    payStatus === v
+                      ? v === 'paid' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-orange-400 bg-orange-50 text-orange-700'
+                      : 'border-slate-200 bg-white text-slate-400'
+                  }`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-slate-50 rounded-2xl p-3 flex justify-between items-center">
+            <span className="text-sm text-slate-500">ยอดแจ้งหนี้รวม</span>
+            <span className="text-xl font-bold text-blue-700">฿{grandTotal.toLocaleString('th-TH',{minimumFractionDigits:2})}</span>
+          </div>
+
+          <button onClick={submit} disabled={saving}
+            className="w-full bg-blue-700 text-white font-bold py-3.5 rounded-2xl text-base disabled:opacity-50 active:scale-[0.98] transition-transform shadow-lg">
+            {saving ? 'กำลังบันทึก...' : '🖨️ ออกใบส่งของ + พิมพ์'}
+          </button>
+        </div>
+      </div>
+    </div>
+    {showMap && (
+      <MapPicker
+        shopLat={shopLat} shopLng={shopLng}
+        initialLat={custLat} initialLng={custLng}
+        initialAddress={custAddr}
+        custName={custName} custPhone={custPhone}
+        onConfirm={onMapConfirm}
+        onClose={() => setShowMap(false)}
+      />
+    )}
+    </>
+  )
+}
+
 function PendingQuotesModal({ quotes, onLoad, onCancel, onClose }) {
   const DOC_LABEL = { quotation: 'ใบเสนอราคา', delivery_invoice: 'ใบแจ้งหนี้', invoice: 'ใบแจ้งหนี้', delivery: 'ใบส่งของ' }
   return (
@@ -2924,6 +3437,206 @@ function PendingQuotesModal({ quotes, onLoad, onCancel, onClose }) {
               </div>
             </div>
           ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function QuickAddModal({ barcode, categories, onClose, onSaved }) {
+  const [searchText, setSearchText]       = useState('')
+  const [searchResults, setSearchResults] = useState([])
+  const [selected, setSelected]           = useState(null)
+  const [linking, setLinking]             = useState(false)
+  const [confirmReplace, setConfirmReplace] = useState(false)
+
+  const [name, setName]   = useState('')
+  const [price, setPrice] = useState('')
+  const [cost, setCost]   = useState('')
+  const [unit, setUnit]   = useState('ชิ้น')
+  const [catId, setCatId] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const searchRef = useRef(null)
+  const nameRef   = useRef(null)
+
+  useEffect(() => { setTimeout(() => searchRef.current?.focus(), 80) }, [])
+
+  useEffect(() => {
+    if (!searchText.trim()) { setSearchResults([]); return }
+    const t = setTimeout(async () => {
+      const { data } = await supabase.from('products')
+        .select('id,name,barcode,alt_barcode,price,cost,unit,stock,active')
+        .ilike('name', `%${searchText.trim()}%`)
+        .limit(6)
+      setSearchResults(data || [])
+    }, 250)
+    return () => clearTimeout(t)
+  }, [searchText])
+
+  async function linkBarcode() {
+    if (!selected) return
+    if (selected.alt_barcode && selected.alt_barcode !== barcode && !confirmReplace) {
+      setConfirmReplace(true)
+      return
+    }
+    setLinking(true)
+    const { error } = await supabase.from('products').update({ alt_barcode: barcode }).eq('id', selected.id)
+    setLinking(false)
+    if (error) { alert('เกิดข้อผิดพลาด: ' + error.message); return }
+    setConfirmReplace(false)
+    onSaved({ ...selected, alt_barcode: barcode })
+  }
+
+  async function save() {
+    if (!name.trim() || !price) return
+    setSaving(true)
+    const { data, error } = await supabase.from('products').insert({
+      name: name.trim(), barcode: barcode || null,
+      price: parseFloat(price) || 0, cost: parseFloat(cost) || 0,
+      unit: unit || 'ชิ้น', category_id: catId ? parseInt(catId) : null,
+      stock: 0, active: true,
+    }).select('*, categories(name)').single()
+    setSaving(false)
+    if (error) { alert('บันทึกไม่ได้: ' + error.message); return }
+    onSaved(data)
+  }
+
+  const alreadyLinked = selected?.alt_barcode === barcode || selected?.barcode === barcode
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-end md:items-center justify-center p-3"
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+        <div className="bg-brand text-white px-4 py-3.5 flex justify-between items-center shrink-0">
+          <div>
+            <h2 className="font-bold text-base">✦ เพิ่ม / ผูกสินค้า</h2>
+            {barcode && <p className="text-[11px] opacity-70 font-mono mt-0.5">{barcode}</p>}
+          </div>
+          <button onClick={onClose} className="text-2xl leading-none opacity-70">×</button>
+        </div>
+
+        <div className="overflow-y-auto flex-1">
+          {/* ─── ค้นหาสินค้าเดิม ─── */}
+          <div className="p-4 pb-2">
+            <label className="text-xs text-slate-500 font-semibold block mb-1.5">ค้นหาสินค้าเดิม (พิมพ์ชื่อ)</label>
+            <input ref={searchRef} value={searchText} onChange={e => { setSearchText(e.target.value); setSelected(null) }}
+              placeholder="ชื่อสินค้า..."
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+          </div>
+
+          {searchResults.length > 0 && !selected && (
+            <div className="mx-4 mb-2 rounded-xl border border-gray-100 overflow-hidden divide-y divide-gray-50">
+              {searchResults.map(p => (
+                <button key={p.id} onClick={() => { setSelected(p); setSearchText(p.name) }}
+                  className="w-full text-left px-3 py-2.5 hover:bg-brand/5 active:bg-brand/10 flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-700 truncate">{p.name}</p>
+                    <p className="text-[10px] text-slate-400 font-mono">
+                    {p.barcode || '—'}{p.alt_barcode ? ` / ${p.alt_barcode}` : ''} · ฿{p.price}
+                  </p>
+                  </div>
+                  <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold shrink-0 ${p.active ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-400'}`}>
+                    {p.active ? 'พร้อมขาย' : 'หมด'}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {selected && (
+            <div className="mx-4 mb-3 p-3 bg-emerald-50 rounded-xl border border-emerald-200">
+              <p className="text-xs font-bold text-emerald-700 truncate">{selected.name}</p>
+              <div className="text-[10px] text-slate-500 font-mono mt-0.5 space-y-0.5">
+                <p>บาร์โค้ดหลัก: {selected.barcode || '—'}</p>
+                <p>บาร์โค้ดสำรอง: {selected.alt_barcode || '—'} → <span className="text-brand font-semibold">{barcode}</span></p>
+              </div>
+              {alreadyLinked && (
+                <p className="text-[10px] text-emerald-600 mt-0.5">✓ ผูกบาร์โค้ดนี้ไว้แล้ว</p>
+              )}
+              {confirmReplace && (
+                <p className="text-[10px] text-orange-600 mt-0.5 font-semibold">
+                  ⚠️ บาร์โค้ดสำรอง ({selected.alt_barcode}) จะถูกแทนที่ด้วย {barcode}
+                </p>
+              )}
+              <div className="flex gap-2 mt-2.5">
+                            <button onClick={() => { setSelected(null); setSearchText(''); setConfirmReplace(false) }}
+                  className="flex-1 border border-gray-200 rounded-lg py-1.5 text-xs font-semibold text-gray-500">
+                  ยกเลิก
+                </button>
+                {confirmReplace ? (
+                  <button onClick={linkBarcode} disabled={linking}
+                    className="flex-1 bg-orange-500 text-white rounded-lg py-1.5 text-xs font-bold active:scale-95 disabled:opacity-40">
+                    {linking ? '...' : '⚠️ ยืนยันแทนที่'}
+                  </button>
+                ) : (
+                  <button onClick={linkBarcode} disabled={linking || alreadyLinked}
+                    className="flex-1 bg-emerald-500 text-white rounded-lg py-1.5 text-xs font-bold active:scale-95 disabled:opacity-40">
+                    {linking ? '...' : alreadyLinked ? '✓ ผูกแล้ว' : '🔗 ผูก + ใส่ตะกร้า'}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ─── Divider ─── */}
+          <div className="mx-4 flex items-center gap-2 mb-3">
+            <hr className="flex-1 border-gray-200" />
+            <span className="text-[10px] text-gray-400 font-medium">หรือสร้างสินค้าใหม่</span>
+            <hr className="flex-1 border-gray-200" />
+          </div>
+
+          {/* ─── ฟอร์มสร้างใหม่ ─── */}
+          <div className="px-4 space-y-3 pb-4">
+            <div>
+              <label className="text-xs text-slate-500 font-semibold block mb-1">ชื่อสินค้า *</label>
+              <input ref={nameRef} value={name} onChange={e => setName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && save()}
+                placeholder="ชื่อสินค้า"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-slate-500 font-semibold block mb-1">ราคาขาย *</label>
+                <input type="number" value={price} onChange={e => setPrice(e.target.value)}
+                  placeholder="0"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 font-semibold block mb-1">ทุน</label>
+                <input type="number" value={cost} onChange={e => setCost(e.target.value)}
+                  placeholder="0"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-slate-500 font-semibold block mb-1">หน่วย</label>
+                <input value={unit} onChange={e => setUnit(e.target.value)}
+                  placeholder="ชิ้น"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 font-semibold block mb-1">หมวด</label>
+                <select value={catId} onChange={e => setCatId(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none bg-white">
+                  <option value="">— ไม่มี —</option>
+                  {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-4 pb-4 flex gap-2 shrink-0 border-t border-gray-100 pt-3">
+          <button onClick={onClose}
+            className="flex-1 border border-gray-200 rounded-2xl py-3 text-sm font-semibold text-gray-500 active:bg-gray-50">
+            ยกเลิก
+          </button>
+          <button onClick={save} disabled={!name.trim() || !price || saving}
+            className="flex-1 bg-brand text-white rounded-2xl py-3 text-sm font-bold shadow active:scale-95 disabled:opacity-40">
+            {saving ? 'กำลังบันทึก...' : '✓ สร้าง + ใส่ตะกร้า'}
+          </button>
         </div>
       </div>
     </div>

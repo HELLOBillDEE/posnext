@@ -5,6 +5,7 @@ import { useAuth } from '@/components/AuthProvider'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { queueCount, processQueue } from '@/lib/offlineQueue'
+import { printViaBridge, buildReceiptESCPOS } from '@/lib/printBridge'
 
 /* ── SVG Icon set ── */
 const IC = {
@@ -91,8 +92,7 @@ const ALL_TABS = [
   { href:'/stock-count', label:'นับสต๊อก', icon: IC.product },
   { href:'/reports',   label:'รายงาน',    icon: IC.report,    adminOnly: true },
   { href:'/employees', label:'พนักงาน',   icon: IC.employees, adminOnly: true },
-  { href:'/payroll',   label:'ค่าแรง',    icon: IC.payroll,   adminOnly: true },
-  { href:'/expenses',  label:'ค่าใช้จ่าย', icon: IC.expense,  adminOnly: true },
+  { href:'/expenses',  label:'ค่าใช้จ่าย', icon: IC.expense },
   { href:'/shifts',    label:'กะ',         icon: IC.shift,    adminOnly: true },
   { href:'/admin',     label:'ตั้งค่า',   icon: IC.settings,  adminOnly: true },
 ]
@@ -141,6 +141,37 @@ export default function Nav() {
   const [adminPin, setAdminPin]             = useState('')
   const [adminPinError, setAdminPinError]   = useState('')
   const [storedAdminPin, setStoredAdminPin] = useState(null)
+
+  const [printerCfg, setPrinterCfg] = useState(null)
+  const [printStatus, setPrintStatus] = useState(null)
+
+  useEffect(() => {
+    try {
+      const cfg = JSON.parse(localStorage.getItem('printer_receipt') || '{}')
+      if (cfg.ip) setPrinterCfg(cfg)
+    } catch {}
+  }, [])
+
+  async function quickTestPrint() {
+    if (!printerCfg?.ip || printStatus === 'printing') return
+    setPrintStatus('printing')
+    try {
+      const testData = {
+        receipt_no: 'TEST', created_at: new Date().toISOString(),
+        shopName: 'ทดสอบเครื่องพิมพ์', shopAddress: '', shopPhone: '',
+        shopLogo: '', footer: '--- ทดสอบเสร็จสิ้น ---',
+        subtotal: 0, discount: 0, vat: 0, total: 0, vatRate: 0,
+        payment_amount: 0, change: 0, customerName: '', customerPhone: '',
+        items: [{ name: 'ทดสอบการเชื่อมต่อ', qty: 1, price: 0, disc: 0 }],
+      }
+      const bytes = await buildReceiptESCPOS(testData, parseInt(printerCfg.paper_width) || 80)
+      await printViaBridge(printerCfg.bridge_url || '', printerCfg.ip, printerCfg.port || 9100, bytes)
+      setPrintStatus('ok')
+    } catch {
+      setPrintStatus('error')
+    }
+    setTimeout(() => setPrintStatus(null), 3000)
+  }
 
   const [collapsed, setCollapsed] = useState(false)
 
@@ -280,6 +311,48 @@ export default function Nav() {
             )
           })}
         </nav>
+
+        {/* Printer quick-access */}
+        {printerCfg && (
+          <div className="px-2 pb-2">
+            <div className="mx-1 h-px bg-white/8 mb-2" />
+            {collapsed ? (
+              <button onClick={quickTestPrint} title={`🖨️ ${printerCfg.ip}`}
+                className="w-full flex justify-center p-2 rounded-xl transition-all"
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                <div className={`icon-glass w-8 h-8 rounded-lg flex-shrink-0 ${
+                  printStatus === 'ok' ? 'bg-emerald-500/20 border-emerald-500/30' :
+                  printStatus === 'error' ? 'bg-red-500/20 border-red-500/30' : 'icon-glass-inactive'
+                }`}>
+                  <span className="text-sm">
+                    {printStatus === 'printing' ? '⏳' : printStatus === 'ok' ? '✓' : printStatus === 'error' ? '✗' : '🖨️'}
+                  </span>
+                </div>
+              </button>
+            ) : (
+              <div className="px-2 py-1.5 rounded-xl"
+                style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm flex-shrink-0">🖨️</span>
+                  <span className="text-[11px] text-white/40 font-mono flex-1 truncate">{printerCfg.ip}</span>
+                  <button onClick={quickTestPrint} disabled={printStatus === 'printing'}
+                    className="text-[10px] font-semibold px-2 py-1 rounded-lg flex-shrink-0 transition-all active:scale-95 disabled:opacity-50"
+                    style={{
+                      background: printStatus === 'ok' ? 'rgba(16,185,129,0.2)' :
+                                  printStatus === 'error' ? 'rgba(239,68,68,0.2)' : 'rgba(199,44,65,0.25)',
+                      color: printStatus === 'ok' ? '#34d399' :
+                             printStatus === 'error' ? '#f87171' : '#fca5a5',
+                      border: `1px solid ${printStatus === 'ok' ? 'rgba(16,185,129,0.3)' :
+                                            printStatus === 'error' ? 'rgba(239,68,68,0.3)' : 'rgba(199,44,65,0.3)'}`,
+                    }}>
+                    {printStatus === 'printing' ? '⏳' : printStatus === 'ok' ? '✓ OK' : printStatus === 'error' ? '✗ ล้มเหลว' : 'ทดสอบ'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* User & Logout */}
         <div className="px-2 pb-5 pt-3">

@@ -79,81 +79,33 @@ export async function kickDrawerViaBridge(bridgeUrl, ip, port) {
 }
 
 // สร้าง ESC/POS ใบเสร็จแบบ bitmap — ไม่มีปัญหา Thai codepage
-export async function buildReceiptESCPOS(r, paperMM = 80) {
-  // printable width: 80mm paper → 576 dots (72mm), 58mm → 384 dots (48mm)
-  const pw   = paperMM >= 80 ? 576 : 384
-  const pad  = 12   // dots left/right padding
-  const fSm  = 26   // normal font px
-  const fLg  = 42   // header font px
+// ── Shared helpers ──────────────────────────────────────────────────────────
+
+function wrapLines(ctx, text, maxW, size, bold) {
+  ctx.font = `${bold ? 'bold ' : ''}${size}px Kanit, Arial, sans-serif`
+  if (ctx.measureText(text).width <= maxW) return [text]
+  const chars = [...text]
+  const lines = []
+  let cur = ''
+  for (const ch of chars) {
+    if (ctx.measureText(cur + ch).width > maxW) { lines.push(cur); cur = ch }
+    else cur += ch
+  }
+  if (cur) lines.push(cur)
+  return lines
+}
+
+async function renderDLtoESCPOS(dl, pw) {
+  const pad  = 12
+  const fSm  = 26
   const inner = pw - pad * 2
+  const logoH  = 260
+  const qrSize = 260
 
-  // helper: wrap long text into multiple lines
-  function wrapLines(ctx, text, maxW, size, bold) {
-    ctx.font = `${bold ? 'bold ' : ''}${size}px Kanit, Arial, sans-serif`
-    if (ctx.measureText(text).width <= maxW) return [text]
-    const chars = [...text]
-    const lines = []
-    let cur = ''
-    for (const ch of chars) {
-      if (ctx.measureText(cur + ch).width > maxW) { lines.push(cur); cur = ch }
-      else cur += ch
-    }
-    if (cur) lines.push(cur)
-    return lines
-  }
-
-  // build draw list
-  const dl = []
-  const line = (text, align = 'left', size = fSm, bold = false) =>
-    dl.push({ text, align, size, bold })
-  const two  = (left, right, bold = false) =>
-    dl.push({ two: true, left, right, size: fSm, bold })
-  const div  = () => dl.push({ divider: true })
-  const nl   = () => dl.push({ text: '', align: 'left', size: fSm })
-
-  if (r.shopLogo)  dl.push({ logo: r.shopLogo })
-  else line(r.shopName || 'ร้านค้า', 'center', fLg, true)
-  line('ใบเสร็จรับเงิน', 'center', fSm, false)
-  if (r.shopAddress) line(r.shopAddress, 'center', Math.round(fSm * 0.8))
-  if (r.shopPhone)   line('โทร : ' + r.shopPhone, 'center', Math.round(fSm * 1.2), true)
-  div()
-  line('เลขที่: ' + (r.receipt_no || ''))
-  line('วันที่: ' + new Date(r.created_at || Date.now()).toLocaleString('th-TH'))
-  div()
-
-  for (const i of r.items || []) {
-    line(i.name || '')
-    two(`  ${i.qty} x ${Number(i.price).toFixed(2)}`,
-        Number(i.price * i.qty - (i.disc || 0)).toFixed(2))
-  }
-  div()
-
-  const n = v => (isNaN(Number(v)) ? 0 : Number(v))
-  two('รวม', n(r.subtotal).toFixed(2))
-  if (n(r.discount) > 0) two('ส่วนลด', '-' + n(r.discount).toFixed(2))
-  if (n(r.vat) > 0)      two(`VAT ${(n(r.vatRate) * 100).toFixed(0)}%`, n(r.vat).toFixed(2))
-  two('สุทธิ', '฿' + n(r.total).toFixed(2), true)
-  two('ชำระ', n(r.payment_amount || r.total).toFixed(2))
-  if (n(r.change) > 0) two('ทอน', n(r.change).toFixed(2))
-  if (r.cashier) two('ผู้รับเงิน', r.cashier)
-  if (r.note)    { div(); line('หมายเหตุ: ' + r.note, 'left', Math.round(fSm * 0.9)) }
-
-  nl()
-  line(r.footer || 'ขอบคุณที่ใช้บริการ', 'center')
-  if (r.hasLineQr) {
-    div()
-    line('แอด LINE เพื่อสั่งสินค้าได้เลย', 'center', fSm, false)
-    if (r.lineQr) dl.push({ lineQr: r.lineQr })
-  }
-  nl(); nl(); nl(); nl(); nl(); nl()
-
-  // โหลด logo และ LINE QR พร้อมกัน
   const logoItem   = dl.find(d => d.logo)
   const lineQrItem = dl.find(d => d.lineQr)
   let logoImg  = null
   let lineQrImg = null
-  const logoH  = 260
-  const qrSize = 260
 
   const loadImg = (src) => new Promise(resolve => {
     const img = new Image(); img.crossOrigin = 'anonymous'
@@ -164,12 +116,10 @@ export async function buildReceiptESCPOS(r, paperMM = 80) {
   if (logoItem)   logoImg   = await loadImg(logoItem.logo)
   if (lineQrItem) lineQrImg = await loadImg(lineQrItem.lineQr)
 
-  // pre-measure canvas height (need a temp canvas for wrapLines)
   const tmpCanvas = document.createElement('canvas')
   tmpCanvas.width = pw; tmpCanvas.height = 10
   const tmpCtx = tmpCanvas.getContext('2d')
 
-  // measure total height (accounting for text wrap)
   let totalH = 0
   for (const d of dl) {
     if (d.lineQr) { totalH += lineQrImg ? qrSize + 12 : 0 }
@@ -186,7 +136,6 @@ export async function buildReceiptESCPOS(r, paperMM = 80) {
     }
   }
 
-  // render to canvas
   const canvas = document.createElement('canvas')
   canvas.width  = pw
   canvas.height = totalH + 16
@@ -247,7 +196,6 @@ export async function buildReceiptESCPOS(r, paperMM = 80) {
     }
   }
 
-  // canvas → 1-bit bitmap
   const imgData = ctx.getImageData(0, 0, pw, canvas.height)
   const wBytes  = Math.ceil(pw / 8)
   const bitmap  = new Uint8Array(wBytes * canvas.height)
@@ -260,14 +208,279 @@ export async function buildReceiptESCPOS(r, paperMM = 80) {
   }
 
   const GS = 0x1D
-  const b  = [0x1B, 0x40]   // ESC @ init
+  const b  = [0x1B, 0x40]
   b.push(GS, 0x76, 0x30, 0x00)
   b.push(wBytes & 0xFF, (wBytes >> 8) & 0xFF)
   b.push(canvas.height & 0xFF, (canvas.height >> 8) & 0xFF)
   for (const byte of bitmap) b.push(byte)
-  b.push(GS, 0x56, 0x00)    // cut
-
+  b.push(GS, 0x56, 0x00)
   return new Uint8Array(b)
+}
+
+// ── Receipt ──────────────────────────────────────────────────────────────────
+
+export async function buildReceiptESCPOS(r, paperMM = 80) {
+  const pw   = paperMM >= 80 ? 576 : 384
+  const pad  = 12
+  const fSm  = 26
+  const fLg  = 42
+  const inner = pw - pad * 2
+
+  const dl = []
+  const line = (text, align = 'left', size = fSm, bold = false) =>
+    dl.push({ text, align, size, bold })
+  const two  = (left, right, bold = false) =>
+    dl.push({ two: true, left, right, size: fSm, bold })
+  const div  = () => dl.push({ divider: true })
+  const nl   = () => dl.push({ text: '', align: 'left', size: fSm })
+
+  if (r.shopLogo)  dl.push({ logo: r.shopLogo })
+  else line(r.shopName || 'ร้านค้า', 'center', fLg, true)
+  line('ใบเสร็จรับเงิน', 'center', fSm, false)
+  if (r.shopAddress) line(r.shopAddress, 'center', Math.round(fSm * 0.8))
+  if (r.shopPhone)   line('โทร : ' + r.shopPhone, 'center', Math.round(fSm * 1.2), true)
+  div()
+  line('เลขที่: ' + (r.receipt_no || ''))
+  line('วันที่: ' + new Date(r.created_at || Date.now()).toLocaleString('th-TH'))
+  const custName = r.customer_name || r.customerName
+  const custPhone = r.customer_phone || r.customerPhone
+  const custAddr = r.customer_address || r.customerAddress
+  if (custName) {
+    div()
+    line('ลูกค้า: ' + custName)
+    if (custPhone) line('โทร: ' + custPhone)
+    if (custAddr)  line('ส่งที่: ' + custAddr)
+  }
+  div()
+
+  for (const i of r.items || []) {
+    line(i.name || '')
+    two(`  ${i.qty} x ${Number(i.price).toFixed(2)}`,
+        Number(i.price * i.qty - (i.disc || 0)).toFixed(2))
+  }
+  div()
+
+  const n = v => (isNaN(Number(v)) ? 0 : Number(v))
+  two('รวม', n(r.subtotal).toFixed(2))
+  if (n(r.discount) > 0) two('ส่วนลด', '-' + n(r.discount).toFixed(2))
+  if (n(r.vat) > 0)      two(`VAT ${(n(r.vatRate) * 100).toFixed(0)}%`, n(r.vat).toFixed(2))
+  two('สุทธิ', '฿' + n(r.total).toFixed(2), true)
+  two('ชำระ', n(r.payment_amount || r.total).toFixed(2))
+  if (n(r.change) > 0) two('ทอน', n(r.change).toFixed(2))
+  if (r.cashier) two('ผู้รับเงิน', r.cashier)
+  if (r.note)    { div(); line('หมายเหตุ: ' + r.note, 'left', Math.round(fSm * 0.9)) }
+
+  nl()
+  line(r.footer || 'ขอบคุณที่ใช้บริการ', 'center')
+  if (r.hasLineQr) {
+    div()
+    line('แอด LINE เพื่อสั่งสินค้าได้เลย', 'center', fSm, false)
+    if (r.lineQr) dl.push({ lineQr: r.lineQr })
+  }
+  nl(); nl(); nl(); nl(); nl(); nl()
+
+  return renderDLtoESCPOS(dl, pw)
+}
+
+// ── ใบส่งของ / แจ้งหนี้ ────────────────────────────────────────────────────
+
+export async function buildDeliverySlipESCPOS(r, paperMM = 80) {
+  const pw  = paperMM >= 80 ? 576 : 384
+  const fSm = 26
+  const fLg = 38
+
+  function buildDL(isCopy) {
+    const dl = []
+    const line = (text, align = 'left', size = fSm, bold = false) =>
+      dl.push({ text, align, size, bold })
+    const two  = (left, right, bold = false) =>
+      dl.push({ two: true, left, right, size: fSm, bold })
+    const div  = () => dl.push({ divider: true })
+    const nl   = () => dl.push({ text: '', align: 'left', size: fSm })
+
+    if (r.shopLogo) dl.push({ logo: r.shopLogo })
+    else line(r.shopName || 'ร้านค้า', 'center', fLg, true)
+    line((isCopy ? '[สำเนา] ' : '') + 'ใบส่งของ / ใบแจ้งหนี้', 'center', fSm, true)
+    if (r.shopAddress) line(r.shopAddress, 'center', Math.round(fSm * 0.8))
+    if (r.shopPhone)   line('โทร: ' + r.shopPhone, 'center', Math.round(fSm * 0.9))
+    div()
+    line('เลขที่: ' + (r.doc_no || ''))
+    line('วันที่: ' + new Date(r.created_at || Date.now()).toLocaleString('th-TH'))
+    div()
+    line('ลูกค้า: ' + (r.customer_name || ''))
+    if (r.customer_phone)   line('โทร: ' + r.customer_phone)
+    if (r.customer_address) line('ส่งที่: ' + r.customer_address)
+    div()
+
+    const n = v => (isNaN(Number(v)) ? 0 : Number(v))
+    for (const i of (r.items || []).filter(i => i.name !== 'ค่าจัดส่ง')) {
+      line(i.name || '')
+      two(`  ${i.qty} x ${n(i.price).toFixed(2)}`,
+          (n(i.price) * n(i.qty) - n(i.disc || 0)).toFixed(2))
+    }
+    div()
+    two('รวม', n(r.subtotal).toFixed(2))
+    if (n(r.discount) > 0) two('ส่วนลด', '-' + n(r.discount).toFixed(2))
+    if (n(r.delivery_fee) > 0) two('ค่าจัดส่ง', n(r.delivery_fee).toFixed(2))
+    two('ยอดแจ้งหนี้', '฿' + n(r.total).toFixed(2), true)
+    if (r.note) { div(); line('หมายเหตุ: ' + r.note) }
+    if (r.salesperson) two('พนักงานขาย', r.salesperson)
+    div()
+    if (r.pay_status === 'paid') {
+      line('** ชำระแล้ว **', 'center', fSm, true)
+    } else {
+      line('** เก็บปลายทาง **', 'center', fSm, true)
+    }
+    div()
+    two('ผู้รับสินค้า (ลูกค้า)', 'ผู้ส่งสินค้า (พนักงาน)', false)
+    nl(); nl()
+    two('_________________', '_________________')
+    nl(); nl(); nl(); nl()
+
+    return dl
+  }
+
+  const [b1, b2] = await Promise.all([
+    renderDLtoESCPOS(buildDL(false), pw),
+    renderDLtoESCPOS(buildDL(true),  pw),
+  ])
+  const combined = new Uint8Array(b1.length + b2.length)
+  combined.set(b1, 0)
+  combined.set(b2, b1.length)
+  return combined
+}
+
+// พิมรายละเอียดจัดส่ง + ภาพแผนที่ + บันทึกเวลาส่ง
+// details = { customer_name, customer_phone, customer_address }
+export async function buildMapSnapshotESCPOS(imageUrl, paperMM = 80, details = null) {
+  const pw  = paperMM >= 80 ? 576 : 384
+  const pad = 12
+  const fSm = 26
+  const fMd = 30
+
+  // ── วาด header text บน canvas ──
+  const tmpC = document.createElement('canvas')
+  tmpC.width = pw; tmpC.height = 10
+  const tmpCtx = tmpC.getContext('2d')
+
+  const headerLines = []
+  const pushLine = (text, size, bold, align) => headerLines.push({ text, size, bold, align })
+  const pushDiv  = () => headerLines.push({ divider: true })
+
+  pushDiv()
+  pushLine('── รายละเอียดการจัดส่ง ──', fSm, true, 'center')
+  pushDiv()
+  if (details?.customer_name)    pushLine(details.customer_name, fMd, true, 'left')
+  if (details?.customer_phone)   pushLine('โทร: ' + details.customer_phone, fSm, false, 'left')
+  if (details?.customer_address) {
+    tmpCtx.font = `${fSm}px Kanit,Arial,sans-serif`
+    const maxW = pw - pad * 2
+    let cur = ''
+    const wraps = []
+    for (const ch of [...details.customer_address]) {
+      if (tmpCtx.measureText(cur + ch).width > maxW) { wraps.push(cur); cur = ch }
+      else cur += ch
+    }
+    if (cur) wraps.push(cur)
+    wraps.forEach(l => pushLine(l, fSm, false, 'left'))
+  }
+  pushDiv()
+
+  const lineH = (l) => l.divider ? 10 : (l.size || fSm) + 14
+  const headerH = headerLines.reduce((h, l) => h + lineH(l), 0) + 8
+
+  // ── โหลดภาพแผนที่ ──
+  const mapImg = await new Promise(resolve => {
+    const img = new Image(); img.crossOrigin = 'anonymous'
+    img.onload = () => resolve(img)
+    img.onerror = () => resolve(null)
+    img.src = imageUrl
+  })
+
+  const mapH   = mapImg ? Math.round(mapImg.height * (pw / mapImg.width)) : 0
+  const footerLines = [
+    { divider: true },
+    { text: 'บันทึกเวลาส่ง  _______________', size: fSm, bold: false, align: 'left' },
+    { text: '', size: fSm }, { text: '', size: fSm }, { text: '', size: fSm }, { text: '', size: fSm },
+  ]
+  const footerH = footerLines.reduce((h, l) => h + lineH(l), 0)
+  const totalH  = headerH + mapH + footerH
+
+  const canvas = document.createElement('canvas')
+  canvas.width = pw; canvas.height = totalH
+  const ctx = canvas.getContext('2d')
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, pw, totalH)
+  ctx.fillStyle = '#000'
+
+  // วาด header
+  let y = 0
+  for (const l of headerLines) {
+    if (l.divider) { ctx.fillRect(pad, y + 4, pw - pad * 2, 1); y += 10; continue }
+    const sz = l.size || fSm
+    ctx.font = `${l.bold ? 'bold ' : ''}${sz}px Kanit,Arial,sans-serif`
+    const xPos = l.align === 'center' ? (pw / 2 - ctx.measureText(l.text).width / 2) : pad
+    ctx.fillText(l.text, xPos, y + sz + 4)
+    y += sz + 14
+  }
+
+  // วาดแผนที่
+  if (mapImg) ctx.drawImage(mapImg, 0, headerH, pw, mapH)
+
+  // วาด footer
+  y = headerH + mapH
+  for (const l of footerLines) {
+    if (l.divider) { ctx.fillRect(pad, y + 4, pw - pad * 2, 1); y += 10; continue }
+    const sz = l.size || fSm
+    ctx.font = `${l.bold ? 'bold ' : ''}${sz}px Kanit,Arial,sans-serif`
+    ctx.fillText(l.text || '', pad, y + sz + 4)
+    y += sz + 14
+  }
+
+  // ── เพิ่มคอนทราสต์เฉพาะ pixel ที่เป็นเส้น/โครงสร้าง (lum 50–215) ──
+  // พื้นขาว (lum > 215) และพื้นที่สีสว่างมาก ไม่แตะ → ไม่กลายเป็นก้อนดำ
+  const imgData = ctx.getImageData(0, 0, pw, totalH)
+  const pd = imgData.data
+  for (let row = headerH; row < headerH + mapH; row++) {
+    for (let col = 0; col < pw; col++) {
+      const i = (row * pw + col) * 4
+      const lum = (pd[i]*299 + pd[i+1]*587 + pd[i+2]*114) / 1000
+      if (lum >= 50 && lum < 215) {
+        pd[i]   = Math.round(pd[i]   * 0.35)
+        pd[i+1] = Math.round(pd[i+1] * 0.35)
+        pd[i+2] = Math.round(pd[i+2] * 0.35)
+      }
+    }
+  }
+
+  // ── สร้าง 1-bit bitmap ──
+  const wBytes = Math.ceil(pw / 8)
+  const dilated = new Uint8Array(wBytes * totalH)
+  for (let row = 0; row < totalH; row++) {
+    for (let col = 0; col < pw; col++) {
+      const i = (row * pw + col) * 4
+      const lum = (pd[i]*299 + pd[i+1]*587 + pd[i+2]*114) / 1000
+      if (lum < 160) dilated[row * wBytes + (col >> 3)] |= (0x80 >> (col & 7))
+    }
+  }
+
+  const STRIP = 200
+  const GS = 0x1D
+  const parts = []   // ไม่มี ESC@ — ป้องกัน auto-cut กลางงาน
+
+  for (let row = 0; row < totalH; row += STRIP) {
+    const sh = Math.min(STRIP, totalH - row)
+    const hdr = new Uint8Array([GS, 0x76, 0x30, 0x00,
+      wBytes & 0xFF, (wBytes >> 8) & 0xFF,
+      sh & 0xFF, (sh >> 8) & 0xFF])
+    parts.push(hdr, dilated.slice(row * wBytes, (row + sh) * wBytes))
+  }
+  parts.push(new Uint8Array([GS, 0x56, 0x00]))  // cut ท้ายสุดครั้งเดียว
+
+  const total = parts.reduce((s, p) => s + p.length, 0)
+  const out = new Uint8Array(total)
+  let off = 0
+  for (const p of parts) { out.set(p, off); off += p.length }
+  return out
 }
 
 // สร้าง ESC/POS label โดย render canvas → bitmap
@@ -468,37 +681,34 @@ export async function buildLabelTSPL(items, size) {
   const crlf  = () => buf.push(0x0D, 0x0A)
   const line  = s => { ascii(s); crlf() }
 
-  for (let row = 0; row < Math.ceil(items.length / cols); row++) {
-    const rowItems = items.slice(row * cols, row * cols + cols)
+  for (const item of items) {
+    const qty    = Math.max(1, item.qty || 1)
+    const strips = Math.ceil(qty / cols)
+    const bc     = item.barcode ? String(item.barcode).replace(/["\r\n]/g, '') : null
+    const price  = Number(item.price || 0).toFixed(2)
 
+    // Render name bitmap once, reuse for each strip
+    const nameBmp = await renderNameBitmap(item.name)
+
+    // SIZE/GAP/DIRECTION set once per item type
     line(`SIZE ${pw} mm, ${ph} mm`)
     line(`GAP ${vGap} mm, 0 mm`)
     line(`DIRECTION 1`)
-    line(`CLS`)
 
-    for (let col = 0; col < rowItems.length; col++) {
-      const item = rowItems[col]
-      const ox   = mxD + col * (lwD + hGpD)   // column left x in dots
-
-      // 1. Name: small bitmap (nameBoxH rows) + CR/LF escaped
-      const nameBmp = await renderNameBitmap(item.name)
-      ascii(`BITMAP ${ox},${myD},${lwByt},${nameBoxH},0,`)
-      for (const b of nameBmp) buf.push(b)
-      crlf()
-
-      // 2. Barcode: native TSPL — printer วางตำแหน่งเอง ไม่ผ่าน bitmap x-offset
-      if (item.barcode) {
-        const bc = String(item.barcode).replace(/["\r\n]/g, '')
-        line(`BARCODE ${ox},${bcY},"128",${bcH},1,0,2,2,"${bc}"`)
+    // CLS → draw → PRINT 1 repeated per strip
+    // Avoids relying on PRINT m count which some printers ignore
+    for (let s = 0; s < strips; s++) {
+      line(`CLS`)
+      for (let col = 0; col < cols; col++) {
+        const ox = mxD + col * (lwD + hGpD)
+        ascii(`BITMAP ${ox},${myD},${lwByt},${nameBoxH},0,`)
+        for (const b of nameBmp) buf.push(b)
+        crlf()
+        if (bc) line(`BARCODE ${ox},${bcY},"128",${bcH},1,0,2,2,"${bc}"`)
+        line(`TEXT ${ox},${priceY},"3",0,1,1,"${price}"`)
       }
-
-      // 3. Price: native TSPL TEXT
-      const price = Number(item.price || 0).toFixed(2)
-      line(`TEXT ${ox},${priceY},"3",0,1,1,"${price}"`)
+      line(`PRINT 1`)
     }
-
-    line(`PRINT 1,1`)
-    crlf()
   }
 
   return new Uint8Array(buf)

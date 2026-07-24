@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 
 // Routes that require admin (employees are redirected away)
-const ADMIN_ONLY = ['/admin', '/employees', '/reports', '/expenses', '/shifts', '/repair/commission']
+const ADMIN_ONLY = ['/admin', '/employees', '/reports', '/shifts', '/repair/commission', '/po']
 
 export function middleware(request) {
   const { pathname } = request.nextUrl

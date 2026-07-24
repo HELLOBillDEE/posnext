@@ -1020,6 +1020,24 @@ ${sd.carryForwardIn > 0 ? `<div class="row"><span>ทบจากเดือน
                   </div>
                 )}
 
+                {/* รายการซ่อมเดือนนี้ */}
+                {(salaryData.repairItems || []).length > 0 && (
+                  <div className="bg-white rounded-2xl border border-slate-100 p-4 space-y-2">
+                    <p className="text-xs font-bold text-slate-500">รายการซ่อม{salaryData.monthLabel}</p>
+                    {salaryData.repairItems.map((r, i) => (
+                      <div key={i} className="flex justify-between items-center text-sm">
+                        <span className="text-slate-600 flex-1 mr-2 truncate">{r.product_name}</span>
+                        <span className="text-slate-500 shrink-0 text-xs">×{r.qty}</span>
+                        <span className="text-emerald-600 font-medium ml-3 shrink-0">฿{fmtMoney(r.price * r.qty)}</span>
+                      </div>
+                    ))}
+                    <div className="flex justify-between text-xs font-semibold border-t border-slate-100 pt-2">
+                      <span className="text-slate-500">รวม {salaryData.repairItems.length} รายการ</span>
+                      <span className="text-emerald-700">฿{fmtMoney(salaryData.repairItems.reduce((s, r) => s + r.price * r.qty, 0))}</span>
+                    </div>
+                  </div>
+                )}
+
                 {/* ปุ่มพิมพ์สลิป */}
                 <button onClick={() => printSlip(salaryData)}
                   className="w-full py-3 rounded-2xl bg-white border border-slate-200 text-slate-600 font-semibold text-sm active:scale-95 transition-all flex items-center justify-center gap-2">

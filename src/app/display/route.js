@@ -126,7 +126,7 @@ function logoEl(size){
 }
 function logoElWhite(size){
   const s=size||'140px'
-  if(cfg.shop_logo) return '<img src="'+cfg.shop_logo+'" style="width:'+s+';height:'+s+';border-radius:50%;object-fit:cover;">'
+  if(cfg.shop_logo) return '<img src="'+cfg.shop_logo+'" style="max-width:90%;max-height:200px;width:auto;height:auto;object-fit:contain;">'
   return '<div style="width:'+s+';height:'+s+';border-radius:50%;background:linear-gradient(135deg,#C72C41,#801336);display:flex;align-items:center;justify-content:center;font-size:calc('+s+' * 0.45);color:#fff">🔧</div>'
 }
 
@@ -178,7 +178,7 @@ function render(){
       slideCount=3
     }
     const tid=CHANNEL.replace('customer-display-','').replace('customer-display','')
-    const rightPanel='<div class="pR idle-r">'+logoElWhite('150px')+'<div class="sname">'+(cfg.shop_name||'ร้านค้า')+'</div>'+(cfg.shop_phone?'<div class="phone">📞 '+cfg.shop_phone+'</div>':'')+'<div style="margin-top:12px;padding:10px 16px;border:2px solid #C72C41;border-radius:14px;text-align:center;color:#C72C41;font-weight:700;font-size:15px;line-height:1.5">🧾 กรุณารับใบเสร็จ<br>จากพนักงานทุกครั้ง</div>'+'<div class="wlc" style="margin-top:6px">ยินดีต้อนรับ</div>'+(tid?'<div style="font-size:11px;color:#94a3b8;margin-top:8px">'+tid+'</div>':'')+'</div>'
+    const rightPanel='<div class="pR idle-r">'+logoElWhite('150px')+'<div style="margin-top:12px;padding:10px 16px;border:2px solid #C72C41;border-radius:14px;text-align:center;color:#C72C41;font-weight:700;font-size:15px;line-height:1.5">🧾 กรุณารับใบเสร็จ<br>จากพนักงานทุกครั้ง</div>'+'<div class="wlc" style="margin-top:6px">ยินดีต้อนรับ</div>'+(tid?'<div style="font-size:11px;color:#94a3b8;margin-top:8px">'+tid+'</div>':'')+'</div>'
     app.innerHTML='<div class="split">'+leftPanel+rightPanel+'</div>'
     if(pendingVids) setupPlaylist(pendingVids)
     else if(slideCount>0) startSlides(slideCount)
@@ -222,8 +222,9 @@ function render(){
 
   /* ── PAYING QR ── */
   if(s.status==='paying_qr'){
-    const qrEl=cfg.payment_qr
-      ?'<img class="qimg" src="'+cfg.payment_qr+'" alt="QR">'
+    const qrSrc=s.qr_url||cfg.payment_qr||''
+    const qrEl=qrSrc
+      ?'<img class="qimg" src="'+qrSrc+'" alt="QR">'
       :'<div style="width:220px;height:220px;background:#f1f5f9;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:72px">📱</div>'
     app.innerHTML=\`
       <div class="split">

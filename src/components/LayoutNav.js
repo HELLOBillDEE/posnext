@@ -1,13 +1,19 @@
 'use client'
 import { usePathname } from 'next/navigation'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import Nav from '@/components/Nav'
 
-const NO_NAV = ['/login', '/display', '/checkin']
+const NO_NAV = ['/login', '/display', '/checkin', '/emp']
 
 export default function LayoutNav() {
   const path = usePathname()
-  const hide = NO_NAV.some(p => path === p || path.startsWith(p + '/'))
+  const [embed, setEmbed] = useState(false)
+
+  useEffect(() => {
+    setEmbed(new URLSearchParams(window.location.search).get('embed') === '1')
+  }, [])
+
+  const hide = embed || NO_NAV.some(p => path === p || path.startsWith(p + '/'))
 
   useEffect(() => {
     document.documentElement.style.setProperty('--nav-w', hide ? '0px' : '')

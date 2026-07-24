@@ -13,7 +13,7 @@ function setEmpCookie() { document.cookie = `pos_emp=1; ${COOKIE_OPTS}` }
 function clearEmpCookie() { document.cookie = `pos_emp=; path=/; SameSite=Strict; max-age=0` }
 
 // Routes employees can access
-const EMP_ROUTES = ['/pos', '/products', '/documents', '/repair', '/customers', '/po', '/stock-count']
+const EMP_ROUTES = ['/pos', '/products', '/documents', '/repair', '/customers', '/stock-count', '/expenses']
 
 function getStoredUser() {
   try {
@@ -34,6 +34,13 @@ export default function AuthProvider({ children }) {
   const [empMode, setEmpMode]   = useState(null) // { id, name, position } or null
   const router  = useRouter()
   const path    = usePathname()
+
+  // iOS PWA keyboard fix — empty touchstart activates iOS touch pipeline for all elements
+  useEffect(() => {
+    const noop = () => {}
+    document.addEventListener('touchstart', noop, { passive: true })
+    return () => document.removeEventListener('touchstart', noop)
+  }, [])
 
   // Load Supabase auth
   useEffect(() => {
@@ -79,8 +86,8 @@ export default function AuthProvider({ children }) {
   useEffect(() => {
     if (user === undefined) return
     if (path === '/display') return  // public kiosk — no auth required
-    const publicPaths = ['/login', '/checkin', '/staff', '/leave', '/advance', '/my']
-    if (!user && !publicPaths.some(p => path === p || path.startsWith(p + '/'))) {
+    const publicPaths = ['/login', '/checkin', '/staff', '/leave', '/advance', '/my', '/emp']
+    if (!user && !empMode && !publicPaths.some(p => path === p || path.startsWith(p + '/'))) {
       if (isIOSPWA) { window.location.replace('/login'); return }
       router.replace('/login'); return
     }
