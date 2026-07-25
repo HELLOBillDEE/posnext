@@ -109,7 +109,15 @@ export async function POST(req) {
     const installmentDetail = (installments || []).map(inst => {
       const remaining = inst.total_days - inst.paid_days
       if (remaining <= 0) return { ...inst, thisMonth: 0, remaining: 0, deductAmount: 0 }
-      const daysToDeduct = Math.min(Math.floor(daysWorked), remaining)
+      // ยังไม่ถึงเดือนที่กำหนดเริ่มผ่อน
+      if (inst.start_date && inst.start_date.slice(0, 7) > currentPeriod)
+        return { ...inst, thisMonth: 0, deductAmount: 0, remaining, notStarted: true }
+      // ถ้า start_date อยู่ในเดือนนี้ นับเฉพาะวันทำงานตั้งแต่ start_date
+      let eligibleDays = daysWorked
+      if (inst.start_date && inst.start_date.slice(0, 7) === currentPeriod) {
+        eligibleDays = workDates.filter(d => d.date >= inst.start_date && d.factor >= 1).length
+      }
+      const daysToDeduct = Math.min(Math.floor(eligibleDays), remaining)
       return { ...inst, thisMonth: daysToDeduct, deductAmount: daysToDeduct * Number(inst.amount_per_day), remaining }
     })
     const installmentDeduct = installmentDetail.reduce((s, i) => s + (i.deductAmount || 0), 0)
