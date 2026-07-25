@@ -1303,6 +1303,197 @@ function StockCountTab({ empName }) {
   )
 }
 
+// ─── SEND TO POS TAB ──────────────────────────────────────────────────────────
+function SendToPOSTab({ empName }) {
+  const [products, setProducts]   = useState([])
+  const [search, setSearch]       = useState('')
+  const [cart, setCart]           = useState([])
+  const [note, setNote]           = useState('')
+  const [sending, setSending]     = useState(false)
+  const [msg, setMsg]             = useState(null)
+  const [cameraOpen, setCameraOpen] = useState(false)
+  const scannerRef = useRef(null)
+
+  useEffect(() => {
+    supabase.from('products').select('id, name, barcode, price, stock, unit')
+      .eq('active', true).order('name').range(0, 999)
+      .then(({ data }) => setProducts(data || []))
+  }, [])
+
+  const filtered = search.trim()
+    ? products.filter(p => p.name?.toLowerCase().includes(search.toLowerCase()) || p.barcode?.includes(search))
+    : products
+
+  function addToCart(p) {
+    setCart(prev => {
+      const ex = prev.find(c => c.id === p.id)
+      if (ex) return prev.map(c => c.id === p.id ? { ...c, qty: c.qty + 1 } : c)
+      return [...prev, { id: p.id, name: p.name, price: Number(p.price), qty: 1, barcode: p.barcode, unit: p.unit }]
+    })
+  }
+
+  function updateQty(id, qty) {
+    if (qty <= 0) setCart(prev => prev.filter(c => c.id !== id))
+    else setCart(prev => prev.map(c => c.id === id ? { ...c, qty } : c))
+  }
+
+  function processBarcode(code) {
+    const p = products.find(p => p.barcode === code)
+    if (p) { addToCart(p); setSearch('') }
+    else setSearch(code)
+    closeCamera()
+  }
+
+  async function openCamera() {
+    setCameraOpen(true)
+    await new Promise(r => setTimeout(r, 200))
+    try {
+      if ('BarcodeDetector' in window) {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+        const video = document.getElementById('spos-video')
+        if (video) { video.srcObject = stream; video.play() }
+        const detector = new BarcodeDetector({ formats: ['ean_13','ean_8','code_128','qr_code','code_39'] })
+        const iv = setInterval(async () => {
+          if (!video || video.readyState < 2) return
+          try {
+            const codes = await detector.detect(video)
+            if (codes.length > 0) { clearInterval(iv); stream.getTracks().forEach(t=>t.stop()); processBarcode(codes[0].rawValue) }
+          } catch {}
+        }, 250)
+        scannerRef.current = { cancel: () => { clearInterval(iv); stream.getTracks().forEach(t=>t.stop()) } }
+      } else {
+        const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import('html5-qrcode')
+        const scanner = new Html5Qrcode('spos-qr-reader', { verbose: false, formatsToSupport: [
+          Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8,
+          Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.QR_CODE,
+        ]})
+        scannerRef.current = scanner
+        await scanner.start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 280, height: 180 } },
+          (text) => { scanner.stop().catch(()=>{}); processBarcode(text) }, () => {})
+      }
+    } catch { setCameraOpen(false) }
+  }
+
+  async function closeCamera() {
+    try {
+      if (scannerRef.current) {
+        if (typeof scannerRef.current.cancel === 'function') scannerRef.current.cancel()
+        else if (typeof scannerRef.current.stop === 'function') await scannerRef.current.stop()
+        scannerRef.current = null
+      }
+    } catch {}
+    setCameraOpen(false)
+  }
+
+  async function sendToPOS() {
+    if (cart.length === 0) return
+    setSending(true); setMsg(null)
+    try {
+      const items = cart.map(c => ({ id: c.id, name: c.name, price: c.price, qty: c.qty, subtotal: c.price * c.qty, barcode: c.barcode, unit: c.unit }))
+      const { error } = await supabase.from('pos_queued_orders').insert({ items, note: note.trim(), created_by: empName || '', status: 'pending' })
+      if (error) throw error
+      setCart([]); setNote('')
+      setMsg({ ok: true, text: '✅ ส่งเข้า POS แล้ว' })
+      setTimeout(() => setMsg(null), 3000)
+    } catch(e) {
+      setMsg({ ok: false, text: e.message || 'ส่งไม่ได้' })
+    } finally { setSending(false) }
+  }
+
+  const total = cart.reduce((s, c) => s + c.price * c.qty, 0)
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Camera overlay */}
+      {cameraOpen && (
+        <div className="fixed inset-0 z-50 bg-black flex flex-col">
+          <div className="flex items-center px-4 py-3 bg-black/80">
+            <p className="text-white font-semibold flex-1">📷 จ่อบาร์โค้ด</p>
+            <button onClick={closeCamera} className="text-white text-2xl leading-none">✕</button>
+          </div>
+          {'BarcodeDetector' in window
+            ? <video id="spos-video" className="flex-1 w-full object-cover" playsInline muted />
+            : <div id="spos-qr-reader" className="flex-1 w-full" />}
+        </div>
+      )}
+
+      {/* Search bar */}
+      <div className="px-3 pt-3 pb-2 flex gap-2">
+        <input value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="🔍 ค้นหาหรือพิมพ์บาร์โค้ด..."
+          className="flex-1 px-3 py-2.5 rounded-xl border border-slate-200 text-sm bg-white outline-none focus:border-brand" />
+        <button onClick={openCamera}
+          className="w-11 h-11 rounded-xl flex items-center justify-center text-xl flex-shrink-0"
+          style={{ background: 'linear-gradient(135deg,#C72C41,#801336)', color: '#fff' }}>📷</button>
+      </div>
+
+      {/* Product list */}
+      <div className="flex-1 overflow-y-auto px-3 space-y-1.5 pb-2">
+        {filtered.slice(0, 60).map(p => {
+          const inCart = cart.find(c => c.id === p.id)
+          return (
+            <div key={p.id} className="flex items-center gap-3 bg-white rounded-xl px-3 py-2.5 border border-slate-100 shadow-sm">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-slate-800 truncate">{p.name}</p>
+                <p className="text-xs text-slate-400">฿{Number(p.price).toLocaleString('th-TH')}{p.unit ? ` / ${p.unit}` : ''}</p>
+              </div>
+              {inCart ? (
+                <div className="flex items-center gap-1.5">
+                  <button onClick={() => updateQty(p.id, inCart.qty - 1)}
+                    className="w-7 h-7 rounded-full bg-slate-100 font-bold flex items-center justify-center">−</button>
+                  <span className="w-6 text-center text-sm font-bold" style={{ color: '#C72C41' }}>{inCart.qty}</span>
+                  <button onClick={() => updateQty(p.id, inCart.qty + 1)}
+                    className="w-7 h-7 rounded-full text-white font-bold flex items-center justify-center"
+                    style={{ background: '#C72C41' }}>+</button>
+                </div>
+              ) : (
+                <button onClick={() => addToCart(p)}
+                  className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-xl font-bold flex-shrink-0"
+                  style={{ background: 'linear-gradient(135deg,#C72C41,#801336)' }}>+</button>
+              )}
+            </div>
+          )
+        })}
+        {filtered.length === 0 && <p className="text-center text-slate-400 py-12 text-sm">ไม่พบสินค้า</p>}
+      </div>
+
+      {/* Cart + send */}
+      {cart.length > 0 && (
+        <div className="flex-shrink-0 border-t border-slate-200 bg-white px-3 py-3 space-y-2"
+          style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
+          <div className="max-h-28 overflow-y-auto space-y-1">
+            {cart.map(c => (
+              <div key={c.id} className="flex items-center gap-2 text-sm">
+                <span className="flex-1 text-slate-700 truncate">{c.name}</span>
+                <button onClick={() => updateQty(c.id, c.qty - 1)} className="w-5 h-5 rounded bg-slate-100 flex items-center justify-center text-xs font-bold">−</button>
+                <span className="w-5 text-center text-xs font-bold">{c.qty}</span>
+                <button onClick={() => updateQty(c.id, c.qty + 1)} className="w-5 h-5 rounded bg-slate-100 flex items-center justify-center text-xs font-bold">+</button>
+                <span className="text-slate-500 text-xs w-16 text-right">฿{(c.price * c.qty).toLocaleString('th-TH')}</span>
+              </div>
+            ))}
+          </div>
+          <input value={note} onChange={e => setNote(e.target.value)}
+            placeholder="📝 โน๊ต / ชื่อลูกค้า / โต๊ะ..."
+            className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm outline-none focus:border-brand" />
+          <div className="flex items-center gap-2">
+            <div className="flex-1">
+              <p className="text-xs text-slate-400">{cart.length} รายการ</p>
+              <p className="text-lg font-bold" style={{ color: '#C72C41' }}>฿{total.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</p>
+            </div>
+            <button onClick={() => setCart([])} className="px-3 py-2 rounded-xl border border-slate-200 text-slate-500 text-sm">ล้าง</button>
+            <button onClick={sendToPOS} disabled={sending}
+              className="px-5 py-2.5 rounded-xl text-white text-sm font-bold disabled:opacity-50"
+              style={{ background: 'linear-gradient(135deg,#C72C41,#801336)' }}>
+              {sending ? '...' : '📲 ส่ง POS'}
+            </button>
+          </div>
+          {msg && <p className={`text-center text-sm font-semibold ${msg.ok ? 'text-green-600' : 'text-red-500'}`}>{msg.text}</p>}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── IFRAME TAB (expenses / repair) ───────────────────────────────────────────
 function IFrameTab({ src, title }) {
   return (
@@ -1377,6 +1568,7 @@ export default function EmpPortalPage() {
 
   const TABS = [
     { id: 'products', label: 'สินค้า',    icon: '🛒' },
+    { id: 'sendpos',  label: 'ส่ง POS',   icon: '📲' },
     { id: 'stock',    label: 'นับสต็อก',  icon: '📦' },
     { id: 'repair',   label: 'คิวซ่อม',   icon: '🔧' },
     { id: 'expenses', label: 'ค่าใช้จ่าย', icon: '💸' },
@@ -1407,6 +1599,7 @@ export default function EmpPortalPage() {
       {/* Tab content */}
       <div className="flex-1 overflow-hidden">
         {activeTab === 'products' && <ProductsTab printerCfg={printerCfg} empName={session?.name} />}
+        {activeTab === 'sendpos'  && <SendToPOSTab empName={session?.name} />}
         {activeTab === 'stock'    && <StockCountTab empName={session?.name} />}
         {activeTab === 'repair'   && <IFrameTab src="/repair?embed=1"   title="คิวซ่อม" />}
         {activeTab === 'expenses' && <IFrameTab src="/expenses?embed=1" title="ค่าใช้จ่าย" />}

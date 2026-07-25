@@ -93,6 +93,8 @@ export default function POSPage() {
     try { return JSON.parse(localStorage.getItem('held_sales') || '[]') } catch { return [] }
   })
   const [showHeldModal, setShowHeldModal] = useState(false)
+  const [queuedOrders, setQueuedOrders]   = useState([])
+  const [showQueueModal, setShowQueueModal] = useState(false)
   const [shift, setShift]           = useState(null)   // current open shift
   const [showShiftModal, setShowShiftModal] = useState(false)
   const [shiftModalMode, setShiftModalMode] = useState('open') // 'open' | 'close'
@@ -161,6 +163,35 @@ export default function POSPage() {
     dispChRef.current = ch
     return () => { supabase.removeChannel(ch) }
   }, [terminalId])
+
+  // Load + subscribe queued orders from employees
+  useEffect(() => {
+    async function loadQueued() {
+      const { data } = await supabase.from('pos_queued_orders').select('*')
+        .eq('status', 'pending').order('created_at', { ascending: true })
+      setQueuedOrders(data || [])
+    }
+    loadQueued()
+    const ch = supabase.channel('pos-queued-orders-watch')
+      .on('postgres_changes', { event: '*', schema: 'pos', table: 'pos_queued_orders' }, () => loadQueued())
+      .subscribe()
+    return () => { supabase.removeChannel(ch) }
+  }, [])
+
+  async function takeQueuedOrder(order) {
+    const entry = {
+      id: Date.now().toString(),
+      items: (order.items || []).map(i => ({ ...i, note: '' })),
+      note: order.note || '',
+      at: new Date().toISOString(),
+      emp: order.created_by || '',
+    }
+    const updated = [...heldSales, entry]
+    setHeldSales(updated)
+    localStorage.setItem('held_sales', JSON.stringify(updated))
+    await supabase.from('pos_queued_orders').update({ status: 'taken', taken_at: new Date().toISOString() }).eq('id', order.id)
+    setQueuedOrders(prev => prev.filter(o => o.id !== order.id))
+  }
 
   // Focus กลับไปที่ช่อง scan เฉพาะตอนปิด payment modal (true→false) ไม่ใช่ตอน mount
   useEffect(() => {
@@ -1197,6 +1228,13 @@ export default function POSPage() {
                   💳 รอชำระ {pendingQuotes.length}
                 </button>
               )}
+              {queuedOrders.length > 0 && (
+                <button onClick={() => setShowQueueModal(true)}
+                  className="text-xs text-purple-600 bg-purple-50 border border-purple-200 px-2.5 py-1.5 rounded-lg hover:bg-purple-100 font-semibold transition-colors shrink-0 relative">
+                  📲 {queuedOrders.length}
+                  <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse" />
+                </button>
+              )}
             {heldSales.length > 0 && (
                 <button onClick={() => setShowHeldModal(true)}
                   className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-2.5 py-1.5 rounded-lg hover:bg-amber-100 font-semibold transition-colors shrink-0">
@@ -1721,6 +1759,51 @@ export default function POSPage() {
               ))}
               <button onClick={() => setNumpad(null)} className="col-span-1 h-14 rounded-2xl bg-slate-200 text-slate-500 font-semibold text-sm active:scale-95">ยกเลิก</button>
               <button onClick={numpadConfirm} className="col-span-2 h-14 rounded-2xl bg-brand text-white font-bold text-lg active:scale-95">✓ ตกลง</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Queued Orders Modal (from employees) ── */}
+      {showQueueModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-end md:items-center justify-center p-3"
+          onClick={e => e.target === e.currentTarget && setShowQueueModal(false)}>
+          <div className="bg-white rounded-2xl w-full max-w-md max-h-[80vh] flex flex-col shadow-2xl">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+              <h2 className="font-heading font-bold text-base">📲 ออเดอร์จากพนักงาน ({queuedOrders.length})</h2>
+              <button onClick={() => setShowQueueModal(false)} className="text-slate-400 hover:text-slate-600 text-xl leading-none">✕</button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {queuedOrders.length === 0
+                ? <p className="text-center text-slate-400 py-8 text-sm">ไม่มีออเดอร์รอรับ</p>
+                : queuedOrders.map(o => {
+                  const total = (o.items || []).reduce((s, i) => s + Number(i.price) * Number(i.qty), 0)
+                  const time = new Date(o.created_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })
+                  return (
+                    <div key={o.id} className="border border-slate-200 rounded-xl p-3 space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="font-semibold text-slate-800 text-sm">{o.note || 'ไม่มีโน๊ต'}</p>
+                          <p className="text-xs text-slate-400">โดย {o.created_by || '?'} · {time}</p>
+                        </div>
+                        <p className="text-brand font-bold text-sm whitespace-nowrap">฿{total.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</p>
+                      </div>
+                      <div className="text-xs text-slate-500 space-y-0.5">
+                        {(o.items || []).map((it, i) => (
+                          <div key={i} className="flex justify-between">
+                            <span>{it.name} × {it.qty}</span>
+                            <span>฿{(Number(it.price) * Number(it.qty)).toLocaleString('th-TH')}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <button onClick={() => { takeQueuedOrder(o); if (queuedOrders.length <= 1) setShowQueueModal(false) }}
+                        className="w-full py-2 rounded-xl text-white text-sm font-bold"
+                        style={{ background: 'linear-gradient(135deg,#C72C41,#801336)' }}>
+                        📋 รับเข้าบิลพัก
+                      </button>
+                    </div>
+                  )
+                })}
             </div>
           </div>
         </div>
