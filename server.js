@@ -8,8 +8,8 @@ const next = require('next')
 const app    = next({ dev: false })
 const handle = app.getRequestHandler()
 
-const HTTPS_PORT = parseInt(process.env.HTTPS_PORT || '3443', 10)
-const HTTP_PORT  = parseInt(process.env.PORT       || '3000', 10)
+const HTTPS_PORT = parseInt(process.env.PORT  || '3000', 10)
+const HTTP_PORT  = parseInt(process.env.HTTP_PORT || '3080', 10)
 
 const certDir  = join(process.cwd(), 'certificates')
 const tlsOpts  = {
