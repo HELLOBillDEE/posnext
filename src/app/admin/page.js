@@ -31,6 +31,70 @@ const SETTING_FIELDS = [
 
 const TABS = ['ตั้งค่าร้าน', 'เครื่องพิมพ์', 'ซัพพลายเออร์', 'ประวัติสต็อก', '🔓 ลิ้นชัก', '💰 พนักงาน', '📢 ประกาศ', '📋 อนุมัติ', '💻 อุปกรณ์']
 
+const DOW_TH = ['อา','จ','อ','พ','พฤ','ศ','ส']
+function EmpAttCal({ attendance, leaves, period }) {
+  const [yr, mo] = period.split('-').map(Number)
+  const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' })
+  const firstDow = new Date(yr, mo - 1, 1).getDay()
+  const daysInMonth = new Date(yr, mo, 0).getDate()
+
+  const attMap = {}
+  ;(attendance || []).forEach(a => { attMap[a.date] = a })
+
+  const leaveMap = {}
+  ;(leaves || []).filter(l => l.status === 'approved').forEach(l => {
+    let d = new Date(l.date_from + 'T00:00:00')
+    const end = new Date(l.date_to + 'T00:00:00')
+    while (d <= end) {
+      leaveMap[d.toLocaleDateString('sv-SE')] = l.leave_period || 'full'
+      d.setDate(d.getDate() + 1)
+    }
+  })
+
+  const cells = []
+  for (let i = 0; i < firstDow; i++) cells.push(null)
+  for (let d = 1; d <= daysInMonth; d++) {
+    const ds = `${yr}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+    cells.push({ d, ds, att: attMap[ds], leave: leaveMap[ds], future: ds > todayStr })
+  }
+
+  return (
+    <div className="mt-3 border-t border-slate-100 pt-3">
+      <div className="grid grid-cols-7 gap-0.5 mb-0.5">
+        {DOW_TH.map(d => (
+          <div key={d} className="text-center text-[9px] text-slate-400 font-semibold py-0.5">{d}</div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-0.5">
+        {cells.map((cell, i) => {
+          if (!cell) return <div key={i} />
+          const { d, ds, att, leave, future } = cell
+          const isToday = ds === todayStr
+          const bg = future ? 'bg-slate-50 text-slate-300'
+            : att?.check_in ? (att.check_out ? 'bg-green-100 text-green-700' : 'bg-amber-50 text-amber-600')
+            : leave === 'full' ? 'bg-blue-100 text-blue-600'
+            : leave ? 'bg-blue-50 text-blue-400'
+            : 'bg-red-50 text-red-400'
+          return (
+            <div key={i} title={att?.check_in ? `เข้า ${att.check_in?.slice(0,5)}${att.check_out ? ` ออก ${att.check_out?.slice(0,5)}` : ''}` : leave ? 'ลา' : future ? '' : 'ขาด'}
+              className={`rounded py-1 text-center text-[10px] font-semibold ${bg} ${isToday ? 'ring-1 ring-brand' : ''}`}>
+              {d}
+            </div>
+          )
+        })}
+      </div>
+      <div className="flex gap-2.5 mt-2 flex-wrap">
+        {[['bg-green-100','มา'],['bg-blue-100','ลา'],['bg-red-50','ขาด'],['bg-amber-50','ยังไม่ออก']].map(([cls,lbl]) => (
+          <div key={lbl} className="flex items-center gap-1">
+            <div className={`w-2.5 h-2.5 rounded ${cls}`} />
+            <span className="text-[9px] text-slate-400">{lbl}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 const DEF_BILLDEE = { url: '', business_id: '', token: '', enabled: false }
 function loadBillDeeConfig() {
   if (typeof window === 'undefined') return DEF_BILLDEE
@@ -172,6 +236,7 @@ export default function AdminPage() {
   const [payrollLoading, setPayrollLoading] = useState(false)
   const [editRate, setEditRate]           = useState({})   // { [emp_id]: value }
   const [leaveTab, setLeaveTab]           = useState(null) // employee id for leave detail view
+  const [attOpenId, setAttOpenId]         = useState(null) // employee id whose attendance calendar is open
   const [logoUploading, setLogoUploading]         = useState(false)
   const [qrUploading, setQrUploading]             = useState(false)
   const [qrAccounts, setQrAccounts]               = useState([]) // [{id,name,promptpay_id,bank,qr_image_url}]
@@ -1428,6 +1493,16 @@ export default function AdminPage() {
                           })}
                         </div>
                       </div>
+                    )}
+
+                    {/* Attendance calendar toggle */}
+                    <button
+                      onClick={() => setAttOpenId(id => id === emp.id ? null : emp.id)}
+                      className="w-full text-xs text-slate-400 hover:text-brand font-semibold py-1 border-t border-slate-100 mt-1 transition-colors">
+                      {attOpenId === emp.id ? '▲ ซ่อนปฏิทิน' : '📅 ดูปฏิทินเข้างาน'}
+                    </button>
+                    {attOpenId === emp.id && (
+                      <EmpAttCal attendance={emp.attendance} leaves={emp.leaves} period={payrollPeriod} />
                     )}
                   </div>
                 ))}
