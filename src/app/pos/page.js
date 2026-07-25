@@ -183,11 +183,14 @@ export default function POSPage() {
 
   async function takeQueuedOrder(order) {
     const entry = {
-      id: Date.now().toString(),
-      items: (order.items || []).map(i => ({ ...i, note: '' })),
+      id: Date.now(),
+      savedAt: new Date().toISOString(),
+      cart: (order.items || []).map(i => ({ ...i, disc: i.disc || 0, note: i.note || '' })),
       note: order.note || '',
-      at: new Date().toISOString(),
-      emp: order.created_by || '',
+      customer: null,
+      billDiscount: '',
+      priceTier: null,
+      fromEmp: order.created_by || '',
     }
     const updated = [...heldSales, entry]
     setHeldSales(updated)
@@ -928,7 +931,7 @@ export default function POSPage() {
     const entry = heldSales.find(h => h.id === id)
     if (!entry) return
     if (cart.length > 0 && !confirm('รายการปัจจุบันจะถูกล้าง — ต้องการดึงบิลพักนี้ขึ้นมาใช่ไหม?')) return
-    setCart(entry.cart)
+    setCart(entry.cart || entry.items || [])
     setCustomer(entry.customer || null)
     setBillDiscount(entry.billDiscount || '')
     setNote(entry.note || '')
@@ -1825,17 +1828,20 @@ export default function POSPage() {
               {heldSales.length === 0 ? (
                 <p className="text-center text-slate-400 py-10 text-sm">ไม่มีบิลพักไว้</p>
               ) : heldSales.map(h => {
-                const t = h.cart.reduce((s, i) => s + i.price * i.qty - (i.disc || 0), 0)
-                const timeStr = new Date(h.savedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
+                const items = h.cart || h.items || []
+                const t = items.reduce((s, i) => s + i.price * i.qty - (i.disc || 0), 0)
+                const timeStr = new Date(h.savedAt || h.at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
                 return (
                   <div key={h.id} className="px-4 py-3 flex items-start gap-3">
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs text-slate-400 mb-0.5">⏱ {timeStr}</p>
+                      <p className="text-xs text-slate-400 mb-0.5">
+                        ⏱ {timeStr}{h.fromEmp ? ` · 📲 ${h.fromEmp}` : ''}
+                      </p>
                       <p className="text-sm font-semibold text-slate-700 truncate">
-                        {h.customer ? `👤 ${h.customer.name} · ` : ''}{h.cart.length} รายการ
+                        {h.customer ? `👤 ${h.customer.name} · ` : ''}{items.length} รายการ
                       </p>
                       <p className="text-xs text-slate-500 mt-0.5">
-                        {h.cart.slice(0, 2).map(i => i.name).join(', ')}{h.cart.length > 2 ? ` +${h.cart.length - 2} รายการ` : ''}
+                        {items.slice(0, 2).map(i => i.name).join(', ')}{items.length > 2 ? ` +${items.length - 2} รายการ` : ''}
                       </p>
                       <p className="text-brand font-bold text-sm mt-1">฿{fmt(t)}</p>
                     </div>
