@@ -8,8 +8,8 @@ const next = require('next')
 const app    = next({ dev: false })
 const handle = app.getRequestHandler()
 
-const HTTPS_PORT = parseInt(process.env.PORT  || '3000', 10)
-const HTTP_PORT  = parseInt(process.env.HTTP_PORT || '3080', 10)
+const HTTPS_PORT = parseInt(process.env.HTTPS_PORT || '3443', 10)
+const HTTP_PORT  = parseInt(process.env.PORT       || '3000', 10)
 
 const certDir  = join(process.cwd(), 'certificates')
 const tlsOpts  = {
@@ -25,12 +25,10 @@ app.prepare().then(() => {
     console.log(`> Ready on https://0.0.0.0:${HTTPS_PORT}`)
   })
 
-  // HTTP redirect → HTTPS (ไว้รองรับ bookmark เก่า)
+  // HTTP — serve content ตรงๆ สำหรับ Customer Display (ไม่ต้องการ secure context)
   createHttp((req, res) => {
-    const host = req.headers.host?.replace(`:${HTTP_PORT}`, '') || '192.168.2.95'
-    res.writeHead(301, { Location: `https://${host}:${HTTPS_PORT}${req.url}` })
-    res.end()
+    handle(req, res, parse(req.url, true))
   }).listen(HTTP_PORT, '0.0.0.0', () => {
-    console.log(`> HTTP redirect on http://0.0.0.0:${HTTP_PORT} → https`)
+    console.log(`> HTTP on http://0.0.0.0:${HTTP_PORT} (Customer Display)`)
   })
 })
