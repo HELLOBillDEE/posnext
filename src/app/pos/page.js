@@ -172,10 +172,13 @@ export default function POSPage() {
       setQueuedOrders(data || [])
     }
     loadQueued()
-    const ch = supabase.channel('pos-queued-orders-watch')
-      .on('postgres_changes', { event: '*', schema: 'pos', table: 'pos_queued_orders' }, () => loadQueued())
+    // broadcast channel — ทุก POS รับพร้อมกัน
+    const ch = supabase.channel('pos-order-queue')
+      .on('broadcast', { event: 'new_order' }, () => loadQueued())
       .subscribe()
-    return () => { supabase.removeChannel(ch) }
+    // fallback poll ทุก 15 วินาที
+    const poll = setInterval(loadQueued, 15000)
+    return () => { supabase.removeChannel(ch); clearInterval(poll) }
   }, [])
 
   async function takeQueuedOrder(order) {

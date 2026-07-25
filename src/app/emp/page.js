@@ -1390,8 +1390,10 @@ function SendToPOSTab({ empName }) {
     setSending(true); setMsg(null)
     try {
       const items = cart.map(c => ({ id: c.id, name: c.name, price: c.price, qty: c.qty, subtotal: c.price * c.qty, barcode: c.barcode, unit: c.unit }))
-      const { error } = await supabase.from('pos_queued_orders').insert({ items, note: note.trim(), created_by: empName || '', status: 'pending' })
+      const { data: inserted, error } = await supabase.from('pos_queued_orders').insert({ items, note: note.trim(), created_by: empName || '', status: 'pending' }).select().single()
       if (error) throw error
+      // broadcast ให้ทุก POS รับรู้ทันที
+      await supabase.channel('pos-order-queue').send({ type: 'broadcast', event: 'new_order', payload: { id: inserted?.id, created_by: empName || '', note: note.trim(), items } })
       setCart([]); setNote('')
       setMsg({ ok: true, text: '✅ ส่งเข้า POS แล้ว' })
       setTimeout(() => setMsg(null), 3000)
