@@ -63,17 +63,32 @@ export async function POST(req) {
         .gte('created_at', startISO).lt('created_at', endISO).neq('status', 'voided'),
     ])
 
-    // ดึง sale_items ค่าซ่อมที่ tag ชื่อช่าง
-    let repairItems = []
+    // ดึงค่าคอมซ่อม: repair_orders→quotations (labor items) + sale_items ค่าซ่อม
+    let laborTotal = 0
     const saleIds = (salesInPeriod || []).map(s => s.id)
     if (saleIds.length) {
-      const { data: items } = await supabase.from('sale_items')
-        .select('product_name, price, qty')
-        .in('sale_id', saleIds)
-        .ilike('product_name', '%ค่าซ่อม%')
-        .eq('technician_name', displayName)
-        .not('technician_name', 'is', null)
-      repairItems = items || []
+      const [{ data: repairOrders }, { data: posRepairItems }] = await Promise.all([
+        supabase.from('repair_orders').select('id, sale_id').in('sale_id', saleIds),
+        supabase.from('sale_items').select('price, qty')
+          .in('sale_id', saleIds).ilike('product_name', '%ค่าซ่อม%')
+          .eq('technician_name', displayName).not('technician_name', 'is', null),
+      ])
+      // quotations labor items ที่ tag empId
+      const repairIds = (repairOrders || []).map(r => r.id)
+      if (repairIds.length) {
+        const { data: quotations } = await supabase.from('quotations')
+          .select('repair_order_id, items').in('repair_order_id', repairIds)
+        ;(quotations || []).forEach(q => {
+          ;(Array.isArray(q.items) ? q.items : []).forEach(item => {
+            if (!item.is_labor || item.tech_id !== emp.id) return
+            laborTotal += (parseFloat(item.price) || 0) * (parseFloat(item.qty) || 1)
+          })
+        })
+      }
+      // sale_items ค่าซ่อมที่ tag ชื่อช่าง
+      ;(posRepairItems || []).forEach(si => {
+        laborTotal += (parseFloat(si.price) || 0) * (parseFloat(si.qty) || 1)
+      })
     }
 
     // คำนวณวันทำงาน
@@ -101,7 +116,6 @@ export async function POST(req) {
     }
 
     const commPct    = Number(emp.repair_commission_pct || 0) / 100
-    const laborTotal = (repairItems || []).reduce((s, r) => s + Number(r.price) * Number(r.qty), 0)
     const commission = Math.round(laborTotal * commPct)
 
     const carryForwardIn = prevSettlement ? Number(prevSettlement.carry_forward_out) : 0
@@ -147,7 +161,7 @@ export async function POST(req) {
       carryForwardIn,
       netPayDue,
       advances: advances || [],
-      repairItems: repairItems || [],
+      laborTotal,
       settled: settlement || null,
     })
   } catch (e) {
