@@ -210,17 +210,18 @@ export default function POSPage() {
     async function pingPrinters() {
       let receipt = JSON.parse(localStorage.getItem('printer_receipt') || '{}')
       let barcode = JSON.parse(localStorage.getItem('printer_barcode') || '{}')
-      // ถ้า localStorage ว่าง (เช่น เปลี่ยน http→https) ให้โหลดจาก Supabase
+      // ถ้า localStorage ว่าง (เช่น เปลี่ยน http→https) ให้โหลดจาก Supabase (per terminal)
       if (!receipt.ip || !barcode.ip) {
         try {
+          const tid = (() => { try { return JSON.parse(localStorage.getItem('device_config') || '{}').terminal_id || 'default' } catch { return 'default' } })()
           const { data } = await supabase.from('settings').select('key,value')
-            .in('key', ['printer_receipt', 'printer_barcode'])
+            .in('key', [`printer_receipt_${tid}`, `printer_barcode_${tid}`])
           if (data) {
             data.forEach(r => {
               try {
                 const v = JSON.parse(r.value)
-                if (r.key === 'printer_receipt' && !receipt.ip) receipt = v
-                if (r.key === 'printer_barcode' && !barcode.ip) barcode = v
+                if (r.key === `printer_receipt_${tid}` && !receipt.ip) receipt = v
+                if (r.key === `printer_barcode_${tid}` && !barcode.ip) barcode = v
               } catch {}
             })
           }

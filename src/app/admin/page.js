@@ -578,9 +578,10 @@ export default function AdminPage() {
     localStorage.setItem('printer_barcode', JSON.stringify(printers.barcode))
     localStorage.setItem('printer_receipt', JSON.stringify(printers.receipt))
     try {
-      const r1 = await supabase.from('settings').upsert({ key: 'printer_barcode', value: JSON.stringify(printers.barcode) }, { onConflict: 'key' })
+      const tid = (() => { try { return JSON.parse(localStorage.getItem('device_config') || '{}').terminal_id || 'default' } catch { return 'default' } })()
+      const r1 = await supabase.from('settings').upsert({ key: `printer_barcode_${tid}`, value: JSON.stringify(printers.barcode) }, { onConflict: 'key' })
       if (r1.error) throw r1.error
-      const r2 = await supabase.from('settings').upsert({ key: 'printer_receipt', value: JSON.stringify(printers.receipt) }, { onConflict: 'key' })
+      const r2 = await supabase.from('settings').upsert({ key: `printer_receipt_${tid}`, value: JSON.stringify(printers.receipt) }, { onConflict: 'key' })
       if (r2.error) throw r2.error
       setPrinterSaved(true)
       setTimeout(() => setPrinterSaved(false), 2000)
