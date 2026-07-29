@@ -25,29 +25,52 @@ body{font-family:'Kanit',sans-serif;}
 
 /* ── CENTER MEDIA ── */
 .med{position:relative;overflow:hidden;background:#000;}
-.med video{width:100%;height:100%;object-fit:cover;}
-.med .slides{width:100%;height:100%;position:relative;}
-.med .slide{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity 1.2s;}
-.med .slide.on{opacity:1;}
-.med .slide img{width:100%;height:100%;object-fit:cover;}
-.med .no-media{width:100%;height:100%;background:linear-gradient(135deg,#1a1a2e,#16213e,#0f3460);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;}
-.med .no-media .logo-wrap{width:160px;height:160px;display:flex;align-items:center;justify-content:center;}
-.med .no-media .logo-wrap img{max-width:100%;max-height:100%;object-fit:contain;}
-.med .no-media .wlc{font-size:22px;color:rgba(255,255,255,0.7);text-align:center;}
-.med-mute{position:absolute;bottom:12px;right:12px;background:rgba(0,0,0,0.5);color:#fff;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:18px;cursor:pointer;user-select:none;z-index:10;}
+#med-bg{position:absolute;inset:0;transition:opacity 0.8s;}
+#med-bg video{width:100%;height:100%;object-fit:cover;}
+.slides{width:100%;height:100%;position:relative;}
+.slide{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity 1.2s;}
+.slide.on{opacity:1;}
+.slide img{width:100%;height:100%;object-fit:cover;}
+.no-media{width:100%;height:100%;background:linear-gradient(135deg,#1a1a2e,#16213e,#0f3460);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;}
+.no-media .logo-wrap img{max-width:140px;max-height:140px;object-fit:contain;}
+.no-media .wlc{font-size:22px;color:rgba(255,255,255,0.7);}
+.med-mute{position:absolute;bottom:12px;right:12px;background:rgba(0,0,0,0.5);color:#fff;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:18px;cursor:pointer;user-select:none;z-index:20;}
+
+/* ── PROMO PANEL ── */
+#med-promo{position:absolute;inset:0;opacity:0;transition:opacity 0.8s;pointer-events:none;
+  background:linear-gradient(160deg,#0f172a 0%,#1e1035 40%,#2d1b4e 100%);
+  display:flex;flex-direction:column;padding:14px 12px 10px;}
+#med-promo.on{opacity:1;}
+.promo-hdr{flex-shrink:0;text-align:center;margin-bottom:10px;}
+.promo-hdr-top{font-size:13px;color:rgba(255,255,255,0.5);letter-spacing:2px;text-transform:uppercase;margin-bottom:2px;}
+.promo-hdr-title{font-size:22px;font-weight:800;line-height:1.1;}
+.promo-hdr-title .hl{color:#fbbf24;}
+.promo-hdr-sub{font-size:12px;color:rgba(255,255,255,0.4);margin-top:3px;}
+.promo-divider{height:2px;background:linear-gradient(90deg,transparent,#C72C41,#fbbf24,#C72C41,transparent);margin-bottom:10px;flex-shrink:0;}
+.promo-grid{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:7px;overflow:hidden;}
+.promo-card{background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:10px;
+  padding:10px 10px 8px;display:flex;flex-direction:column;justify-content:space-between;
+  position:relative;overflow:hidden;}
+.promo-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#C72C41,#fbbf24);}
+.promo-card-cat{font-size:10px;font-weight:700;color:#94a3b8;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;}
+.promo-card-name{font-size:13px;color:#f1f5f9;font-weight:600;line-height:1.35;flex:1;}
+.promo-card-bottom{margin-top:8px;display:flex;align-items:flex-end;justify-content:space-between;}
+.promo-card-price{font-size:26px;font-weight:800;color:#fbbf24;line-height:1;}
+.promo-card-price small{font-size:13px;font-weight:500;color:rgba(255,255,255,0.4);}
+.promo-card-unit{font-size:11px;color:rgba(255,255,255,0.35);text-align:right;}
+.promo-footer{flex-shrink:0;display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.08);}
+.promo-footer-shop{font-size:11px;color:rgba(255,255,255,0.3);}
+.promo-footer-page{display:flex;gap:4px;}
+.promo-dot{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,0.2);}
+.promo-dot.on{background:#fbbf24;}
 
 /* ── POS PANEL BASE ── */
 .pos{display:flex;flex-direction:column;overflow:hidden;transition:opacity .4s;}
 .pos.idle-dim{opacity:.55;}
-
-/* IDLE */
 .pos-idle{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;background:#fff;}
-.pos-idle .logo-wrap{max-width:80%;max-height:140px;display:flex;align-items:center;justify-content:center;}
 .pos-idle .logo-wrap img{max-width:100%;max-height:140px;object-fit:contain;}
 .pos-idle .wlc{font-size:18px;color:#94a3b8;text-align:center;}
 .pos-idle .tid{font-size:11px;color:#cbd5e1;margin-top:4px;}
-
-/* ACTIVE — cart */
 .pos-active{flex:1;display:flex;flex-direction:column;background:#f8fafc;}
 .pos-hdr{background:linear-gradient(135deg,#C72C41,#801336);color:#fff;padding:12px 14px;flex-shrink:0;}
 .pos-hdr h2{font-size:17px;font-weight:700;}
@@ -61,20 +84,14 @@ body{font-family:'Kanit',sans-serif;}
 .pos-total .lbl{font-size:14px;opacity:.8;}
 .pos-total .amt{font-size:44px;font-weight:800;line-height:1.1;}
 .pos-total .disc{font-size:13px;opacity:.7;}
-
-/* PAYING */
 .pos-paying{flex:1;background:linear-gradient(135deg,#0f172a,#1e293b);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:#fff;}
 .pos-paying .ic{font-size:52px;}
 .pos-paying .t1{font-size:18px;opacity:.75;}
 .pos-paying .t2{font-size:46px;font-weight:800;}
-
-/* QR */
 .pos-qr{flex:1;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:16px;}
 .pos-qr .qt{font-size:14px;color:#64748b;}
 .pos-qr img{width:min(200px,80%);border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.1);}
 .pos-qr .qa{font-size:20px;font-weight:800;color:#0369a1;}
-
-/* PAID */
 .pos-paid{flex:1;background:linear-gradient(135deg,#f0f9ff,#e0f2fe);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:20px;text-align:center;}
 .pos-paid .ic{font-size:56px;margin-bottom:4px;}
 .pos-paid .p1{font-size:20px;color:#C72C41;font-weight:700;}
@@ -86,7 +103,11 @@ body{font-family:'Kanit',sans-serif;}
 <body>
 <div id="app">
   <div id="p1" class="pos"></div>
-  <div id="med" class="med"></div>
+  <div id="med" class="med">
+    <div id="med-bg"></div>
+    <div id="med-promo"></div>
+    <div class="med-mute" id="muteBtn" onclick="toggleMute()" style="display:none">🔇</div>
+  </div>
   <div id="p2" class="pos"></div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
@@ -94,6 +115,7 @@ body{font-family:'Kanit',sans-serif;}
 const SURL='${SUPA_URL}', SKEY='${SUPA_KEY}'
 const CH1='${CH1}', CH2='${CH2}'
 const T1='${t1}', T2='${t2}'
+const fmtPrice = n => Number(n||0).toLocaleString('th-TH',{minimumFractionDigits:0,maximumFractionDigits:0})
 const fmt = n => Number(n||0).toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2})
 
 let cfg = {}
@@ -101,44 +123,127 @@ let stA = {status:'idle',items:[],subtotal:0,discount:0,total:0}
 let stB = {status:'idle',items:[],subtotal:0,discount:0,total:0}
 let _slideTimer = null, _slideIdx = 0, _vidIdx = 0
 let _timerA = null, _timerB = null
+let _promos = [], _promoPage = 0, _cycleTimer = null, _showPromo = false
+const ITEMS_PER_PAGE = 8
+const CYCLE_SEC = 12000
 
 const sb = window.supabase.createClient(SURL, SKEY, {db:{schema:'pos'}})
 
 async function loadCfg() {
   const {data} = await sb.from('settings').select('key,value')
   if (data) cfg = Object.fromEntries(data.map(r=>[r.key,r.value]))
+  await loadPromos()
   renderMedia()
   renderPos('p1', stA, T1)
   renderPos('p2', stB, T2)
 }
 
+/* ── PROMO DATA ── */
+async function loadPromos() {
+  try {
+    // ดึงสินค้าที่ tag 'โปร' ใน search_tags
+    let { data } = await sb.from('products')
+      .select('id,name,price,unit,categories(name),search_tags')
+      .ilike('search_tags','%โปร%')
+      .gt('price',0)
+      .order('name')
+      .limit(40)
+    if (!data || data.length === 0) {
+      // fallback: ดึงสินค้า 16 รายการล่าสุด
+      const res = await sb.from('products')
+        .select('id,name,price,unit,categories(name)')
+        .gt('price',0)
+        .order('id',{ascending:false})
+        .limit(16)
+      data = res.data || []
+    }
+    _promos = data
+  } catch(e) { console.error('loadPromos',e) }
+}
+
+function renderPromoSlide() {
+  const el = document.getElementById('med-promo')
+  if (!el || !_promos.length) return
+  const totalPages = Math.ceil(_promos.length / ITEMS_PER_PAGE)
+  const page = _promoPage % totalPages
+  const items = _promos.slice(page * ITEMS_PER_PAGE, (page + 1) * ITEMS_PER_PAGE)
+
+  const cards = items.map(p => {
+    const cat = p.categories?.name || ''
+    return '<div class="promo-card">'
+      + (cat ? '<div class="promo-card-cat">'+cat+'</div>' : '')
+      + '<div class="promo-card-name">'+p.name+'</div>'
+      + '<div class="promo-card-bottom">'
+      + '<div class="promo-card-price">฿'+fmtPrice(p.price)+'<small>/'+( p.unit||'ชิ้น')+'</small></div>'
+      + '</div></div>'
+  }).join('')
+
+  const dots = totalPages > 1
+    ? Array.from({length:totalPages},(_,i)=>'<div class="promo-dot'+(i===page?' on':'')+'"></div>').join('')
+    : ''
+
+  el.innerHTML = '<div class="promo-hdr">'
+    + '<div class="promo-hdr-top">★ ราคาพิเศษ ★</div>'
+    + '<div class="promo-hdr-title">🔥 โปรโมชั่น <span class="hl">วันนี้</span></div>'
+    + '<div class="promo-hdr-sub">'+(cfg.shop_name||'')+'</div>'
+    + '</div>'
+    + '<div class="promo-divider"></div>'
+    + '<div class="promo-grid">'+cards+'</div>'
+    + '<div class="promo-footer">'
+    + '<div class="promo-footer-shop">ราคารวม VAT แล้ว</div>'
+    + '<div class="promo-footer-page">'+dots+'</div>'
+    + '</div>'
+}
+
 /* ── MEDIA CENTER ── */
 function renderMedia() {
-  const el = document.getElementById('med')
+  const bg = document.getElementById('med-bg')
   const vids = [cfg.display_video_1,cfg.display_video_2,cfg.display_video_3,cfg.display_video_4,cfg.display_video_5].filter(Boolean)
   const imgs = [cfg.display_image_1,cfg.display_image_2,cfg.display_image_3].filter(Boolean)
 
   if (_slideTimer) { clearInterval(_slideTimer); _slideTimer = null }
+  if (_cycleTimer) { clearInterval(_cycleTimer); _cycleTimer = null }
 
   if (vids.length > 0) {
-    el.innerHTML = '<video id="vid" muted autoplay playsinline style="width:100%;height:100%;object-fit:cover"></video>'
-      + '<div class="med-mute" id="muteBtn" onclick="toggleMute()">🔇</div>'
+    bg.innerHTML = '<video id="vid" muted autoplay playsinline style="width:100%;height:100%;object-fit:cover"></video>'
+    const muteBtn = document.getElementById('muteBtn')
+    if (muteBtn) muteBtn.style.display = 'flex'
     setupVid(vids)
   } else if (imgs.length > 0) {
     const slides = imgs.map((u,i)=>'<div class="slide'+(i===0?' on':'')+'">'
       +'<img src="'+u+'"></div>').join('')
-    el.innerHTML = '<div class="slides">'+slides+'</div>'
+    bg.innerHTML = '<div class="slides">'+slides+'</div>'
     _slideIdx = 0
     _slideTimer = setInterval(() => {
       _slideIdx = (_slideIdx+1) % imgs.length
-      el.querySelectorAll('.slide').forEach((s,i)=>s.classList.toggle('on',i===_slideIdx))
+      bg.querySelectorAll('.slide').forEach((s,i)=>s.classList.toggle('on',i===_slideIdx))
     }, 5000)
   } else {
     const logoHtml = cfg.shop_logo
       ? '<div class="logo-wrap"><img src="'+cfg.shop_logo+'"></div>'
       : '<div style="font-size:72px">🏪</div>'
-    el.innerHTML = '<div class="no-media">'+logoHtml+'<div class="wlc">ยินดีต้อนรับ</div></div>'
+    bg.innerHTML = '<div class="no-media">'+logoHtml+'<div class="wlc">ยินดีต้อนรับ</div></div>'
   }
+
+  if (_promos.length > 0) startCycle()
+}
+
+function startCycle() {
+  _showPromo = false
+  _cycleTimer = setInterval(() => {
+    _showPromo = !_showPromo
+    const bg   = document.getElementById('med-bg')
+    const promo = document.getElementById('med-promo')
+    if (_showPromo) {
+      renderPromoSlide()
+      if (bg)    bg.style.opacity = '0'
+      if (promo) promo.classList.add('on')
+      _promoPage++
+    } else {
+      if (bg)    bg.style.opacity = '1'
+      if (promo) promo.classList.remove('on')
+    }
+  }, CYCLE_SEC)
 }
 
 function setupVid(vids) {
@@ -174,7 +279,6 @@ function renderPos(id, st, tid) {
       +'<div class="tid">'+tid+'</div></div>'
     return
   }
-
   if (st.status === 'active') {
     const rows = (st.items||[]).map(i=>
       '<div class="ci"><div><div class="ci-name">'+i.name+'</div>'
@@ -189,43 +293,49 @@ function renderPos(id, st, tid) {
       +'<div class="amt">฿'+fmt(st.total)+'</div>'+disc+'</div></div>'
     return
   }
-
   if (st.status === 'paying') {
     el.innerHTML = '<div class="pos-paying">'
       +'<div class="ic">💳</div><div class="t1">กำลังชำระเงิน</div>'
       +'<div class="t2">฿'+fmt(st.total)+'</div></div>'
     return
   }
-
   if (st.status === 'paying_qr') {
     const qrSrc = st.qr_url || cfg.payment_qr || ''
-    const qrEl = qrSrc
-      ? '<img src="'+qrSrc+'" alt="QR">'
-      : '<div style="font-size:72px">📱</div>'
+    const qrEl = qrSrc ? '<img src="'+qrSrc+'" alt="QR">' : '<div style="font-size:72px">📱</div>'
     el.innerHTML = '<div class="pos-qr">'
       +'<div class="qt">สแกนเพื่อชำระเงิน</div>'
-      +qrEl
-      +'<div class="qa">฿'+fmt(st.total)+'</div></div>'
+      +qrEl+'<div class="qa">฿'+fmt(st.total)+'</div></div>'
     return
   }
-
   if (st.status === 'paid') {
     el.innerHTML = '<div class="pos-paid">'
-      +'<div class="ic">🧾</div>'
-      +'<div class="p1">กรุณา</div>'
-      +'<div class="p2">รับใบเสร็จ</div>'
-      +'<div class="p3">จากพนักงาน</div>'
+      +'<div class="ic">🧾</div><div class="p1">กรุณา</div>'
+      +'<div class="p2">รับใบเสร็จ</div><div class="p3">จากพนักงาน</div>'
       +'<div class="p4">ขอบคุณที่ใช้บริการ 🙏</div></div>'
     return
   }
 }
 
+/* ── INIT ── */
 loadCfg()
+
+// รีเฟรชราคาสินค้าทุก 5 นาที
+setInterval(async () => {
+  await loadPromos()
+  if (_showPromo) renderPromoSlide()
+}, 5 * 60 * 1000)
+
+// Realtime: อัพเดทเมื่อสินค้าเปลี่ยน
+sb.channel('promo-products')
+  .on('postgres_changes',{event:'*',schema:'pos',table:'products'}, async () => {
+    await loadPromos()
+    if (_showPromo) renderPromoSlide()
+  })
+  .subscribe()
 
 sb.channel(CH1).on('broadcast',{event:'pos'},({payload})=>{
   if (_timerA) { clearTimeout(_timerA); _timerA = null }
-  stA = payload
-  renderPos('p1', stA, T1)
+  stA = payload; renderPos('p1', stA, T1)
   if (payload.status === 'paid') {
     _timerA = setTimeout(() => {
       stA = {status:'idle',items:[],subtotal:0,discount:0,total:0}
@@ -236,8 +346,7 @@ sb.channel(CH1).on('broadcast',{event:'pos'},({payload})=>{
 
 sb.channel(CH2).on('broadcast',{event:'pos'},({payload})=>{
   if (_timerB) { clearTimeout(_timerB); _timerB = null }
-  stB = payload
-  renderPos('p2', stB, T2)
+  stB = payload; renderPos('p2', stB, T2)
   if (payload.status === 'paid') {
     _timerB = setTimeout(() => {
       stB = {status:'idle',items:[],subtotal:0,discount:0,total:0}
