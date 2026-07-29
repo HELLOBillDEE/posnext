@@ -552,12 +552,12 @@ export default function POSPage() {
   // Generate QR เมื่อเลือกบัญชีหรือยอดเปลี่ยน
   useEffect(() => {
     if (!selectedQrAcct) { setGeneratedQr(null); return }
-    // Static QR image — ใช้รูปที่อัปโหลดไว้เลย
-    if (selectedQrAcct.qr_image_url && !selectedQrAcct.promptpay_id) {
+    // ถ้ามีรูป QR อัปโหลดไว้ → ใช้รูปเดิมเลย ไม่ generate lock ยอด
+    if (selectedQrAcct.qr_image_url) {
       setGeneratedQr(selectedQrAcct.qr_image_url)
       return
     }
-    // PromptPay dynamic QR — generate ล็อคยอด
+    // PromptPay dynamic QR — generate ล็อคยอด (เฉพาะกรณีไม่มีรูป)
     if (selectedQrAcct.promptpay_id) {
       setGeneratedQr(null)
       fetch(`/api/qr-promptpay?id=${encodeURIComponent(selectedQrAcct.promptpay_id)}&amount=${total}`)
