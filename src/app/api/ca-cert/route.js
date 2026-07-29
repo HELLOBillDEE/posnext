@@ -1,17 +1,29 @@
-import { readFileSync } from 'fs'
-import { join } from 'path'
+const CA_CERT = `-----BEGIN CERTIFICATE-----
+MIIDKTCCAhGgAwIBAgIUJjIUWXmDq3wCmoz09Xt038Y6GewwDQYJKoZIhvcNAQEL
+BQAwHDEaMBgGA1UEAwwRQ0hFUkQgUE9TIFJvb3QgQ0EwHhcNMjYwNzE5MDUxNzM2
+WhcNMjgxMDIxMDUxNzM2WjAcMRowGAYDVQQDDBFDSEVSRCBQT1MgUm9vdCBDQTCC
+ASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBANcGUB4NUKOYy0mSF+amJq2V
+klHzGANCiCLwVvkN2pQ3+akBJ+6UzQ1kiXkAS5yqqEy7812bVsg5iuj5KHBE5TLN
+ab31xnFiJejhYxHg1dQV6X5VHa2G1Ko5BUnorUj2rrshIotv1SqA99xqkas7P9Sv
+3vDoSqWRLhvVHb+xYcgjyJQDsTUcIraiZf5JtGMRqygs7njn2WAoNXDWrKrBx8/K
+E7qxEiIbzd/lU3ks75iIxnrwH10Tn3936wwOFh4N9xz+MFFelHhsOFzWNYt3q4Jo
+ksupCjxDyq75/smCow3dyJLHvhWwcUQfbUP66DhBqAybtcoV105oyvgb6c4LxQUC
+AwEAAaNjMGEwHQYDVR0OBBYEFOpJjq02xP+JpgETGOTyxQJ72JkvMB8GA1UdIwQY
+MBaAFOpJjq02xP+JpgETGOTyxQJ72JkvMA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0P
+AQH/BAQDAgEGMA0GCSqGSIb3DQEBCwUAA4IBAQAtToLufjb7q+jT53r3L3hlT4L0
+i5XLxvNx7WaIkcqdO4i4X8DeiOFBbow7LWx/UsJQjLxWnVmV6KEK0scS0FfmuuIU
+VKjXMdiQX6g4NMF0kFxdYoAq6qSuLnMlB2b3h6UerHEifI7sqFhfjBu51vw+3tSp
+qBwN2dazUcccRFJjnAGfDSmOS8qWU/u0zlhcJt+s1RfMUnA69oAuzbMDXsvzJxvZ
+gFVZFHmRJvjOuazsx8TgdBH/KGYxvHNA90Ea0ZwYSsaMw3lXp7LQMeGhaTKNnilJ
+kEie3+EDNHZt68H9ZSQTAXbAIDNjqCUmHtiR5EIm522Sk333ST5cH/pG8SXN
+-----END CERTIFICATE-----`
 
 export function GET() {
-  try {
-    const cert = readFileSync(join(process.cwd(), 'certificates', 'ca-cert.pem'))
-    return new Response(cert, {
-      headers: {
-        'Content-Type': 'application/x-x509-ca-cert',
-        'Content-Disposition': 'attachment; filename="CHERD-POS-CA.crt"',
-        'Cache-Control': 'no-store',
-      },
-    })
-  } catch {
-    return new Response('Not found', { status: 404 })
-  }
+  return new Response(CA_CERT, {
+    headers: {
+      'Content-Type': 'application/x-x509-ca-cert',
+      'Content-Disposition': 'attachment; filename="CHERD-POS-CA.crt"',
+      'Cache-Control': 'no-store',
+    },
+  })
 }
