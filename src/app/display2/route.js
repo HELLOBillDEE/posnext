@@ -198,8 +198,9 @@ function renderPos(id, st, tid) {
   }
 
   if (st.status === 'paying_qr') {
-    const qrEl = cfg.payment_qr
-      ? '<img src="'+cfg.payment_qr+'" alt="QR">'
+    const qrSrc = st.qr_url || cfg.payment_qr || ''
+    const qrEl = qrSrc
+      ? '<img src="'+qrSrc+'" alt="QR">'
       : '<div style="font-size:72px">📱</div>'
     el.innerHTML = '<div class="pos-qr">'
       +'<div class="qt">สแกนเพื่อชำระเงิน</div>'
