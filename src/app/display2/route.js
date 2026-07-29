@@ -64,6 +64,14 @@ body{font-family:'Kanit',sans-serif;}
 .promo-dot{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,0.2);}
 .promo-dot.on{background:#fbbf24;}
 
+/* ── PROMO BG-IMAGE MODE ── */
+#med-promo.has-bg{background:none!important;}
+.promo-bg-fade{position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,0.92) 0%,rgba(0,0,0,0.45) 50%,transparent 100%);pointer-events:none;}
+.promo-overlay{position:absolute;bottom:0;left:0;right:0;padding:8px 10px 8px;display:flex;flex-direction:column;gap:6px;}
+.promo-overlay .promo-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+.promo-overlay .promo-card{background:rgba(0,0,0,0.68);backdrop-filter:blur(5px);border-color:rgba(255,255,255,0.18);}
+.promo-overlay .promo-footer{margin:0;padding-top:5px;border-color:rgba(255,255,255,0.06);}
+
 /* ── POS PANEL BASE ── */
 .pos{display:flex;flex-direction:column;overflow:hidden;transition:opacity .4s;}
 .pos.idle-dim{opacity:.55;}
@@ -182,17 +190,33 @@ function renderPromoSlide() {
     ? Array.from({length:totalPages},(_,i)=>'<div class="promo-dot'+(i===page?' on':'')+'"></div>').join('')
     : ''
 
-  el.innerHTML = '<div class="promo-hdr">'
-    + '<div class="promo-hdr-top">★ ราคาพิเศษ ★</div>'
-    + '<div class="promo-hdr-title">🔥 โปรโมชั่น <span class="hl">วันนี้</span></div>'
-    + '<div class="promo-hdr-sub">'+(cfg.shop_name||'')+'</div>'
-    + '</div>'
-    + '<div class="promo-divider"></div>'
-    + '<div class="promo-grid">'+cards+'</div>'
-    + '<div class="promo-footer">'
-    + '<div class="promo-footer-shop">ราคารวม VAT แล้ว</div>'
+  const footer = '<div class="promo-footer">'
+    + '<div class="promo-footer-shop">'+(cfg.shop_name||'ราคารวม VAT แล้ว')+'</div>'
     + '<div class="promo-footer-page">'+dots+'</div>'
     + '</div>'
+
+  if (cfg.promo_template_image) {
+    el.style.backgroundImage = 'url('+cfg.promo_template_image+')'
+    el.style.backgroundSize  = 'cover'
+    el.style.backgroundPosition = 'center'
+    el.classList.add('has-bg')
+    el.innerHTML = '<div class="promo-bg-fade"></div>'
+      + '<div class="promo-overlay">'
+      + '<div class="promo-grid">'+cards+'</div>'
+      + footer
+      + '</div>'
+  } else {
+    el.style.backgroundImage = ''
+    el.classList.remove('has-bg')
+    el.innerHTML = '<div class="promo-hdr">'
+      + '<div class="promo-hdr-top">★ ราคาพิเศษ ★</div>'
+      + '<div class="promo-hdr-title">🔥 โปรโมชั่น <span class="hl">วันนี้</span></div>'
+      + '<div class="promo-hdr-sub">'+(cfg.shop_name||'')+'</div>'
+      + '</div>'
+      + '<div class="promo-divider"></div>'
+      + '<div class="promo-grid">'+cards+'</div>'
+      + footer
+  }
 }
 
 /* ── MEDIA CENTER ── */

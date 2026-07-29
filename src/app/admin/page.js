@@ -244,8 +244,9 @@ export default function AdminPage() {
   const [qrAcctForm, setQrAcctForm]               = useState({ name: '', promptpay_id: '', bank: '', qr_image_url: '' })
   const [qrAcctImgUploading, setQrAcctImgUploading] = useState(null) // id หรือ 'new'
   const [lineQrUploading, setLineQrUploading]     = useState(false)
-  const [displayVideoUploading, setDisplayVideoUploading] = useState(null) // null | 1..5
-  const [displayImgUploading, setDisplayImgUploading]     = useState(null) // null | 1 | 2 | 3
+  const [displayVideoUploading, setDisplayVideoUploading]     = useState(null) // null | 1..5
+  const [displayImgUploading, setDisplayImgUploading]         = useState(null) // null | 1 | 2 | 3
+  const [promoTemplateUploading, setPromoTemplateUploading]   = useState(false)
   const [announcements, setAnnouncements]     = useState([])
   const [annForm, setAnnForm]                 = useState({ title: '', body: '', type: 'info' })
   const [annSaving, setAnnSaving]             = useState(false)
@@ -552,6 +553,24 @@ export default function AdminPage() {
       alert('อัปโหลดไม่สำเร็จ: ' + e.message)
     } finally {
       setDisplayImgUploading(null)
+    }
+  }
+
+  async function uploadPromoTemplate(file) {
+    setPromoTemplateUploading(true)
+    try {
+      const ext  = file.name.split('.').pop()
+      const path = `promo-template.${ext}`
+      const { error: upErr } = await supabase.storage.from('shop-assets').upload(path, file, { upsert: true })
+      if (upErr) throw upErr
+      const { data } = supabase.storage.from('shop-assets').getPublicUrl(path)
+      const url = data.publicUrl + '?t=' + Date.now()
+      await supabase.from('settings').upsert({ key: 'promo_template_image', value: url }, { onConflict: 'key' })
+      setSettings(p => ({ ...p, promo_template_image: url }))
+    } catch (e) {
+      alert('อัปโหลดไม่สำเร็จ: ' + e.message)
+    } finally {
+      setPromoTemplateUploading(false)
     }
   }
 
@@ -1147,6 +1166,30 @@ export default function AdminPage() {
                     </div>
                   )
                 })}
+              </div>
+            </div>
+
+            {/* Promo template background image */}
+            <div>
+              <label className="text-xs font-semibold text-slate-500 block mb-2">🎨 รูปพื้นหลังโปรโมชั่น (ช่องกลาง Display — ราคาจะลอยทับด้านล่าง)</label>
+              <div className="flex gap-3 items-center">
+                {settings.promo_template_image ? (
+                  <div className="relative">
+                    <img src={settings.promo_template_image} alt="" className="h-20 w-36 object-cover rounded-xl border border-slate-200" />
+                    <button onClick={() => clearDisplayMedia('promo_template_image')}
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center shadow">×</button>
+                  </div>
+                ) : (
+                  <label className={`cursor-pointer h-20 w-36 rounded-xl border-2 border-dashed flex flex-col items-center justify-center text-xs gap-1 transition-all
+                    ${promoTemplateUploading ? 'border-slate-300 text-slate-400' : 'border-slate-300 text-slate-400 hover:border-brand/40 hover:text-brand'}`}>
+                    {promoTemplateUploading ? '⏳' : <><span className="text-lg">🎨</span><span>อัปโหลดรูป</span></>}
+                    <input type="file" accept="image/*" className="hidden" disabled={promoTemplateUploading}
+                      onChange={e => e.target.files[0] && uploadPromoTemplate(e.target.files[0])} />
+                  </label>
+                )}
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  รูปจะเป็นพื้นหลังเต็มจอ<br/>ราคาสินค้าจาก Supabase<br/>จะลอยทับด้านล่าง
+                </p>
               </div>
             </div>
           </div>
