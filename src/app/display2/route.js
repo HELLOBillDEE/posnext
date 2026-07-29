@@ -4,8 +4,8 @@ export function GET(request) {
   const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
   const SUPA_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
   const url = new URL(request.url)
-  const t1 = url.searchParams.get('t1') || 'pos1'
-  const t2 = url.searchParams.get('t2') || 'pos2'
+  const t1 = (url.searchParams.get('t1') || 'pos1').toLowerCase()
+  const t2 = (url.searchParams.get('t2') || 'pos2').toLowerCase()
   const CH1 = 'customer-display-' + t1
   const CH2 = 'customer-display-' + t2
 
