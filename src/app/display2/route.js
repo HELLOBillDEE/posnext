@@ -169,14 +169,38 @@ async function loadPromos() {
   } catch(e) { console.error('loadPromos',e) }
 }
 
+function buildPromoSlots() {
+  const slots = []
+  for (let i = 1; i <= 3; i++) {
+    const img = cfg['promo_template_'+i+'_image']
+    if (!img) continue
+    const cat = (cfg['promo_template_'+i+'_cat'] || '').toLowerCase().trim()
+    const items = cat
+      ? _promos.filter(p => (p.categories?.name||'').toLowerCase().includes(cat))
+      : _promos
+    slots.push({ img, items: items.length ? items : _promos })
+  }
+  return slots
+}
+
 function renderPromoSlide() {
   const el = document.getElementById('med-promo')
   if (!el || !_promos.length) return
-  const totalPages = Math.ceil(_promos.length / ITEMS_PER_PAGE)
-  const page = _promoPage % totalPages
-  const items = _promos.slice(page * ITEMS_PER_PAGE, (page + 1) * ITEMS_PER_PAGE)
 
-  const cards = items.map(p => {
+  const slots = buildPromoSlots()
+
+  let bgImage = '', items = _promos
+  if (slots.length > 0) {
+    const slot = slots[_promoPage % slots.length]
+    bgImage = slot.img
+    items = slot.items
+  }
+
+  const totalPages = Math.ceil(items.length / ITEMS_PER_PAGE)
+  const page = slots.length > 0 ? 0 : (_promoPage % totalPages)
+  const pageItems = items.slice(page * ITEMS_PER_PAGE, (page + 1) * ITEMS_PER_PAGE)
+
+  const cards = pageItems.map(p => {
     const cat = p.categories?.name || ''
     return '<div class="promo-card">'
       + (cat ? '<div class="promo-card-cat">'+cat+'</div>' : '')
@@ -186,17 +210,19 @@ function renderPromoSlide() {
       + '</div></div>'
   }).join('')
 
-  const dots = totalPages > 1
-    ? Array.from({length:totalPages},(_,i)=>'<div class="promo-dot'+(i===page?' on':'')+'"></div>').join('')
-    : ''
+  const dots = slots.length > 1
+    ? Array.from({length:slots.length},(_,i)=>'<div class="promo-dot'+(i===(_promoPage%slots.length)?' on':'')+'"></div>').join('')
+    : totalPages > 1
+      ? Array.from({length:totalPages},(_,i)=>'<div class="promo-dot'+(i===page?' on':'')+'"></div>').join('')
+      : ''
 
   const footer = '<div class="promo-footer">'
     + '<div class="promo-footer-shop">'+(cfg.shop_name||'ราคารวม VAT แล้ว')+'</div>'
     + '<div class="promo-footer-page">'+dots+'</div>'
     + '</div>'
 
-  if (cfg.promo_template_image) {
-    el.style.backgroundImage = 'url('+cfg.promo_template_image+')'
+  if (bgImage) {
+    el.style.backgroundImage = 'url('+bgImage+')'
     el.style.backgroundSize  = 'cover'
     el.style.backgroundPosition = 'center'
     el.classList.add('has-bg')
