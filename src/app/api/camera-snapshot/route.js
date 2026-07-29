@@ -59,21 +59,28 @@ async function sendPhotoToTelegram(token, chatId, buffer, contentType, filename,
 
 export async function POST(req) {
   try {
-    const body    = await req.json().catch(() => ({}))
-    const caption = body.caption || ''
-    const mode    = body.mode || 'video'
+    const body        = await req.json().catch(() => ({}))
+    const caption     = body.caption || ''
+    const mode        = body.mode || 'video'
+    const terminal_id = body.terminal_id || ''
 
-    const { data } = await supabase.from('settings').select('key, value')
-      .in('key', ['camera_ip', 'camera_username', 'camera_password', 'telegram_bot_token', 'telegram_chat_id'])
+    const keysToFetch = ['camera_ip', 'camera_username', 'camera_password', 'telegram_bot_token', 'telegram_chat_id']
+    if (terminal_id) keysToFetch.push(`camera_ip_${terminal_id}`, `camera_username_${terminal_id}`, `camera_password_${terminal_id}`)
+
+    const { data } = await supabase.from('settings').select('key, value').in('key', keysToFetch)
     if (!data) return Response.json({ ok: false, reason: 'no settings' })
     const s = Object.fromEntries(data.map(r => [r.key, r.value]))
 
-    if (!s.camera_ip)          return Response.json({ ok: false, reason: 'camera not configured' })
+    const cameraIp       = (terminal_id && s[`camera_ip_${terminal_id}`]) || s.camera_ip
+    const cameraUsername = (terminal_id && s[`camera_username_${terminal_id}`]) || s.camera_username
+    const cameraPassword = (terminal_id && s[`camera_password_${terminal_id}`]) || s.camera_password
+
+    if (!cameraIp)             return Response.json({ ok: false, reason: 'camera not configured' })
     if (!s.telegram_bot_token) return Response.json({ ok: false, reason: 'no telegram token' })
     if (!s.telegram_chat_id)   return Response.json({ ok: false, reason: 'no telegram chat_id' })
 
     if (mode === 'snapshot') {
-      const imgBuffer   = await captureRTSP(s.camera_ip, s.camera_username || 'admin', s.camera_password || '')
+      const imgBuffer   = await captureRTSP(cameraIp, cameraUsername || 'admin', cameraPassword || '')
       const filename    = `${Date.now()}.jpg`
       const publicUrl   = await uploadSnapshot(imgBuffer, filename, 'image/jpeg').catch(() => null)
       if (publicUrl) await saveSnapshotToLog(publicUrl)

@@ -489,7 +489,7 @@ function ARQuoteDetail({ d, settings, onCancelled }) {
   }
 
   async function reprint() {
-    const cfg = JSON.parse(settings.printer_receipt || localStorage.getItem('printer_receipt') || '{}')
+    const cfg = JSON.parse(localStorage.getItem('printer_receipt') || '{}')
     if (!cfg.ip) return alert('ไม่ได้ตั้งค่าเครื่องพิมพ์')
     const paperW = parseInt(cfg.paper_width) || 80
     const slipBytes = await buildDeliverySlipESCPOS({

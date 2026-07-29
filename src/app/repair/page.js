@@ -449,17 +449,18 @@ export default function RepairPage() {
   }, [])
 
   useEffect(() => {
+    const tid = (() => { try { return JSON.parse(localStorage.getItem('device_config') || '{}').terminal_id || 'default' } catch { return 'default' } })()
     supabase.from('settings').select('key,value')
-      .in('key', ['shop_name','shop_address','shop_phone','printer_receipt','printer_barcode'])
+      .in('key', ['shop_name','shop_address','shop_phone',`printer_receipt_${tid}`,`printer_barcode_${tid}`])
       .then(({ data }) => {
         const m = {}; (data||[]).forEach(r => m[r.key]=r.value); setSettings(m)
-        const parseCfg = (val, fallbackKey) => {
+        const parseCfg = (val, lsKey) => {
           try { if (val) return JSON.parse(val) } catch {}
-          try { const ls = localStorage.getItem(fallbackKey); if (ls) return JSON.parse(ls) } catch {}
+          try { const ls = localStorage.getItem(lsKey); if (ls) return JSON.parse(ls) } catch {}
           return null
         }
-        const receipt = parseCfg(m['printer_receipt'], 'printer_receipt')
-        const barcode = parseCfg(m['printer_barcode'], 'printer_barcode')
+        const receipt = parseCfg(m[`printer_receipt_${tid}`], 'printer_receipt')
+        const barcode = parseCfg(m[`printer_barcode_${tid}`], 'printer_barcode')
         setPrinterCfg({ receipt, barcode })
         if (receipt) try { localStorage.setItem('printer_receipt', JSON.stringify(receipt)) } catch {}
         if (barcode) try { localStorage.setItem('printer_barcode', JSON.stringify(barcode)) } catch {}

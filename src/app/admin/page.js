@@ -223,6 +223,7 @@ export default function AdminPage() {
   const [suppForm, setSuppForm] = useState({ code:'', name:'', phone:'', address:'', tax_id:'' })
   const [saving, setSaving]   = useState(false)
   const [camTestMsg, setCamTestMsg] = useState('')
+  const [camSaved, setCamSaved]     = useState(false)
   const [search, setSearch]   = useState('')
   const [printers, setPrinters] = useState(loadPrinters)
   const [printerSaved, setPrinterSaved] = useState(false)
@@ -1035,24 +1036,46 @@ export default function AdminPage() {
                 http://{settings.camera_ip}/cgi-bin/snapshot.cgi
               </p>
             )}
-            <button
-              onClick={async () => {
-                setCamTestMsg('กำลังทดสอบ...')
-                try {
-                  const r = await fetch('/api/camera-snapshot', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ caption: '🧪 ทดสอบกล้อง — ถ้าเห็นภาพนี้แปลว่าตั้งค่าถูกต้อง', mode: 'snapshot' }),
-                  })
-                  const j = await r.json()
-                  setCamTestMsg(j.ok ? '✅ ส่งรูปไป Telegram แล้ว' : `❌ ${j.reason || j.error}`)
-                } catch (e) { setCamTestMsg('❌ ' + e.message) }
-                setTimeout(() => setCamTestMsg(''), 5000)
-              }}
-              disabled={!settings.camera_ip}
-              className="px-4 py-2 rounded-xl text-sm font-semibold transition-all active:scale-95 disabled:opacity-40"
-              style={{ background: 'linear-gradient(135deg,#1d4ed8,#60a5fa)', color: '#fff' }}>
-              🧪 ทดสอบถ่ายภาพ
-            </button>
+            <div className="flex gap-2 flex-wrap">
+              <button
+                onClick={async () => {
+                  const tid = (() => { try { return JSON.parse(localStorage.getItem('device_config') || '{}').terminal_id || 'default' } catch { return 'default' } })()
+                  try {
+                    const rows = [
+                      { key: `camera_ip_${tid}`,       value: settings.camera_ip || '' },
+                      { key: `camera_username_${tid}`, value: settings.camera_username || '' },
+                      { key: `camera_password_${tid}`, value: settings.camera_password || '' },
+                    ]
+                    const { error } = await supabase.from('settings').upsert(rows, { onConflict: 'key' })
+                    if (error) throw error
+                    setCamSaved(true); setTimeout(() => setCamSaved(false), 2000)
+                  } catch (e) { alert('บันทึกไม่สำเร็จ: ' + e.message) }
+                }}
+                disabled={!settings.camera_ip}
+                className="px-4 py-2 rounded-xl text-sm font-semibold transition-all active:scale-95 disabled:opacity-40"
+                style={{ background: 'linear-gradient(135deg,#C72C41,#e56a7a)', color: '#fff' }}>
+                {camSaved ? '✅ บันทึกแล้ว' : '💾 บันทึกกล้องเครื่องนี้'}
+              </button>
+              <button
+                onClick={async () => {
+                  const tid = (() => { try { return JSON.parse(localStorage.getItem('device_config') || '{}').terminal_id || 'default' } catch { return 'default' } })()
+                  setCamTestMsg('กำลังทดสอบ...')
+                  try {
+                    const r = await fetch('/api/camera-snapshot', {
+                      method: 'POST', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ caption: '🧪 ทดสอบกล้อง — ถ้าเห็นภาพนี้แปลว่าตั้งค่าถูกต้อง', mode: 'snapshot', terminal_id: tid }),
+                    })
+                    const j = await r.json()
+                    setCamTestMsg(j.ok ? '✅ ส่งรูปไป Telegram แล้ว' : `❌ ${j.reason || j.error}`)
+                  } catch (e) { setCamTestMsg('❌ ' + e.message) }
+                  setTimeout(() => setCamTestMsg(''), 5000)
+                }}
+                disabled={!settings.camera_ip}
+                className="px-4 py-2 rounded-xl text-sm font-semibold transition-all active:scale-95 disabled:opacity-40"
+                style={{ background: 'linear-gradient(135deg,#1d4ed8,#60a5fa)', color: '#fff' }}>
+                🧪 ทดสอบถ่ายภาพ
+              </button>
+            </div>
             {camTestMsg && <p className="text-xs font-semibold text-slate-600">{camTestMsg}</p>}
           </div>
 

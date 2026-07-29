@@ -148,7 +148,7 @@ export default function POSPage() {
         const now = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
         fetch('/api/camera-snapshot', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ caption: `🔓 อนุมัติเปิดลิ้นชัก — ${dr.employee_name || '?'}  🕐 ${now}` }),
+          body: JSON.stringify({ caption: `🔓 อนุมัติเปิดลิ้นชัก — ${dr.employee_name || '?'}  🕐 ${now}`, terminal_id: getTerminalId() || '' }),
         }).catch(() => {})
       })
       .subscribe()
@@ -764,7 +764,7 @@ export default function POSPage() {
             supabase.from('drawer_logs').insert({ employee_name: empCam, note: `ขาย ${receiptNo}` }).then(null, () => {})
             fetch('/api/camera-snapshot', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ caption: `💳 บิลขาย — ${empCam}  🕐 ${timeCam}` }),
+              body: JSON.stringify({ caption: `💳 บิลขาย — ${empCam}  🕐 ${timeCam}`, terminal_id: getTerminalId() || '' }),
             }).catch(() => {})
             const kick = buildDrawerKickESCPOS()
             const combined = new Uint8Array(kick.length + bytes.length)
@@ -2188,7 +2188,7 @@ function CancelBillModal({ sale, settings, currentEmp, empMode, onClose, onVoide
           const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
           fetch('/api/camera-snapshot', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ caption: `💸 คืนเงิน — ${sale.receipt_no}  🕐 ${timeCam}` }),
+            body: JSON.stringify({ caption: `💸 คืนเงิน — ${sale.receipt_no}  🕐 ${timeCam}`, terminal_id: getTerminalId() || '' }),
           }).catch(() => {})
         }
       }
@@ -2219,7 +2219,7 @@ function CancelBillModal({ sale, settings, currentEmp, empMode, onClose, onVoide
           const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
           fetch('/api/camera-snapshot', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ caption: `💸 คืนเงิน — ${sale.receipt_no}  🕐 ${timeCam}` }),
+            body: JSON.stringify({ caption: `💸 คืนเงิน — ${sale.receipt_no}  🕐 ${timeCam}`, terminal_id: getTerminalId() || '' }),
           }).catch(() => {})
           setStep('done')
           setTimeout(onVoided, 1200)
@@ -2352,7 +2352,7 @@ function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
           const timeStr = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
           fetch('/api/camera-snapshot', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ caption: `🔓 เปิดลิ้นชัก — ${empName}  🕐 ${timeStr}` }),
+            body: JSON.stringify({ caption: `🔓 เปิดลิ้นชัก — ${empName}  🕐 ${timeStr}`, terminal_id: getTerminalId() || '' }),
           }).catch(() => {})
           setStep('done')
           setTimeout(onClose, 1500)
@@ -2396,7 +2396,7 @@ function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
     const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
     fetch('/api/camera-snapshot', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ caption: `🔓 เปิดลิ้นชัก — แอดมิน  🕐 ${timeCam}` }),
+      body: JSON.stringify({ caption: `🔓 เปิดลิ้นชัก — แอดมิน  🕐 ${timeCam}`, terminal_id: getTerminalId() || '' }),
     }).catch(() => {})
 
     setSaving(false); setStep('done')
@@ -2728,7 +2728,7 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
   function startShiftRec() {
     fetch('/api/camera-record', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'start' }),
+      body: JSON.stringify({ action: 'start', terminal_id: getTerminalId() || '' }),
     }).then(r => r.json()).then(j => { if (j.sessionId) setRecSessionId(j.sessionId) }).catch(() => {})
   }
 
@@ -2738,7 +2738,7 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
     setRecSessionId(null)
     fetch('/api/camera-record', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'stop', sessionId: sid, caption }),
+      body: JSON.stringify({ action: 'stop', sessionId: sid, caption, terminal_id: getTerminalId() || '' }),
     }).catch(() => {})
   }
 
