@@ -448,18 +448,35 @@ export default function RepairPage() {
   }, [])
 
   useEffect(() => {
-    const tid = (() => { try { return JSON.parse(localStorage.getItem('device_config') || '{}').terminal_id || 'default' } catch { return 'default' } })()
+    const tid = (() => {
+      try {
+        const urlTid = new URLSearchParams(window.location.search).get('tid')
+        if (urlTid) return urlTid
+        return JSON.parse(localStorage.getItem('device_config') || '{}').terminal_id || 'default'
+      } catch { return 'default' }
+    })()
+    const parseCfg = (val, lsKey) => {
+      try { if (val) return JSON.parse(val) } catch {}
+      try { const ls = localStorage.getItem(lsKey); if (ls) return JSON.parse(ls) } catch {}
+      return null
+    }
     supabase.from('settings').select('key,value')
       .in('key', ['shop_name','shop_address','shop_phone',`printer_receipt_${tid}`,`printer_barcode_${tid}`])
-      .then(({ data }) => {
+      .then(async ({ data }) => {
         const m = {}; (data||[]).forEach(r => m[r.key]=r.value); setSettings(m)
-        const parseCfg = (val, lsKey) => {
-          try { if (val) return JSON.parse(val) } catch {}
-          try { const ls = localStorage.getItem(lsKey); if (ls) return JSON.parse(ls) } catch {}
-          return null
+        let receipt = parseCfg(m[`printer_receipt_${tid}`], 'printer_receipt')
+        let barcode = parseCfg(m[`printer_barcode_${tid}`], 'printer_barcode')
+        // fallback: ถ้าไม่พบ config ของ terminal นี้ → ดึง printer_receipt_* key แรกที่มี
+        if (!receipt) {
+          const { data: all } = await supabase.from('settings').select('key,value').like('key', 'printer_receipt_%')
+          const row = (all||[]).find(r => r.value)
+          if (row) receipt = parseCfg(row.value, 'printer_receipt')
         }
-        const receipt = parseCfg(m[`printer_receipt_${tid}`], 'printer_receipt')
-        const barcode = parseCfg(m[`printer_barcode_${tid}`], 'printer_barcode')
+        if (!barcode) {
+          const { data: all } = await supabase.from('settings').select('key,value').like('key', 'printer_barcode_%')
+          const row = (all||[]).find(r => r.value)
+          if (row) barcode = parseCfg(row.value, 'printer_barcode')
+        }
         setPrinterCfg({ receipt, barcode })
         if (receipt) try { localStorage.setItem('printer_receipt', JSON.stringify(receipt)) } catch {}
         if (barcode) try { localStorage.setItem('printer_barcode', JSON.stringify(barcode)) } catch {}
