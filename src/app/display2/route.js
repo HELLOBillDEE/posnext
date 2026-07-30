@@ -65,12 +65,26 @@ body{font-family:'Kanit',sans-serif;}
 .promo-dot.on{background:#fbbf24;}
 
 /* ── PROMO BG-IMAGE MODE ── */
-#med-promo.has-bg{background:none!important;}
-.promo-bg-fade{position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,0.92) 0%,rgba(0,0,0,0.45) 50%,transparent 100%);pointer-events:none;}
-.promo-overlay{position:absolute;bottom:0;left:0;right:0;padding:8px 10px 8px;display:flex;flex-direction:column;gap:6px;}
-.promo-overlay .promo-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
-.promo-overlay .promo-card{background:rgba(0,0,0,0.68);backdrop-filter:blur(5px);border-color:rgba(255,255,255,0.18);}
-.promo-overlay .promo-footer{margin:0;padding-top:5px;border-color:rgba(255,255,255,0.06);}
+#med-promo.has-bg{background:var(--slot-bg,#000) center/cover no-repeat!important;}
+.promo-bg-fade{position:absolute;inset:0;
+  background:linear-gradient(to top,rgba(4,7,18,0.97) 0%,rgba(4,7,18,0.72) 38%,rgba(4,7,18,0.1) 65%,transparent 100%);
+  pointer-events:none;}
+.promo-overlay{position:absolute;bottom:0;left:0;right:0;padding:6px 8px 8px;display:flex;flex-direction:column;gap:5px;}
+.promo-overlay-cat{text-align:center;font-size:11px;font-weight:800;letter-spacing:3px;text-transform:uppercase;
+  color:rgba(251,146,60,0.75);padding-bottom:2px;}
+.promo-overlay .promo-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;}
+.promo-overlay .promo-card{
+  background:rgba(4,8,20,0.84);
+  backdrop-filter:blur(10px);
+  border:1px solid rgba(251,146,60,0.18);
+  border-top:2px solid rgba(251,146,60,0.65);}
+.promo-overlay .promo-card-cat{color:rgba(251,146,60,0.55);}
+.promo-overlay .promo-card-price{color:#fb923c;}
+.promo-overlay .promo-card-price small{color:rgba(255,255,255,0.35);}
+.promo-overlay .promo-footer{margin:0;padding-top:4px;border-color:rgba(251,146,60,0.12);}
+.promo-overlay .promo-footer-shop{color:rgba(251,146,60,0.4);}
+.promo-overlay .promo-dot{background:rgba(251,146,60,0.2);}
+.promo-overlay .promo-dot.on{background:#fb923c;}
 
 /* ── POS PANEL BASE ── */
 .pos{display:flex;flex-direction:column;overflow:hidden;transition:opacity .4s;}
@@ -174,11 +188,12 @@ function buildPromoSlots() {
   for (let i = 1; i <= 3; i++) {
     const img = cfg['promo_template_'+i+'_image']
     if (!img) continue
-    const cat = (cfg['promo_template_'+i+'_cat'] || '').toLowerCase().trim()
+    const catDisplay = (cfg['promo_template_'+i+'_cat'] || '').trim()
+    const cat = catDisplay.toLowerCase()
     const items = cat
       ? _promos.filter(p => (p.categories?.name||'').toLowerCase().includes(cat))
       : _promos
-    slots.push({ img, items: items.length ? items : _promos })
+    slots.push({ img, catDisplay, items: items.length ? items : _promos })
   }
   return slots
 }
@@ -222,17 +237,17 @@ function renderPromoSlide() {
     + '</div>'
 
   if (bgImage) {
-    el.style.backgroundImage = 'url('+bgImage+')'
-    el.style.backgroundSize  = 'cover'
-    el.style.backgroundPosition = 'center'
+    el.style.setProperty('--slot-bg', 'url('+bgImage+')')
     el.classList.add('has-bg')
+    const catLabel = slots.length > 0 ? (slots[_promoPage % slots.length].catDisplay || '') : ''
     el.innerHTML = '<div class="promo-bg-fade"></div>'
       + '<div class="promo-overlay">'
+      + (catLabel ? '<div class="promo-overlay-cat">★ ราคา'+catLabel+' ★</div>' : '')
       + '<div class="promo-grid">'+cards+'</div>'
       + footer
       + '</div>'
   } else {
-    el.style.backgroundImage = ''
+    el.style.removeProperty('--slot-bg')
     el.classList.remove('has-bg')
     el.innerHTML = '<div class="promo-hdr">'
       + '<div class="promo-hdr-top">★ ราคาพิเศษ ★</div>'
