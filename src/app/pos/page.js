@@ -42,6 +42,17 @@ function getReceiptCfg() {
   }
 }
 
+function camSnap(payload) {
+  const bridgeUrl = getReceiptCfg().bridge_url || ''
+  const base = (bridgeUrl && bridgeUrl.startsWith('http')) ? bridgeUrl.replace(/\/$/, '') : ''
+  const url = base ? `${base}/api/camera-snapshot` : '/api/camera-snapshot'
+  return fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).catch(() => {})
+}
+
 const PAY_METHODS = [
   { id:'cash',     label:'เงินสด', icon:'💵' },
   { id:'transfer', label:'โอน/QR', icon:'📱' },
@@ -146,10 +157,7 @@ export default function POSPage() {
       }, payload => {
         const dr = payload.new
         const now = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
-        fetch('/api/camera-snapshot', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ caption: `🔓 อนุมัติเปิดลิ้นชัก — ${dr.employee_name || '?'}  🕐 ${now}`, terminal_id: getTerminalId() || '' }),
-        }).catch(() => {})
+        camSnap({ caption: `🔓 อนุมัติเปิดลิ้นชัก — ${dr.employee_name || '?'}  🕐 ${now}`, terminal_id: getTerminalId() || '' })
       })
       .subscribe()
     return () => { supabase.removeChannel(channel) }
@@ -762,10 +770,7 @@ export default function POSPage() {
             const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
             // บันทึก drawer_log + กล้องก่อน print (แยกออกจาก print error)
             supabase.from('drawer_logs').insert({ employee_name: empCam, note: `ขาย ${receiptNo}` }).then(null, () => {})
-            fetch('/api/camera-snapshot', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ caption: `💳 บิลขาย — ${empCam}  🕐 ${timeCam}`, terminal_id: getTerminalId() || '' }),
-            }).catch(() => {})
+            camSnap({ caption: `💳 บิลขาย — ${empCam}  🕐 ${timeCam}`, terminal_id: getTerminalId() || '' })
             const kick = buildDrawerKickESCPOS()
             const combined = new Uint8Array(kick.length + bytes.length)
             combined.set(kick, 0)
@@ -2186,10 +2191,7 @@ function CancelBillModal({ sale, settings, currentEmp, empMode, onClose, onVoide
             employee_name: 'แอดมิน', amount: refundAmt, note: `เบิกเงินออก — ${voidNote}`,
           }).then(null, () => {})
           const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
-          fetch('/api/camera-snapshot', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ caption: `💸 คืนเงิน — ${sale.receipt_no}  🕐 ${timeCam}`, terminal_id: getTerminalId() || '' }),
-          }).catch(() => {})
+          camSnap({ caption: `💸 คืนเงิน — ${sale.receipt_no}  🕐 ${timeCam}`, terminal_id: getTerminalId() || '' })
         }
       }
 
@@ -2217,10 +2219,7 @@ function CancelBillModal({ sale, settings, currentEmp, empMode, onClose, onVoide
             note: `เบิกเงินออก — ${drawerData.note}`,
           }).then(null, () => {})
           const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
-          fetch('/api/camera-snapshot', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ caption: `💸 คืนเงิน — ${sale.receipt_no}  🕐 ${timeCam}`, terminal_id: getTerminalId() || '' }),
-          }).catch(() => {})
+          camSnap({ caption: `💸 คืนเงิน — ${sale.receipt_no}  🕐 ${timeCam}`, terminal_id: getTerminalId() || '' })
           setStep('done')
           setTimeout(onVoided, 1200)
         } else if (j.status === 'rejected') {
@@ -2350,10 +2349,7 @@ function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
             note: drawerData.note || null,
           }).then(null, () => {})
           const timeStr = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
-          fetch('/api/camera-snapshot', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ caption: `🔓 เปิดลิ้นชัก — ${empName}  🕐 ${timeStr}`, terminal_id: getTerminalId() || '' }),
-          }).catch(() => {})
+          camSnap({ caption: `🔓 เปิดลิ้นชัก — ${empName}  🕐 ${timeStr}`, terminal_id: getTerminalId() || '' })
           setStep('done')
           setTimeout(onClose, 1500)
         } else if (j.status === 'rejected') {
@@ -2394,10 +2390,7 @@ function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
 
     // ถ่ายวิดีโอกล้อง (direct — ไม่ผ่าน relay เพื่อให้ URL ถูกต้องเสมอ)
     const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
-    fetch('/api/camera-snapshot', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ caption: `🔓 เปิดลิ้นชัก — แอดมิน  🕐 ${timeCam}`, terminal_id: getTerminalId() || '' }),
-    }).catch(() => {})
+    camSnap({ caption: `🔓 เปิดลิ้นชัก — แอดมิน  🕐 ${timeCam}`, terminal_id: getTerminalId() || '' })
 
     setSaving(false); setStep('done')
     setTimeout(onClose, 1200)
