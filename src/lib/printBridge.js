@@ -52,7 +52,10 @@ async function sendPrintRequest(url, token, ip, port, b64, timeoutMs = 30000) {
 // delays: ms ก่อน retry แต่ละครั้ง เช่น [0,3000,6000] = ทันที,รอ3วิ,รอ6วิ
 export async function printViaBridge(bridgeUrl, ip, port, bytes, delays = [0, 3000, 6000]) {
   const b64 = btoa(Array.from(bytes).map(b => String.fromCharCode(b)).join(''))
-  const url = (typeof window !== 'undefined' ? window.location.origin : '') + '/api/print-raw'
+  const base = (bridgeUrl && bridgeUrl.startsWith('http'))
+    ? bridgeUrl.replace(/\/$/, '')
+    : (typeof window !== 'undefined' ? window.location.origin : '')
+  const url = base + '/api/print-raw'
   let lastErr
   for (let i = 0; i < delays.length; i++) {
     if (delays[i]) await new Promise(r => setTimeout(r, delays[i]))
