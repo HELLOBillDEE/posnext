@@ -22,9 +22,10 @@ async function captureRTSP(cameraIp, username, password) {
     execFile('ffmpeg', [
       '-y', '-rtsp_transport', 'tcp', '-timeout', '10000000',
       '-i', rtspUrl,
-      '-frames:v', '1', '-q:v', '2', '-update', '1', outPath,
-    ], { timeout: 15000 }, (err) => {
-      if (err) reject(err); else resolve()
+      '-frames:v', '1', '-q:v', '2', outPath,
+    ], { timeout: 20000 }, (err) => {
+      // ถ้าไฟล์เขียนสำเร็จแล้ว ไม่ต้อง reject แม้ ffmpeg ออกด้วย signal
+      if (err && err.code !== null) reject(err); else resolve()
     })
   })
   const buf = await readFile(outPath)
@@ -88,7 +89,8 @@ export async function POST(req) {
       return Response.json({ ok: true, mode: 'snapshot' })
     }
 
-    recordAndNotify(s, caption).catch(e => console.error('[camera] bg error:', e.message))
+    const resolvedSettings = { ...s, camera_ip: cameraIp, camera_username: cameraUsername, camera_password: cameraPassword }
+    recordAndNotify(resolvedSettings, caption).catch(e => console.error('[camera] bg error:', e.message))
     return Response.json({ ok: true, mode: 'video', status: 'recording' })
 
   } catch (e) {

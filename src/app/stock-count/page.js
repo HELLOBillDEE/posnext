@@ -11,10 +11,15 @@ export default function StockCountPage() {
   const [scanInput, setScanInput] = useState('')
   const [nameSearch, setNameSearch] = useState('')
   const [nameSuggestions, setNameSuggestions] = useState([])
-  const [lastMsg, setLastMsg]     = useState(null)
+  const [lastMsg, setLastMsg]       = useState(null)
   const [cameraOpen, setCameraOpen] = useState(false)
-  const [hasBD, setHasBD]         = useState(false)
-  const [camDbg, setCamDbg]       = useState('')
+  const [hasBD, setHasBD]          = useState(false)
+  const [camDbg, setCamDbg]         = useState('')
+  const [showApplyModal, setShowApplyModal] = useState(false)
+  const [applyMode, setApplyMode]   = useState('add') // 'add' | 'reduce' | 'reset'
+  const [applyPreview, setApplyPreview] = useState([])
+  const [applying, setApplying]     = useState(false)
+  const [draftSaved, setDraftSaved] = useState(false)
   const inputRef    = useRef(null)
   const productsRef = useRef([])
   const scannerRef  = useRef(null)
@@ -232,6 +237,49 @@ export default function StockCountPage() {
     localStorage.removeItem('stock_count_session')
   }
 
+  function saveDraft() {
+    localStorage.setItem('stock_count_session', JSON.stringify(counts))
+    localStorage.setItem('stock_count_saved_at', new Date().toLocaleString('th-TH'))
+    setDraftSaved(true)
+    setTimeout(() => setDraftSaved(false), 2500)
+  }
+
+  async function openApplyModal() {
+    if (!counts.length) return
+    const pids = counts.map(c => c.pid).filter(Boolean)
+    const { data } = await supabase.from('products').select('id,stock').in('id', pids)
+    const stockMap = Object.fromEntries((data || []).map(p => [p.id, Number(p.stock) || 0]))
+    setApplyPreview(counts.map(c => ({
+      pid: c.pid, name: c.name, unit: c.unit || 'ชิ้น',
+      counted: c.counted,
+      stockBefore: stockMap[c.pid] ?? Number(c.system) ?? 0,
+    })))
+    setShowApplyModal(true)
+  }
+
+  function stockAfter(item, mode) {
+    if (mode === 'add')    return item.stockBefore + item.counted
+    if (mode === 'reduce') return Math.max(0, item.stockBefore - item.counted)
+    return item.counted // reset / นับใหม่
+  }
+
+  async function applyToStock() {
+    setApplying(true)
+    try {
+      for (const item of applyPreview) {
+        await supabase.from('products').update({ stock: stockAfter(item, applyMode) }).eq('id', item.pid)
+      }
+      setShowApplyModal(false)
+      setCounts([])
+      localStorage.removeItem('stock_count_session')
+      flashMsg(`✅ ปรับสต๊อก ${applyPreview.length} รายการเสร็จแล้ว`)
+    } catch (e) {
+      flashMsg('เกิดข้อผิดพลาด: ' + e.message, false)
+    } finally {
+      setApplying(false)
+    }
+  }
+
   function handleExport() {
     const rows = [['บาร์โค้ด', 'ชื่อสินค้า', 'นับได้', 'ระบบ', 'ต่าง']]
     counts.forEach(c => rows.push([c.barcode, c.name, c.counted, c.system, c.counted - c.system]))
@@ -409,6 +457,106 @@ export default function StockCountPage() {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* Sticky footer */}
+      {counts.length > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 z-30 px-4 pb-safe-area-inset-bottom"
+          style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 12px)', background: 'linear-gradient(to top, #f8fafc 80%, transparent)' }}>
+          <div className="flex gap-3 pb-3 max-w-2xl mx-auto">
+            <button onClick={saveDraft}
+              className="flex-1 py-3.5 rounded-2xl text-base font-bold border-2 border-slate-300 text-slate-600 active:bg-slate-100 transition-colors relative overflow-hidden"
+              style={{ background: draftSaved ? '#f0fdf4' : '#fff', borderColor: draftSaved ? '#86efac' : undefined, color: draftSaved ? '#16a34a' : undefined }}>
+              {draftSaved ? '✓ บันทึกแล้ว' : '💾 บันทึกร่าง'}
+            </button>
+            <button onClick={openApplyModal}
+              className="flex-1 py-3.5 rounded-2xl text-base font-bold text-white active:opacity-90 transition-opacity"
+              style={{ background: 'linear-gradient(135deg,#C72C41,#801336)' }}>
+              ✅ ปรับสต๊อก
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Apply modal */}
+      {showApplyModal && (
+        <div className="fixed inset-0 z-50 flex items-end" style={{ background: 'rgba(0,0,0,0.5)' }}
+          onClick={e => { if (e.target === e.currentTarget) setShowApplyModal(false) }}>
+          <div className="w-full max-w-2xl mx-auto bg-white rounded-t-3xl shadow-2xl max-h-[90vh] flex flex-col">
+            <div className="px-5 pt-5 pb-3 flex-shrink-0">
+              <div className="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-4" />
+              <h2 className="text-lg font-bold text-slate-800 mb-3">ปรับสต๊อก</h2>
+              {/* Mode tabs */}
+              <div className="flex gap-2 mb-1">
+                {[
+                  { key: 'add',    label: '+ เพิ่ม',   desc: 'บวกจำนวนที่นับเข้าสต๊อก' },
+                  { key: 'reduce', label: '− ลด',      desc: 'หักจำนวนที่นับออกจากสต๊อก' },
+                  { key: 'reset',  label: '↺ นับใหม่', desc: 'ตั้งสต๊อกเป็นจำนวนที่นับได้' },
+                ].map(m => (
+                  <button key={m.key} onClick={() => setApplyMode(m.key)}
+                    className="flex-1 py-2 rounded-xl text-sm font-bold transition-all"
+                    style={applyMode === m.key
+                      ? { background: '#C72C41', color: '#fff' }
+                      : { background: '#f1f5f9', color: '#64748b' }}>
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-slate-400 text-center mt-1.5">
+                {applyMode === 'add'    && 'สต๊อกใหม่ = สต๊อกเดิม + จำนวนที่นับ'}
+                {applyMode === 'reduce' && 'สต๊อกใหม่ = สต๊อกเดิม − จำนวนที่นับ'}
+                {applyMode === 'reset'  && 'สต๊อกใหม่ = จำนวนที่นับได้ (ตั้งค่าใหม่)'}
+              </p>
+            </div>
+
+            {/* Preview list */}
+            <div className="flex-1 overflow-y-auto px-4 pb-2">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-white">
+                  <tr className="text-xs text-slate-400 border-b">
+                    <th className="text-left py-2 font-medium">สินค้า</th>
+                    <th className="text-right py-2 font-medium">เดิม</th>
+                    <th className="text-right py-2 font-medium">นับ</th>
+                    <th className="text-right py-2 font-medium text-slate-700">ใหม่</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {applyPreview.map(item => {
+                    const after = stockAfter(item, applyMode)
+                    const diff = after - item.stockBefore
+                    return (
+                      <tr key={item.pid} className="border-b border-slate-50">
+                        <td className="py-2 pr-2">
+                          <div className="font-medium text-slate-700 leading-tight">{item.name}</div>
+                          <div className="text-[10px] text-slate-400">{item.unit}</div>
+                        </td>
+                        <td className="py-2 text-right text-slate-500">{fmt(item.stockBefore)}</td>
+                        <td className="py-2 text-right text-slate-500">{fmt(item.counted)}</td>
+                        <td className="py-2 text-right font-bold">
+                          <span className={diff > 0 ? 'text-blue-600' : diff < 0 ? 'text-red-600' : 'text-green-600'}>
+                            {fmt(after)}
+                          </span>
+                          <div className="text-[10px] font-normal text-slate-400">
+                            {diff === 0 ? '±0' : diff > 0 ? `+${fmt(diff)}` : fmt(diff)}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Confirm */}
+            <div className="px-4 py-4 flex-shrink-0 border-t border-slate-100">
+              <button onClick={applyToStock} disabled={applying}
+                className="w-full py-4 rounded-2xl text-base font-bold text-white active:opacity-90 disabled:opacity-60"
+                style={{ background: 'linear-gradient(135deg,#C72C41,#801336)' }}>
+                {applying ? 'กำลังบันทึก…' : `ยืนยัน ปรับสต๊อก ${applyPreview.length} รายการ`}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
