@@ -49,14 +49,13 @@ async function printRepairReceipt(job, settings, receiptCfg, barcodeCfg) {
   if (cfg.ip) {
     try {
       const bytes = await buildRepairESCPOS(job, settings, pm, dtStr, apptStr)
-      await printViaBridge('', cfg.ip, cfg.port || 9100, bytes)
+      await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
     } catch (e) {
       console.error('receipt print error', e)
       alert('❌ พิมใบนัดไม่ได้: ' + (e?.message || e) + '\nตรวจสอบ IP เครื่องพิมพ์ในหน้า Admin')
     }
   } else {
     const html = buildRepairHTML(job, settings, w, dtStr, apptStr)
-    // ใช้ iframe แทน window.open เพื่อหลีกเลี่ยง popup blocker
     const blob = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }))
     const iframe = document.createElement('iframe')
     iframe.style.cssText = 'position:fixed;left:-9999px;width:1px;height:1px;opacity:0'
@@ -73,7 +72,7 @@ async function printRepairReceipt(job, settings, receiptCfg, barcodeCfg) {
   if (bcfg.ip) {
     try {
       const bytes = await buildQueueSticker(job.repair_no, bcfg)
-      await printViaBridge('', bcfg.ip, bcfg.port || 9100, bytes)
+      await printViaBridge(bcfg.bridge_url || '', bcfg.ip, bcfg.port || 9100, bytes)
     } catch (e) { console.error('sticker print error', e) }
   }
 }
