@@ -492,7 +492,7 @@ export default function RepairPage() {
     if (!bcfg.ip) { alert('ยังไม่ได้ตั้งค่า IP เครื่องพิมพ์สติ๊กเกอร์\nไปที่ Admin → เครื่องพิมพ์ → Barcode Printer'); return }
     try {
       const bytes = await buildQueueSticker(job.repair_no, bcfg)
-      await printViaBridge('', bcfg.ip, bcfg.port || 9100, bytes)
+      await printViaBridge(bcfg.bridge_url || '', bcfg.ip, bcfg.port || 9100, bytes)
     } catch (e) { alert('พิมพ์ไม่ได้: ' + e.message) }
   }
 
@@ -566,7 +566,7 @@ export default function RepairPage() {
       const rcfg = printerCfg.receipt
       if (rcfg?.ip) {
         buildQuoteESCPOS(quoteJob, quoteItems, subtotal, deposit, total, settings, parseInt(rcfg.paper_mm) || 80)
-          .then(bytes => printViaBridge('', rcfg.ip, rcfg.port || 9100, bytes))
+          .then(bytes => printViaBridge(rcfg.bridge_url || '', rcfg.ip, rcfg.port || 9100, bytes))
           .catch(e => console.error('print quote error', e))
       }
 
