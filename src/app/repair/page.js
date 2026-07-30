@@ -804,13 +804,11 @@ export default function RepairPage() {
             <p className="text-white/40 text-sm mt-0.5">{jobs.length} รายการทั้งหมด</p>
           </div>
           <div className="flex items-center gap-2">
-            {(currentTid === 'default' || !printerCfg.receipt?.ip) && (
-              <button onClick={() => setShowPrinterPicker(true)}
-                className="px-3 py-2 rounded-xl text-xs font-semibold transition-all active:scale-95"
-                style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', color: printerCfg.receipt?.ip ? '#86efac' : '#fca5a5' }}>
-                🖨 {printerCfg.receipt?.name || 'เลือกเครื่องพิม'}
-              </button>
-            )}
+            <button onClick={() => setShowPrinterPicker(true)}
+              className="px-3 py-2 rounded-xl text-xs font-semibold transition-all active:scale-95"
+              style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', color: printerCfg.receipt?.ip ? '#86efac' : '#fca5a5' }}>
+              🖨 {printerCfg.receipt?.name || 'เลือกเครื่องพิม'}
+            </button>
             {!isEmp && (
               <a href="/repair/commission"
                 className="px-3 py-2.5 rounded-xl text-sm font-semibold text-violet-300 transition-all active:scale-95"
