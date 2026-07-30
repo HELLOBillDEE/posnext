@@ -401,9 +401,55 @@ export default function RepairPage() {
   const [productResults, setProductResults] = useState([])
   const [settings, setSettings]           = useState({})
   const [printerCfg, setPrinterCfg]       = useState({ receipt: null, barcode: null })
+  const [printerList, setPrinterList]     = useState([])
+  const [currentTid, setCurrentTid]       = useState('default')
+  const [showPrinterPicker, setShowPrinterPicker] = useState(false)
   const [employees, setEmployees]         = useState([])
   const [isEmp, setIsEmp]                 = useState(false)
   const [embed, setEmbed]                 = useState(false)
+
+  const loadPrinterCfg = useCallback(async () => {
+    const parseCfg = (val, lsKey) => {
+      try { if (val) return JSON.parse(val) } catch {}
+      try { const ls = localStorage.getItem(lsKey); if (ls) return JSON.parse(ls) } catch {}
+      return null
+    }
+    const tid = (() => {
+      try {
+        const urlTid = new URLSearchParams(window.location.search).get('tid')
+        if (urlTid) return urlTid
+        return JSON.parse(localStorage.getItem('device_config') || '{}').terminal_id || 'default'
+      } catch { return 'default' }
+    })()
+    setCurrentTid(tid)
+    const { data: rows } = await supabase.from('settings').select('key,value')
+      .like('key', 'printer_receipt_%')
+    const list = (rows||[]).map(r => ({ tid: r.key.replace('printer_receipt_', ''), cfg: parseCfg(r.value, null) }))
+    setPrinterList(list)
+    const { data } = await supabase.from('settings').select('key,value')
+      .in('key', ['shop_name','shop_address','shop_phone',`printer_receipt_${tid}`,`printer_barcode_${tid}`])
+    const m = {}; (data||[]).forEach(r => m[r.key]=r.value); setSettings(m)
+    let receipt = parseCfg(m[`printer_receipt_${tid}`], 'printer_receipt')
+    let barcode = parseCfg(m[`printer_barcode_${tid}`], 'printer_barcode')
+    if (!receipt && list.length > 0) receipt = list[0].cfg
+    if (!barcode) {
+      const { data: bc } = await supabase.from('settings').select('key,value').like('key', 'printer_barcode_%')
+      const row = (bc||[]).find(r => r.value)
+      if (row) barcode = parseCfg(row.value, null)
+    }
+    setPrinterCfg({ receipt, barcode })
+    if (receipt) try { localStorage.setItem('printer_receipt', JSON.stringify(receipt)) } catch {}
+    if (barcode) try { localStorage.setItem('printer_barcode', JSON.stringify(barcode)) } catch {}
+  }, [])
+
+  function handleSelectPrinter(tid) {
+    try {
+      const dc = JSON.parse(localStorage.getItem('device_config') || '{}')
+      localStorage.setItem('device_config', JSON.stringify({ ...dc, terminal_id: tid }))
+    } catch {}
+    setShowPrinterPicker(false)
+    loadPrinterCfg()
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -448,40 +494,8 @@ export default function RepairPage() {
   }, [])
 
   useEffect(() => {
-    const tid = (() => {
-      try {
-        const urlTid = new URLSearchParams(window.location.search).get('tid')
-        if (urlTid) return urlTid
-        return JSON.parse(localStorage.getItem('device_config') || '{}').terminal_id || 'default'
-      } catch { return 'default' }
-    })()
-    const parseCfg = (val, lsKey) => {
-      try { if (val) return JSON.parse(val) } catch {}
-      try { const ls = localStorage.getItem(lsKey); if (ls) return JSON.parse(ls) } catch {}
-      return null
-    }
-    supabase.from('settings').select('key,value')
-      .in('key', ['shop_name','shop_address','shop_phone',`printer_receipt_${tid}`,`printer_barcode_${tid}`])
-      .then(async ({ data }) => {
-        const m = {}; (data||[]).forEach(r => m[r.key]=r.value); setSettings(m)
-        let receipt = parseCfg(m[`printer_receipt_${tid}`], 'printer_receipt')
-        let barcode = parseCfg(m[`printer_barcode_${tid}`], 'printer_barcode')
-        // fallback: ถ้าไม่พบ config ของ terminal นี้ → ดึง printer_receipt_* key แรกที่มี
-        if (!receipt) {
-          const { data: all } = await supabase.from('settings').select('key,value').like('key', 'printer_receipt_%')
-          const row = (all||[]).find(r => r.value)
-          if (row) receipt = parseCfg(row.value, 'printer_receipt')
-        }
-        if (!barcode) {
-          const { data: all } = await supabase.from('settings').select('key,value').like('key', 'printer_barcode_%')
-          const row = (all||[]).find(r => r.value)
-          if (row) barcode = parseCfg(row.value, 'printer_barcode')
-        }
-        setPrinterCfg({ receipt, barcode })
-        if (receipt) try { localStorage.setItem('printer_receipt', JSON.stringify(receipt)) } catch {}
-        if (barcode) try { localStorage.setItem('printer_barcode', JSON.stringify(barcode)) } catch {}
-      })
-  }, [])
+    loadPrinterCfg()
+  }, [loadPrinterCfg])
 
   // product search for parts
   useEffect(() => {
@@ -790,6 +804,11 @@ export default function RepairPage() {
             <p className="text-white/40 text-sm mt-0.5">{jobs.length} รายการทั้งหมด</p>
           </div>
           <div className="flex items-center gap-2">
+            <button onClick={() => setShowPrinterPicker(true)}
+              className="px-3 py-2 rounded-xl text-xs font-semibold transition-all active:scale-95"
+              style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', color: printerCfg.receipt?.ip ? '#86efac' : '#fca5a5' }}>
+              🖨 {printerCfg.receipt?.name || 'เลือกเครื่องพิม'}
+            </button>
             {!isEmp && (
               <a href="/repair/commission"
                 className="px-3 py-2.5 rounded-xl text-sm font-semibold text-violet-300 transition-all active:scale-95"
@@ -1286,6 +1305,41 @@ export default function RepairPage() {
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Printer Picker Modal */}
+      {showPrinterPicker && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center"
+          style={{ background: 'rgba(0,0,0,0.7)' }}
+          onClick={() => setShowPrinterPicker(false)}>
+          <div className="w-full max-w-md rounded-t-2xl p-5 pb-10"
+            style={{ background: '#1a0814', border: '1px solid rgba(255,255,255,0.1)' }}
+            onClick={e => e.stopPropagation()}>
+            <p className="text-white font-bold text-base mb-4">🖨 เลือกเครื่องพิมพ์</p>
+            <div className="space-y-2">
+              {printerList.map(({ tid, cfg }) => (
+                <button key={tid} onClick={() => handleSelectPrinter(tid)}
+                  className="w-full text-left px-4 py-3 rounded-xl flex items-center justify-between transition-all active:scale-95"
+                  style={{
+                    background: currentTid === tid ? 'rgba(199,44,65,0.25)' : 'rgba(255,255,255,0.05)',
+                    border: `1px solid ${currentTid === tid ? 'rgba(199,44,65,0.5)' : 'rgba(255,255,255,0.1)'}`,
+                  }}>
+                  <div>
+                    <p className="text-white font-semibold text-sm">{cfg?.name || tid}</p>
+                    <p className="text-white/40 text-xs mt-0.5">
+                      {tid} {cfg?.ip ? `· ${cfg.ip}` : ''}
+                      {cfg?.bridge_url ? ` · bridge: ${cfg.bridge_url}` : ''}
+                    </p>
+                  </div>
+                  {currentTid === tid && <span className="text-green-400 text-lg">✓</span>}
+                </button>
+              ))}
+              {printerList.length === 0 && (
+                <p className="text-white/40 text-sm text-center py-6">ยังไม่มีเครื่องพิมพ์ที่ตั้งค่าไว้<br/>ไปที่ Admin → ตั้งค่าเครื่องพิมพ์</p>
+              )}
             </div>
           </div>
         </div>
