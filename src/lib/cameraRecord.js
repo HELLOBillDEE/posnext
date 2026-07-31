@@ -85,6 +85,12 @@ export async function recordAndNotify(s, caption) {
     await sendToTelegram(s.telegram_bot_token, s.telegram_chat_id, buf, caption)
   } catch (e) {
     console.error('[camera] recordAndNotify error:', e.message)
+    if (s.telegram_bot_token && s.telegram_chat_id) {
+      fetch(`https://api.telegram.org/bot${s.telegram_bot_token}/sendMessage`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: s.telegram_chat_id, text: `⚠️ กล้องบันทึกไม่ได้: ${e.message.slice(0, 300)}` }),
+      }).catch(() => {})
+    }
   } finally {
     await unlink(outPath).catch(() => {})
   }

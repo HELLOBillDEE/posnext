@@ -85,7 +85,7 @@ const ALL_TABS = [
   { href:'/',          label:'หน้าหลัก',  icon: IC.home,      adminOnly: true },
   { href:'/pos',       label:'ขาย',       icon: IC.pos },
   { href:'/products',  label:'สินค้า',    icon: IC.product },
-  { href:'/po',        label:'สั่งซื้อ',  icon: IC.po },
+  { href:'/po',        label:'สั่งซื้อ',  icon: IC.po,         adminOnly: true },
   { href:'/repair',    label:'คิวซ่อม',   icon: IC.repair },
   { href:'/customers', label:'ลูกค้า',    icon: IC.customer },
   { href:'/documents',   label:'เอกสาร',   icon: IC.doc },

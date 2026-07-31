@@ -305,7 +305,7 @@ function ProductsTab({ printerCfg, empName }) {
 
       if (items.length === 0) throw new Error('ไม่พบสินค้า')
       const bytes = await buildLabelTSPL(items, labelSize)
-      await printViaBridge(printerCfg.bridge_url || '', printerCfg.ip, parseInt(printerCfg.port) || 9100, bytes, [0])
+      await printViaBridge(window.location.origin, printerCfg.ip, parseInt(printerCfg.port) || 9100, bytes, [0])
       const totalPrinted = items.reduce((s, i) => s + i.qty, 0)
       setPrintMsg({ ok: true, text: `ปริ้น ${totalPrinted} แผ่น สำเร็จ` })
       setSelected({})
