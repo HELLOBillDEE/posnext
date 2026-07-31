@@ -5,6 +5,8 @@ import { readFile, unlink } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
+export const runtime = 'nodejs'
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
