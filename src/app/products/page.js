@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/AuthProvider'
 import { fmt } from '@/lib/utils'
+import { buildLabelTSPL, buildLabelESCPOS, printViaBridge } from '@/lib/printBridge'
 
 // pw=page width, ph=row height, cols=columns per row, m=outer margin (mm)
 // pw = total paper width, lw = each label width, hGap = gap between columns, vGap = gap between rows
@@ -225,7 +226,7 @@ export default function ProductsPage() {
 
     setIsPrinting(true)
     try {
-      const { buildLabelTSPL, buildLabelESCPOS, printViaBridge } = await import('@/lib/printBridge')
+      // buildLabelTSPL, buildLabelESCPOS, printViaBridge imported statically above
       const lang  = cfg.lang || 'tspl'
       // TSPL expects items with .qty (total labels per product), not an expanded array
       const tsplItems = products.filter(p => selected.has(p.id)).map(p => ({ ...p, qty: parseInt(printQtys[p.id] || 1) }))
