@@ -3,6 +3,7 @@ import { Kanit } from 'next/font/google'
 import LayoutNav from '@/components/LayoutNav'
 import AuthProvider from '@/components/AuthProvider'
 import StaffGuard from '@/components/StaffGuard'
+import ChunkErrorHandler from '@/components/ChunkErrorHandler'
 
 const kanit = Kanit({
   subsets: ['thai', 'latin'],
@@ -58,6 +59,7 @@ export default function RootLayout({ children }) {
     <html lang="th" className={kanit.variable}>
       <body className="bg-slate-50 min-h-screen" style={{ fontFamily: 'var(--font-kanit), sans-serif' }}>
         <AuthProvider>
+          <ChunkErrorHandler />
           <StaffGuard />
           <div className="flex min-h-screen">
             <LayoutNav />
