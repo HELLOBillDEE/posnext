@@ -154,7 +154,7 @@ export default function POSPage() {
       }, payload => {
         const dr = payload.new
         const now = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
-        camSnap({ caption: `🔓 อนุมัติเปิดลิ้นชัก — ${dr.employee_name || '?'}  🕐 ${now}`, terminal_id: getTerminalId() || '' })
+        camSnap({ caption: `🔓 อนุมัติเปิดลิ้นชัก — ${dr.employee_name || '?'}  🕐 ${now}`, terminal_id: getTerminalId() || '', duration: 13 })
       })
       .subscribe()
     return () => { supabase.removeChannel(channel) }
@@ -767,13 +767,18 @@ export default function POSPage() {
             const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
             // บันทึก drawer_log + กล้องก่อน print (แยกออกจาก print error)
             supabase.from('drawer_logs').insert({ employee_name: empCam, note: `ขาย ${receiptNo}` }).then(null, () => {})
-            camSnap({ caption: `💳 บิลขาย — ${empCam}  🕐 ${timeCam}`, terminal_id: getTerminalId() || '' })
+            camSnap({ caption: `💳 บิลขาย — ${empCam}  🕐 ${timeCam}`, terminal_id: getTerminalId() || '', duration: 13 })
             const kick = buildDrawerKickESCPOS()
             const combined = new Uint8Array(kick.length + bytes.length)
             combined.set(kick, 0)
             combined.set(bytes, kick.length)
             await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, combined)
           } else {
+            if (saveMethod === 'transfer') {
+              const empCam  = currentEmp ? (currentEmp.nickname || currentEmp.name) : 'POS'
+              const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
+              camSnap({ caption: `📱 โอน — ${empCam}  🕐 ${timeCam}`, terminal_id: getTerminalId() || '', duration: 5 })
+            }
             await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
           }
           setPrintStatus('ok')

@@ -68,6 +68,7 @@ export async function POST(req) {
     const caption     = body.caption || ''
     const mode        = body.mode || 'video'
     const terminal_id = body.terminal_id || ''
+    const duration    = Math.min(Math.max(parseInt(body.duration) || 15, 1), 120)
 
     const keysToFetch = ['camera_ip', 'camera_username', 'camera_password', 'telegram_bot_token', 'telegram_chat_id']
     if (terminal_id) keysToFetch.push(`camera_ip_${terminal_id}`, `camera_username_${terminal_id}`, `camera_password_${terminal_id}`)
@@ -94,7 +95,7 @@ export async function POST(req) {
     }
 
     const resolvedSettings = { ...s, camera_ip: cameraIp, camera_username: cameraUsername, camera_password: cameraPassword }
-    recordAndNotify(resolvedSettings, caption).catch(e => console.error('[camera] bg error:', e.message))
+    recordAndNotify(resolvedSettings, caption, duration).catch(e => console.error('[camera] bg error:', e.message))
     return Response.json({ ok: true, mode: 'video', status: 'recording' })
 
   } catch (e) {

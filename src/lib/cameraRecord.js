@@ -77,13 +77,13 @@ async function sendToTelegram(token, chatId, buffer, caption) {
   if (!json.ok) console.error('[camera] Telegram sendVideo error:', json.description)
 }
 
-export async function recordAndNotify(s, caption) {
+export async function recordAndNotify(s, caption, duration = 15) {
   const ts      = Date.now()
   const outPath = join(tmpdir(), `drawer-${ts}.mp4`)
   const url     = buildCameraUrl(s)
 
   try {
-    await recordCamera(url, 15, outPath)
+    await recordCamera(url, duration, outPath)
     const buf       = await readFile(outPath)
     const filename  = `${ts}.mp4`
     const publicUrl = await uploadToStorage(buf, filename, 'video/mp4').catch(() => null)

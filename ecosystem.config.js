@@ -1,9 +1,9 @@
 module.exports = {
   apps: [{
     name: 'posnext',
-    cwd: '/Users/kanitthaphoothong/Desktop/POSNEXT/posnext',
-    script: './node_modules/.bin/next',
+    script: 'node_modules/next/dist/bin/next',
     args: 'start',
+    interpreter: 'node',
     exec_mode: 'fork',
     autorestart: true,
     watch: false,
