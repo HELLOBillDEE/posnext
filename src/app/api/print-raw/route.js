@@ -1,5 +1,7 @@
 import net from 'net'
 
+export const runtime = 'nodejs'
+
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
