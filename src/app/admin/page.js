@@ -112,8 +112,8 @@ function loadPrinters() {
     receipt: JSON.parse(localStorage.getItem('printer_receipt') || 'null'),
   }
   return {
-    barcode: { ...DEF_BARCODE, bridge_url: origin, ...(saved.barcode || {}) },
-    receipt: { ...DEF_RECEIPT, bridge_url: origin, ...(saved.receipt || {}) },
+    barcode: { ...DEF_BARCODE, ...(saved.barcode || {}), bridge_url: origin },
+    receipt: { ...DEF_RECEIPT, ...(saved.receipt || {}), bridge_url: origin },
   }
 }
 
@@ -604,6 +604,9 @@ export default function AdminPage() {
       if (r1.error) throw r1.error
       const r2 = await supabase.from('settings').upsert({ key: `printer_receipt_${tid}`, value: JSON.stringify(printers.receipt) }, { onConflict: 'key' })
       if (r2.error) throw r2.error
+      // อัปเดต global key ด้วย เพื่อให้หน้าสินค้าอ่านได้
+      await supabase.from('settings').upsert({ key: 'printer_barcode', value: JSON.stringify(printers.barcode) }, { onConflict: 'key' })
+      await supabase.from('settings').upsert({ key: 'printer_receipt', value: JSON.stringify(printers.receipt) }, { onConflict: 'key' })
       setPrinterSaved(true)
       setTimeout(() => setPrinterSaved(false), 2000)
     } catch (e) {
