@@ -204,7 +204,7 @@ function BonusModal({ empId, empName, period, onClose, onSaved }) {
 }
 
 // ── EmpCard (Payroll) ─────────────────────────────────────────────────
-function EmpCard({ emp, period, onSettled }) {
+function EmpCard({ emp, period, shopName, onSettled }) {
   const [settling, setSettling]     = useState(false)
   const [unsettling, setUnsettling] = useState(false)
   const [showInst, setShowInst]     = useState(false)
@@ -251,30 +251,47 @@ function EmpCard({ emp, period, onSettled }) {
 
   function printPayslip() {
     const [y,mo] = period.split('-').map(Number)
-    const monthLabel = `${MONTH_TH[mo-1]} ${y}`
+    const monthLabel = `${MONTH_TH[mo-1]} ${y+543}`
     const name = emp.nickname||emp.name
+    const shopNameLabel = shopName || 'ร้านค้า'
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>สลิปค่าแรง ${name}</title>
-<style>body{font-family:Arial,sans-serif;max-width:320px;margin:0 auto;padding:16px;font-size:13px}
-h2{text-align:center;margin:0 0 4px;font-size:16px}.sub{text-align:center;color:#666;margin-bottom:12px;font-size:12px}
-.row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dashed #eee}
-.row.total{border-top:2px solid #333;border-bottom:none;font-weight:bold;font-size:14px;margin-top:4px}
-.deduct{color:#dc2626}.earn{color:#16a34a}.net{color:#2563eb;font-size:16px}
-footer{text-align:center;color:#999;font-size:10px;margin-top:16px}
+<style>
+@media print{body{margin:0}}
+body{font-family:'Sarabun',Arial,sans-serif;max-width:340px;margin:0 auto;padding:20px 16px;font-size:13px;color:#111}
+h1{text-align:center;margin:0 0 2px;font-size:17px;font-weight:700}
+h2{text-align:center;margin:0 0 2px;font-size:14px;font-weight:600;color:#333}
+.sub{text-align:center;color:#666;margin-bottom:14px;font-size:12px;border-bottom:2px solid #111;padding-bottom:10px}
+.section{margin:8px 0 4px;font-size:10px;font-weight:700;color:#888;letter-spacing:.05em;text-transform:uppercase}
+.row{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed #e5e5e5;font-size:13px}
+.row.sub-item{padding-left:12px;font-size:12px;color:#444}
+.row.total{border-top:2px solid #111;border-bottom:2px solid #111;font-weight:700;font-size:15px;margin-top:6px;padding:5px 0}
+.deduct{color:#dc2626}.earn{color:#16a34a}.net{color:#1d4ed8}
+footer{text-align:center;color:#aaa;font-size:10px;margin-top:18px;border-top:1px dashed #ddd;padding-top:10px}
 </style></head><body>
-<h2>สลิปค่าแรง</h2><div class="sub">${name} · ${monthLabel}</div>
+<h1>${shopNameLabel}</h1>
+<h2>สลิปค่าแรง</h2>
+<div class="sub">${name} &nbsp;|&nbsp; ${monthLabel}</div>
+
+<div class="section">รายได้</div>
 <div class="row"><span>วันทำงาน</span><span>${emp.daysWorked} วัน</span></div>
 <div class="row"><span>ค่าแรง (${fmt(emp.daily_rate)}/วัน)</span><span class="earn">฿${fmt(emp.grossPay)}</span></div>
+${emp.commission>0?`<div class="row"><span>ค่าคอมช่าง (${emp.repair_commission_pct||0}% × ฿${fmt(emp.laborTotal)})</span><span class="earn">+฿${fmt(emp.commission)}</span></div>`:''}
 ${emp.streakBonus>0?`<div class="row"><span>โบนัส 10 วันติด</span><span class="earn">+฿${fmt(emp.streakBonus)}</span></div>`:''}
 ${(emp.bonusDetail||[]).map(b=>`<div class="row"><span>${b.note||'โบนัสพิเศษ'}</span><span class="earn">+฿${fmt(b.amount)}</span></div>`).join('')}
-<div class="row"><span>รวมรายได้</span><span class="earn">฿${fmt(emp.totalEarned)}</span></div>
-<div style="height:8px"></div>
-${emp.totalWithdrawn>0?`<div class="row"><span>เบิกไปแล้ว</span><span class="deduct">-฿${fmt(emp.totalWithdrawn)}</span></div>`:''}
+<div class="row" style="font-weight:600"><span>รวมรายได้</span><span class="earn">฿${fmt(emp.totalEarned)}</span></div>
+
+${(emp.totalWithdrawn>0||emp.installmentDetail.some(i=>i.deductAmount>0)||emp.carryForwardIn>0)?`<div class="section">หัก</div>`:''}
+${emp.totalWithdrawn>0?`<div class="row"><span>เบิกล่วงหน้า</span><span class="deduct">-฿${fmt(emp.totalWithdrawn)}</span></div>`:''}
 ${emp.installmentDetail.filter(i=>i.deductAmount>0).map(i=>`<div class="row"><span>${i.name} (${i.thisMonth} วัน)</span><span class="deduct">-฿${fmt(i.deductAmount)}</span></div>`).join('')}
 ${emp.carryForwardIn>0?`<div class="row"><span>ทบจากเดือนก่อน</span><span class="deduct">-฿${fmt(emp.carryForwardIn)}</span></div>`:''}
+
 <div class="row total"><span>${emp.netPayDue>=0?'คงเหลือจ่าย':'ทบเดือนหน้า'}</span><span class="${emp.netPayDue>=0?'net':'deduct'}">${emp.netPayDue<0?'−':''}฿${fmt(Math.abs(emp.netPayDue))}</span></div>
-<footer>พิมพ์ ${new Date().toLocaleDateString('th-TH')}</footer></body></html>`
-    const w = window.open('','_blank','width=380,height=600')
-    w.document.write(html); w.document.close(); w.print()
+<footer>พิมพ์ ${new Date().toLocaleDateString('th-TH', {timeZone:'Asia/Bangkok'})} &nbsp;|&nbsp; ${new Date().toLocaleTimeString('th-TH',{timeZone:'Asia/Bangkok',hour:'2-digit',minute:'2-digit'})}</footer>
+</body></html>`
+    const w = window.open('','_blank','width=400,height=650')
+    if (!w) return alert('กรุณาอนุญาต pop-up เพื่อพิมพ์สลิป')
+    w.document.write(html); w.document.close()
+    w.onload = () => w.print()
   }
 
   return (
@@ -803,7 +820,7 @@ export default function EmployeesPage() {
               </div>
             )}
             {!payrollLoading && !payrollData?.error && payrollData?.employees?.map(emp => (
-              <EmpCard key={emp.id} emp={emp} period={period} onSettled={loadPayroll} />
+              <EmpCard key={emp.id} emp={emp} period={period} shopName={payrollData?.shopName||''} onSettled={loadPayroll} />
             ))}
           </div>
         </div>

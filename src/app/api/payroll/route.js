@@ -34,6 +34,7 @@ export async function GET(req) {
       { data: settlements },
       { data: prevSettlements },
       { data: bonuses },
+      { data: shopSettings },
     ] = await Promise.all([
       supabase.from('employees').select('id, name, nickname, position, daily_rate, repair_commission_pct').eq('active', true).order('name'),
       supabase.from('attendance').select('employee_id, date, check_in, check_out').gte('date', dateFrom).lte('date', dateTo),
@@ -43,7 +44,9 @@ export async function GET(req) {
       supabase.from('payroll_settlements').select('*').eq('period', period),
       supabase.from('payroll_settlements').select('employee_id, carry_forward_out').eq('period', prevPeriod),
       supabase.from('employee_bonus').select('employee_id, amount, note').eq('period', period),
+      supabase.from('settings').select('key, value').eq('key', 'shop_name'),
     ])
+    const shopName = shopSettings?.[0]?.value || ''
 
     // คำนวณค่าคอม: repair_orders + quotations + sale_items (ค่าซ่อม)
     // ใช้ join แทน .in() เพื่อรองรับบิลจำนวนมาก
@@ -200,7 +203,7 @@ export async function GET(req) {
       }
     })
 
-    return Response.json({ period, dateFrom, dateTo, employees: result })
+    return Response.json({ period, dateFrom, dateTo, shopName, employees: result })
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 })
   }
