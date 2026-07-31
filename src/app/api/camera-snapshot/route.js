@@ -7,6 +7,8 @@ import { join } from 'path'
 
 export const runtime = 'nodejs'
 
+const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg'
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
@@ -21,7 +23,7 @@ async function captureRTSP(cameraIp, username, password) {
   const rtspUrl = `rtsp://${username}:${password}@${cameraIp}/cam/realmonitor?channel=1&subtype=0`
   const outPath = join(tmpdir(), `snap_${Date.now()}.jpg`)
   await new Promise((resolve, reject) => {
-    execFile('ffmpeg', [
+    execFile(FFMPEG, [
       '-y', '-rtsp_transport', 'tcp', '-timeout', '10000000',
       '-i', rtspUrl,
       '-frames:v', '1', '-q:v', '2', outPath,
