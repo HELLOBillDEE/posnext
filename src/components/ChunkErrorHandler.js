@@ -3,8 +3,7 @@ import { useEffect } from 'react'
 
 function isChunkError(msg) {
   if (!msg) return false
-  return msg.includes('Loading chunk') || msg.includes('ChunkLoadError') ||
-    msg.includes('Load failed') || msg.includes('400') || msg.includes('Failed to load resource')
+  return msg.includes('Loading chunk') || msg.includes('ChunkLoadError') || msg.includes('Load failed')
 }
 
 function hardReload() {
