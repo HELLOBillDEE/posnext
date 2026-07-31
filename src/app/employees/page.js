@@ -650,15 +650,17 @@ export default function EmployeesPage() {
   async function loadPending() {
     setPendingLoading(true)
     try {
-      const [{ data: leaves }, { data: advances }, { data: drawers }] = await Promise.all([
+      const [{ data: leaves }, { data: advances }, { data: drawers }, { data: expenseReqs }] = await Promise.all([
         supabase.from('leave_requests').select('id,employee_name,date_from,date_to,period,leave_type,note,created_at').eq('status','pending').order('created_at',{ascending:false}),
         supabase.from('salary_advances').select('id,employee_name,amount,note,created_at').eq('status','pending').order('created_at',{ascending:false}),
         supabase.from('drawer_requests').select('id,employee_name,note,amount,created_at').eq('status','pending').order('created_at',{ascending:false}),
+        supabase.from('expenses').select('id,paid_by_name,description,amount,expense_date,category,note,created_at').eq('status','pending').order('created_at',{ascending:false}),
       ])
       const items = [
-        ...(leaves  ||[]).map(r=>({...r,_type:'leave'})),
-        ...(advances||[]).map(r=>({...r,_type:'advance'})),
-        ...(drawers ||[]).map(r=>({...r,_type:'drawer'})),
+        ...(leaves      ||[]).map(r=>({...r,_type:'leave'})),
+        ...(advances    ||[]).map(r=>({...r,_type:'advance'})),
+        ...(drawers     ||[]).map(r=>({...r,_type:'drawer'})),
+        ...(expenseReqs ||[]).map(r=>({...r,_type:'expense', employee_name: r.paid_by_name||'ไม่ระบุ'})),
       ].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))
       setPendingItems(items)
     } finally { setPendingLoading(false) }
@@ -852,6 +854,7 @@ export default function EmployeesPage() {
               leave:   { emoji:'🏖', label:'คำขอลา',          borderCls:'border-l-amber-400',  bgCls:'bg-amber-50',  badgeCls:'bg-amber-100 text-amber-700' },
               advance: { emoji:'💵', label:'คำขอเบิก',         borderCls:'border-l-orange-400', bgCls:'bg-orange-50', badgeCls:'bg-orange-100 text-orange-700' },
               drawer:  { emoji:'🔓', label:'คำขอเปิดลิ้นชัก', borderCls:'border-l-violet-400', bgCls:'bg-violet-50', badgeCls:'bg-violet-100 text-violet-700' },
+              expense: { emoji:'💸', label:'คำขอเบิกค่าใช้จ่าย', borderCls:'border-l-rose-400', bgCls:'bg-rose-50', badgeCls:'bg-rose-100 text-rose-700' },
             }[item._type] || { emoji:'📋', label:'คำขอ', borderCls:'border-l-slate-400', bgCls:'bg-slate-50', badgeCls:'bg-slate-100 text-slate-700' }
 
             const details = item._type==='leave' ? [
@@ -860,6 +863,11 @@ export default function EmployeesPage() {
               ...(item.note?[`📝 ${item.note}`]:[]),
             ] : item._type==='advance' ? [
               `💰 ฿${Number(item.amount||0).toLocaleString('th-TH')}`,
+              ...(item.note?[`📝 ${item.note}`]:[]),
+            ] : item._type==='expense' ? [
+              `📋 ${item.description||''}`,
+              `💰 ฿${Number(item.amount||0).toLocaleString('th-TH')}  ·  📅 ${item.expense_date||''}`,
+              ...(item.category?[`🏷 ${item.category}`]:[]),
               ...(item.note?[`📝 ${item.note}`]:[]),
             ] : [
               ...(item.amount?[`💰 ฿${Number(item.amount).toLocaleString('th-TH')}`]:[]),

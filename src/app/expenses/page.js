@@ -527,7 +527,8 @@ function ExpenseRow({ exp, onDelete, onVoucher }) {
           <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold shrink-0 ${catColor(exp.category)}`}>{exp.category}</span>
           <p className="text-sm font-medium text-slate-700 truncate">{exp.description}</p>
         </div>
-        <p className="text-xs text-slate-400">{exp.expense_date}</p>
+        <p className="text-xs text-slate-400">{exp.expense_date}{exp.paid_by_name ? ` · จ่ายโดย ${exp.paid_by_name}` : ''}</p>
+        {exp.status === 'pending' && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">⏳ รออนุมัติ</span>}
         {exp.note && <p className="text-[10px] text-slate-400 italic">{exp.note}</p>}
       </div>
       <div className="flex items-center gap-2 shrink-0">
@@ -552,7 +553,21 @@ function AddExpenseModal({ onClose, onSaved }) {
   const [imageUrl, setImageUrl] = useState('')
   const [scanning, setScanning] = useState(false)
   const [scanError, setScanError] = useState('')
+  const [employees, setEmployees] = useState([])
+  const [paidByEmpId, setPaidByEmpId] = useState('')
   const fileRef = useRef(null)
+
+  useEffect(() => {
+    supabase.from('employees').select('id,name,nickname').eq('active', true).order('name')
+      .then(({ data }) => {
+        setEmployees(data || [])
+        // pre-fill จาก emp_session ถ้าเปิดผ่าน /emp
+        try {
+          const sess = JSON.parse(localStorage.getItem('emp_session') || 'null')
+          if (sess?.id) setPaidByEmpId(sess.id)
+        } catch {}
+      })
+  }, [])
 
   async function scanBill(file) {
     setScanError('')
@@ -587,13 +602,19 @@ function AddExpenseModal({ onClose, onSaved }) {
 
   async function save() {
     if (!description.trim() || !amount) return alert('กรุณากรอกรายละเอียดและจำนวนเงิน')
+    const paidEmp = employees.find(e => e.id === paidByEmpId)
+    const isPending = !!paidEmp
     const { error } = await supabase.from('expenses').insert({
       category, description: description.trim(),
       amount: parseFloat(amount), expense_date: date,
       note: note.trim() || null,
       image_url: imageUrl.startsWith('data:') ? null : imageUrl || null,
+      paid_by_employee_id: paidEmp?.id || null,
+      paid_by_name: paidEmp ? (paidEmp.nickname || paidEmp.name) : null,
+      status: isPending ? 'pending' : 'approved',
     })
     if (error) return alert('เกิดข้อผิดพลาด: ' + error.message)
+    if (isPending) alert('✅ ส่งคำขออนุมัติเรียบร้อย — รอแอดมินอนุมัติ')
     onSaved()
   }
 
@@ -662,6 +683,23 @@ function AddExpenseModal({ onClose, onSaved }) {
           <input value={note} onChange={e => setNote(e.target.value)}
             placeholder="หมายเหตุ (ถ้ามี)"
             className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
+
+          {/* ผู้จ่าย */}
+          {employees.length > 0 && (
+            <div>
+              <label className="text-xs font-semibold text-slate-500 block mb-1.5">ผู้จ่ายเงิน (ถ้าพนักงานจ่ายแทน → ส่งรออนุมัติ)</label>
+              <select value={paidByEmpId} onChange={e => setPaidByEmpId(e.target.value)}
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none bg-white">
+                <option value="">— ร้านจ่าย (ไม่ต้องอนุมัติ) —</option>
+                {employees.map(e => (
+                  <option key={e.id} value={e.id}>{e.nickname || e.name}</option>
+                ))}
+              </select>
+              {paidByEmpId && (
+                <p className="text-xs text-amber-600 mt-1">⏳ จะส่งรออนุมัติ และเบิกคืนเข้าเงินเดือนเมื่ออนุมัติ</p>
+              )}
+            </div>
+          )}
 
           <button onClick={save}
             className="w-full bg-brand text-white font-bold py-3.5 rounded-2xl text-base active:scale-[0.98] transition-transform shadow-lg shadow-brand/25">

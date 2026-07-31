@@ -28,6 +28,30 @@ export async function POST(req) {
       }).eq('id', id)
     }
 
+    if (type === 'expense') {
+      const now = new Date().toISOString()
+      const { data: exp } = await supabase.from('expenses')
+        .update({ status, approved_at: status === 'approved' ? now : null, approved_by: status === 'approved' ? approvedBy : null })
+        .eq('id', id)
+        .select('paid_by_employee_id, paid_by_name, amount, description, expense_date')
+        .single()
+      // เมื่ออนุมัติ → สร้าง salary_advance เบิกคืนให้พนักงาน
+      if (exp && status === 'approved' && exp.paid_by_employee_id) {
+        const { data: emp } = await supabase.from('employees').select('name,nickname').eq('id', exp.paid_by_employee_id).single()
+        const empName = emp ? (emp.nickname || emp.name) : (exp.paid_by_name || 'ไม่ระบุ')
+        await supabase.from('salary_advances').insert({
+          employee_id: exp.paid_by_employee_id,
+          employee_name: empName,
+          amount: Number(exp.amount),
+          note: `เบิกคืนค่าใช้จ่าย: ${exp.description || ''} (${exp.expense_date || ''})`,
+          status: 'approved',
+          approved_at: now,
+          approved_by: approvedBy,
+          requested_at: now,
+        })
+      }
+    }
+
     if (type === 'drawer') {
       const { data: dr } = await supabase
         .from('drawer_requests')
