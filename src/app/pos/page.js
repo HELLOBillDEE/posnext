@@ -873,6 +873,9 @@ export default function POSPage() {
 
   async function completeCreditInvoice() {
     setSaving(true)
+    const empCamCr  = currentEmp ? (currentEmp.nickname || currentEmp.name) : 'POS'
+    const timeCamCr = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
+    camSnap({ caption: `📝 เชื่อ — ${empCamCr}  🕐 ${timeCamCr}`, terminal_id: getTerminalId() || '', duration: 10 })
     try {
       const finalDocNo = await commitNextDocNo('invoice')
       const docItems = cart.map(i => ({
@@ -2200,7 +2203,7 @@ function CancelBillModal({ sale, settings, currentEmp, empMode, onClose, onVoide
             employee_name: 'แอดมิน', amount: refundAmt, note: `เบิกเงินออก — ${voidNote}`,
           }).then(null, () => {})
           const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
-          camSnap({ caption: `💸 คืนเงิน — ${sale.receipt_no}  🕐 ${timeCam}`, terminal_id: getTerminalId() || '' })
+          camSnap({ caption: `💸 คืนเงิน — ${sale.receipt_no}  🕐 ${timeCam}`, terminal_id: getTerminalId() || '', duration: 13 })
         }
       }
 
@@ -2228,7 +2231,7 @@ function CancelBillModal({ sale, settings, currentEmp, empMode, onClose, onVoide
             note: `เบิกเงินออก — ${drawerData.note}`,
           }).then(null, () => {})
           const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
-          camSnap({ caption: `💸 คืนเงิน — ${sale.receipt_no}  🕐 ${timeCam}`, terminal_id: getTerminalId() || '' })
+          camSnap({ caption: `💸 คืนเงิน — ${sale.receipt_no}  🕐 ${timeCam}`, terminal_id: getTerminalId() || '', duration: 13 })
           setStep('done')
           setTimeout(onVoided, 1200)
         } else if (j.status === 'rejected') {
@@ -2358,7 +2361,7 @@ function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
             note: drawerData.note || null,
           }).then(null, () => {})
           const timeStr = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
-          camSnap({ caption: `🔓 เปิดลิ้นชัก — ${empName}  🕐 ${timeStr}`, terminal_id: getTerminalId() || '' })
+          camSnap({ caption: `🔓 เปิดลิ้นชัก — ${empName}  🕐 ${timeStr}`, terminal_id: getTerminalId() || '', duration: 13 })
           setStep('done')
           setTimeout(onClose, 1500)
         } else if (j.status === 'rejected') {
@@ -2399,7 +2402,7 @@ function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
 
     // ถ่ายวิดีโอกล้อง (direct — ไม่ผ่าน relay เพื่อให้ URL ถูกต้องเสมอ)
     const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
-    camSnap({ caption: `🔓 เปิดลิ้นชัก — แอดมิน  🕐 ${timeCam}`, terminal_id: getTerminalId() || '' })
+    camSnap({ caption: `🔓 เปิดลิ้นชัก — แอดมิน  🕐 ${timeCam}`, terminal_id: getTerminalId() || '', duration: 13 })
 
     setSaving(false); setStep('done')
     setTimeout(onClose, 1200)
