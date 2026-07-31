@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { spawn } from 'child_process'
-import { readFile, unlink } from 'fs/promises'
+import { readFile, unlink, stat } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -38,9 +38,15 @@ function recordCamera(url, durationSec, outPath) {
     ])
     const errBuf = []
     proc.stderr.on('data', d => errBuf.push(d))
-    proc.on('close', code => {
-      if (code === 0) resolve()
-      else reject(new Error(`ffmpeg exit ${code}: ${Buffer.concat(errBuf).toString().slice(-300)}`))
+    proc.on('close', async code => {
+      if (code === 0) { resolve(); return }
+      // Windows: ffmpeg exits with 3221225786 (STATUS_CONTROL_C_EXIT) even on success
+      // ถ้าไฟล์มีข้อมูลแปลว่าบันทึกสำเร็จ
+      try {
+        const s = await stat(outPath)
+        if (s.size > 0) { resolve(); return }
+      } catch {}
+      reject(new Error(`ffmpeg exit ${code}: ${Buffer.concat(errBuf).toString().slice(-300)}`))
     })
     proc.on('error', reject)
   })
