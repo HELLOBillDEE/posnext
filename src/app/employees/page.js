@@ -458,7 +458,7 @@ function WorkScheduleTab({ employees }) {
   async function toggle(empId, dayKey) {
     const key = `${empId}_${dayKey}`
     const cur = schedule[key] || 'off'
-    const next = cur === 'work' ? 'off' : cur === 'off' ? 'leave' : 'work'
+    const next = cur === 'off' ? 'work' : cur === 'work' ? 'leave' : 'off'
     setSchedule(p => ({ ...p, [key]: next }))
     await supabase.from('work_schedule').upsert(
       { employee_id: empId, week_start: weekKey, day_key: dayKey, status: next },
@@ -580,7 +580,9 @@ export default function EmployeesPage() {
       const res  = await fetch(`/api/payroll?period=${period}`)
       const json = await res.json()
       setPayrollData(json)
-    } catch {}
+    } catch (e) {
+      setPayrollData({ error: e.message || 'โหลดข้อมูลไม่ได้' })
+    }
     setPayrollLoading(false)
   }, [period])
 
@@ -751,13 +753,20 @@ export default function EmployeesPage() {
                 <p className="text-sm">กำลังคำนวณ...</p>
               </div>
             )}
-            {!payrollLoading && payrollData?.employees?.length===0 && (
+            {!payrollLoading && payrollData?.error && (
+              <div className="py-10 text-center">
+                <p className="text-red-400 text-sm font-medium mb-2">โหลดข้อมูลไม่ได้</p>
+                <p className="text-xs text-slate-400 break-all">{payrollData.error}</p>
+                <button onClick={loadPayroll} className="mt-4 text-xs text-brand border border-brand/30 px-3 py-1.5 rounded-lg">ลองใหม่</button>
+              </div>
+            )}
+            {!payrollLoading && !payrollData?.error && payrollData?.employees?.length===0 && (
               <div className="py-16 text-center text-slate-400">
                 <p className="text-4xl mb-3">👥</p>
                 <p className="text-sm">ไม่มีพนักงาน active</p>
               </div>
             )}
-            {!payrollLoading && payrollData?.employees?.map(emp => (
+            {!payrollLoading && !payrollData?.error && payrollData?.employees?.map(emp => (
               <EmpCard key={emp.id} emp={emp} period={period} onSettled={loadPayroll} />
             ))}
           </div>
