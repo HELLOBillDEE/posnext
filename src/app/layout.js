@@ -1,5 +1,6 @@
 import './globals.css'
 import { Kanit } from 'next/font/google'
+import Script from 'next/script'
 import LayoutNav from '@/components/LayoutNav'
 import AuthProvider from '@/components/AuthProvider'
 import StaffGuard from '@/components/StaffGuard'
@@ -57,6 +58,14 @@ export const viewport = {
 export default function RootLayout({ children }) {
   return (
     <html lang="th" className={kanit.variable}>
+      <Script id="chunk-guard" strategy="beforeInteractive">{`
+        (function(){
+          function hardReload(){var u=new URL(location.href);u.searchParams.set('_r',Date.now());location.replace(u);}
+          window.addEventListener('error',function(e){
+            if(e.target&&e.target!==window){var s=e.target.src||e.target.href||'';if(s.indexOf('/_next/static/')>-1)hardReload();}
+          },true);
+        })();
+      `}</Script>
       <body className="bg-slate-50 min-h-screen" style={{ fontFamily: 'var(--font-kanit), sans-serif' }}>
         <AuthProvider>
           <ChunkErrorHandler />
