@@ -444,11 +444,47 @@ function WorkScheduleTab({ employees }) {
   useEffect(() => {
     async function load() {
       setLoading(true)
-      const { data } = await supabase.from('work_schedule')
-        .select('employee_id,day_key,status')
-        .eq('week_start', weekKey)
+
+      // หาวันจันทร์ถึงอาทิตย์ของสัปดาห์นี้ (YYYY-MM-DD)
+      const mondayBase = new Date(weekKey + 'T00:00:00')
+      const weekDateStrs = DAY_KEYS.map((_, i) => {
+        const d = new Date(mondayBase)
+        d.setDate(mondayBase.getDate() + i)
+        return d.toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' })
+      })
+      const dateFrom = weekDateStrs[0]
+      const dateTo   = weekDateStrs[6]
+
+      const [
+        { data: scheduleData },
+        { data: attData },
+        { data: leaveData },
+      ] = await Promise.all([
+        supabase.from('work_schedule').select('employee_id,day_key,status').eq('week_start', weekKey),
+        supabase.from('attendance').select('employee_id,date').gte('date', dateFrom).lte('date', dateTo),
+        supabase.from('leave_requests').select('employee_id,date_from,date_to')
+          .eq('status', 'approved').lte('date_from', dateTo).gte('date_to', dateFrom),
+      ])
+
       const map = {}
-      ;(data || []).forEach(r => { map[`${r.employee_id}_${r.day_key}`] = r.status })
+
+      // 1. เช็คอินจริง → แสดงว่ามาทำงาน
+      ;(attData || []).forEach(att => {
+        const idx = weekDateStrs.indexOf(att.date)
+        if (idx !== -1) map[`${att.employee_id}_${DAY_KEYS[idx]}`] = 'work'
+      })
+
+      // 2. วันลาที่อนุมัติแล้ว → override เช็คอิน
+      ;(leaveData || []).forEach(leave => {
+        weekDateStrs.forEach((wdStr, i) => {
+          if (wdStr >= leave.date_from && wdStr <= leave.date_to)
+            map[`${leave.employee_id}_${DAY_KEYS[i]}`] = 'leave'
+        })
+      })
+
+      // 3. ตั้งค่าด้วยมือ (work_schedule) → override ทุกอย่าง
+      ;(scheduleData || []).forEach(r => { map[`${r.employee_id}_${r.day_key}`] = r.status })
+
       setSchedule(map)
       setLoading(false)
     }
