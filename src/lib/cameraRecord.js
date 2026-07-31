@@ -14,7 +14,7 @@ const supabaseStorage = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 )
 
-const FFMPEG = process.env.FFMPEG_PATH || '/opt/homebrew/bin/ffmpeg'
+const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg'
 
 // Active shift recordings: sessionId -> { proc, outPath }
 const activeRecordings = new Map()
@@ -23,14 +23,14 @@ function buildCameraUrl(s) {
   const ip   = s.camera_ip
   const user = encodeURIComponent(s.camera_username || 'admin')
   const pass = encodeURIComponent(s.camera_password || '')
-  // HTTP MJPEG — Dahua format (RTSP disabled บางรุ่น)
-  return `http://${user}:${pass}@${ip}/cgi-bin/mjpg/video.cgi?channel=1&subtype=1`
+  return `rtsp://${user}:${pass}@${ip}/cam/realmonitor?channel=1&subtype=0`
 }
 
 function recordCamera(url, durationSec, outPath) {
   return new Promise((resolve, reject) => {
     const proc = spawn(FFMPEG, [
-      '-f', 'mjpeg', '-i', url,
+      '-rtsp_transport', 'tcp', '-timeout', '10000000',
+      '-i', url,
       '-t', String(durationSec),
       '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28',
       '-movflags', '+faststart',
@@ -96,7 +96,8 @@ export async function startShiftRecording(s) {
   const url       = buildCameraUrl(s)
 
   const proc = spawn(FFMPEG, [
-    '-f', 'mjpeg', '-i', url,
+    '-rtsp_transport', 'tcp', '-timeout', '10000000',
+    '-i', url,
     '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28',
     '-movflags', '+faststart',
     '-y', outPath,
