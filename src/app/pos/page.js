@@ -1485,6 +1485,13 @@ export default function POSPage() {
                     ) : (
                       <p className="text-xs text-slate-400 text-center py-2">กดเลือกบัญชีด้านบน</p>
                     )}
+
+                    {/* ── ปุ่มรับ QR แล้ว ── */}
+                    <button onClick={completeSale} disabled={saving}
+                      className="w-full py-4 rounded-2xl font-bold text-lg text-white active:scale-[0.98] transition-all shadow-lg disabled:opacity-50"
+                      style={{ background: 'linear-gradient(135deg,#16a34a,#15803d)', boxShadow: '0 6px 20px rgba(22,163,74,0.35)' }}>
+                      {saving ? '⏳ กำลังบันทึก...' : '✅ รับเงิน QR แล้ว'}
+                    </button>
                   </div>
                 )}
 
