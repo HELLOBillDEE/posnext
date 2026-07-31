@@ -275,7 +275,7 @@ footer{text-align:center;color:#aaa;font-size:10px;margin-top:18px;border-top:1p
 <div class="section">รายได้</div>
 <div class="row"><span>วันทำงาน</span><span>${emp.daysWorked} วัน</span></div>
 <div class="row"><span>ค่าแรง (${fmt(emp.daily_rate)}/วัน)</span><span class="earn">฿${fmt(emp.grossPay)}</span></div>
-${emp.commission>0?`<div class="row"><span>ค่าคอมช่าง (${emp.repair_commission_pct||0}% × ฿${fmt(emp.laborTotal)})</span><span class="earn">+฿${fmt(emp.commission)}</span></div>`:''}
+${emp.commission>0?`<div class="row"><span>ค่าคอมช่าง</span><span class="earn">+฿${fmt(emp.commission)}</span></div>`:''}
 ${emp.streakBonus>0?`<div class="row"><span>โบนัส 10 วันติด</span><span class="earn">+฿${fmt(emp.streakBonus)}</span></div>`:''}
 ${(emp.bonusDetail||[]).map(b=>`<div class="row"><span>${b.note||'โบนัสพิเศษ'}</span><span class="earn">+฿${fmt(b.amount)}</span></div>`).join('')}
 <div class="row" style="font-weight:600"><span>รวมรายได้</span><span class="earn">฿${fmt(emp.totalEarned)}</span></div>
