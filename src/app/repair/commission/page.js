@@ -24,37 +24,34 @@ export default function CommissionPage() {
       const startDate = new Date(year, month - 1, 1).toISOString()
       const endDate   = new Date(year, month, 1).toISOString()
 
-      // 1. Sales in the selected month (not voided)
-      const { data: salesInMonth } = await supabase
-        .from('sales').select('id')
-        .gte('created_at', startDate).lt('created_at', endDate)
-        .neq('status', 'voided')
-      if (!salesInMonth?.length) { setLoading(false); return }
-
-      const saleIds = salesInMonth.map(s => s.id)
-
-      // 2. Repair orders paid in that month
-      const { data: repairOrders } = await supabase
-        .from('repair_orders').select('id,repair_no,customer_name,device,sale_id,technician_id,technician_name')
-        .in('sale_id', saleIds)
-
-      const repairIds = (repairOrders || []).map(r => r.id)
-
-      // 3. Quotations for those repairs (items JSONB)
-      const quotationsPromise = repairIds.length
-        ? supabase.from('quotations').select('repair_order_id,items').in('repair_order_id', repairIds)
-        : Promise.resolve({ data: [] })
-
-      // 4. Employees + POS sale_items ที่แท็กช่างไว้ (ดึงพร้อมกัน)
-      const [{ data: quotations }, { data: employees }, { data: posRepairItems }] = await Promise.all([
-        quotationsPromise,
+      // 1. Fetch everything in parallel — join sale_items → sales to avoid large .in() lists
+      const [
+        { data: repairOrders },
+        { data: employees },
+        { data: posRepairItems },
+      ] = await Promise.all([
+        supabase.from('repair_orders')
+          .select('id,repair_no,customer_name,device,sale_id,technician_id,technician_name,sales!inner(created_at,status)')
+          .gte('sales.created_at', startDate).lt('sales.created_at', endDate)
+          .neq('sales.status', 'voided'),
         supabase.from('employees').select('id,name,nickname,repair_commission_pct').eq('active', true),
-        supabase.from('sale_items').select('sale_id,product_name,qty,price,technician_name')
-          .in('sale_id', saleIds)
+        supabase.from('sale_items')
+          .select('sale_id,product_name,qty,price,technician_name,sales!inner(created_at,status)')
+          .gte('sales.created_at', startDate).lt('sales.created_at', endDate)
+          .neq('sales.status', 'voided')
           .ilike('product_name', '%ค่าซ่อม%')
           .not('technician_name', 'is', null)
           .neq('technician_name', ''),
       ])
+
+      const repairIds = (repairOrders || []).map(r => r.id)
+
+      // 2. Quotations for those repairs (items JSONB)
+      const quotationsPromise = repairIds.length
+        ? supabase.from('quotations').select('repair_order_id,items').in('repair_order_id', repairIds)
+        : Promise.resolve({ data: [] })
+
+      const [{ data: quotations }] = await Promise.all([quotationsPromise])
 
       if (!repairIds.length && !posRepairItems?.length) { setLoading(false); return }
 
