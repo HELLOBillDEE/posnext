@@ -43,10 +43,7 @@ function getReceiptCfg() {
 }
 
 function camSnap(payload) {
-  const bridgeUrl = getReceiptCfg().bridge_url || ''
-  const base = (bridgeUrl && bridgeUrl.startsWith('http')) ? bridgeUrl.replace(/\/$/, '') : ''
-  const url = base ? `${base}/api/camera-snapshot` : '/api/camera-snapshot'
-  return fetch(url, {
+  return fetch('/api/camera-snapshot', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ mode: 'video', ...payload }),
