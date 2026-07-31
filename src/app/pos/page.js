@@ -3683,14 +3683,14 @@ function QuickAddModal({ barcode, categories, onClose, onSaved }) {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs text-slate-500 font-semibold block mb-1">ราคาขาย *</label>
-                <input type="number" value={price} onChange={e => setPrice(e.target.value)}
+                <label className="text-xs text-slate-500 font-semibold block mb-1">ทุน</label>
+                <input type="number" value={cost} onChange={e => setCost(e.target.value)}
                   placeholder="0"
                   className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
               </div>
               <div>
-                <label className="text-xs text-slate-500 font-semibold block mb-1">ทุน</label>
-                <input type="number" value={cost} onChange={e => setCost(e.target.value)}
+                <label className="text-xs text-slate-500 font-semibold block mb-1">ราคาขาย *</label>
+                <input type="number" value={price} onChange={e => setPrice(e.target.value)}
                   placeholder="0"
                   className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:border-brand outline-none" />
               </div>

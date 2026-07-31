@@ -421,6 +421,124 @@ ${emp.carryForwardIn>0?`<div class="row"><span>ทบจากเดือนก
   )
 }
 
+// ── Work Schedule Tab ─────────────────────────────────────────────────
+const DAYS = ['จ.','อ.','พ.','พฤ.','ศ.','ส.','อา.']
+const DAY_KEYS = ['mon','tue','wed','thu','fri','sat','sun']
+
+function WorkScheduleTab({ employees }) {
+  const now = new Date()
+  const [weekOffset, setWeekOffset] = useState(0)
+  const [schedule, setSchedule] = useState({}) // { empId_dayKey: 'work'|'off'|'leave' }
+  const [loading, setLoading] = useState(false)
+
+  const monday = new Date(now)
+  monday.setDate(now.getDate() - ((now.getDay()||7) - 1) + weekOffset * 7)
+
+  const weekDates = DAY_KEYS.map((_, i) => {
+    const d = new Date(monday)
+    d.setDate(monday.getDate() + i)
+    return d
+  })
+  const weekKey = monday.toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' })
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true)
+      const { data } = await supabase.from('work_schedule')
+        .select('employee_id,day_key,status')
+        .eq('week_start', weekKey)
+      const map = {}
+      ;(data || []).forEach(r => { map[`${r.employee_id}_${r.day_key}`] = r.status })
+      setSchedule(map)
+      setLoading(false)
+    }
+    load()
+  }, [weekKey])
+
+  async function toggle(empId, dayKey) {
+    const key = `${empId}_${dayKey}`
+    const cur = schedule[key] || 'off'
+    const next = cur === 'work' ? 'off' : cur === 'off' ? 'leave' : 'work'
+    setSchedule(p => ({ ...p, [key]: next }))
+    await supabase.from('work_schedule').upsert(
+      { employee_id: empId, week_start: weekKey, day_key: dayKey, status: next },
+      { onConflict: 'employee_id,week_start,day_key' }
+    )
+  }
+
+  const activeEmps = employees.filter(e => e.active)
+  const todayKey = DAY_KEYS[((new Date().getDay()||7)-1)]
+
+  return (
+    <div className="px-3 py-4">
+      {/* Week nav */}
+      <div className="flex items-center justify-center gap-4 mb-4">
+        <button onClick={() => setWeekOffset(w => w-1)} className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-xl text-slate-600">‹</button>
+        <p className="text-sm font-bold text-slate-700 w-40 text-center">
+          {weekDates[0].toLocaleDateString('th-TH',{day:'numeric',month:'short'})} – {weekDates[6].toLocaleDateString('th-TH',{day:'numeric',month:'short',year:'2-digit'})}
+        </p>
+        <button onClick={() => setWeekOffset(w => w+1)} className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-xl text-slate-600">›</button>
+        {weekOffset !== 0 && <button onClick={() => setWeekOffset(0)} className="text-xs text-brand border border-brand/30 px-2.5 py-1 rounded-lg">วันนี้</button>}
+      </div>
+
+      {/* Legend */}
+      <div className="flex gap-3 justify-center mb-3 text-xs text-slate-500">
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-green-400 inline-block"/>มาทำงาน</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-amber-300 inline-block"/>ลา</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-slate-200 inline-block"/>หยุด</span>
+      </div>
+
+      {loading ? <p className="text-center text-slate-400 py-8 text-sm">⏳ กำลังโหลด...</p> : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr>
+                <th className="text-left py-2 pr-3 text-xs text-slate-500 font-semibold w-20">พนักงาน</th>
+                {DAYS.map((d, i) => (
+                  <th key={i} className={`text-center py-2 px-1 text-xs font-semibold w-10 ${DAY_KEYS[i]===todayKey && weekOffset===0 ? 'text-brand' : 'text-slate-500'}`}>
+                    <div>{d}</div>
+                    <div className={`text-[10px] font-normal ${DAY_KEYS[i]===todayKey && weekOffset===0 ? 'text-brand' : 'text-slate-300'}`}>
+                      {weekDates[i].getDate()}
+                    </div>
+                  </th>
+                ))}
+                <th className="text-center py-2 px-1 text-xs text-slate-400 font-semibold">มา</th>
+              </tr>
+            </thead>
+            <tbody>
+              {activeEmps.map(emp => {
+                const workDays = DAY_KEYS.filter(d => schedule[`${emp.id}_${d}`] === 'work').length
+                return (
+                  <tr key={emp.id} className="border-t border-slate-100">
+                    <td className="py-2 pr-2 text-xs font-medium text-slate-700 truncate max-w-[72px]">{emp.nickname || emp.name}</td>
+                    {DAY_KEYS.map((dayKey, i) => {
+                      const status = schedule[`${emp.id}_${dayKey}`] || 'off'
+                      return (
+                        <td key={dayKey} className="text-center py-1 px-0.5">
+                          <button onClick={() => toggle(emp.id, dayKey)}
+                            className={`w-8 h-8 rounded-lg text-xs font-bold transition-colors active:scale-90 ${
+                              status === 'work'  ? 'bg-green-400 text-white' :
+                              status === 'leave' ? 'bg-amber-300 text-white' :
+                              'bg-slate-100 text-slate-300'
+                            }`}>
+                            {status === 'work' ? '✓' : status === 'leave' ? 'ล' : ''}
+                          </button>
+                        </td>
+                      )
+                    })}
+                    <td className="text-center text-xs font-bold text-slate-600">{workDays}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="text-[10px] text-slate-300 text-center mt-4">กดที่ช่องเพื่อสลับ: หยุด → มาทำงาน → ลา</p>
+    </div>
+  )
+}
+
 // ── Employee form field helper ─────────────────────────────────────────
 function EmpField({ label, k, form, setForm, type='text', placeholder='' }) {
   return (
@@ -560,7 +678,7 @@ export default function EmployeesPage() {
       <div className="bg-brand text-white px-4 pt-12 pb-0">
         <h1 className="text-lg font-bold mb-3">👥 พนักงาน</h1>
         <div className="flex">
-          {[['👥 พนักงาน', 0], ['💰 ค่าแรง', 1], ['📋 รออนุมัติ', 2]].map(([label, idx]) => (
+          {[['👥 พนักงาน', 0], ['💰 ค่าแรง', 1], ['📋 รออนุมัติ', 2], ['📅 ตาราง', 3]].map(([label, idx]) => (
             <button key={idx} onClick={()=>setActiveTab(idx)}
               className={`flex-1 py-2.5 text-sm font-semibold rounded-t-xl transition-colors relative ${
                 activeTab===idx ? 'bg-slate-50 text-brand' : 'text-white/70 hover:text-white'
@@ -717,6 +835,9 @@ export default function EmployeesPage() {
           })}
         </div>
       )}
+
+      {/* ── Tab 4: Work Schedule ─────────────────────────────── */}
+      {activeTab===3 && <WorkScheduleTab employees={employees} />}
 
       {/* ── Add/Edit Employee Modal ───────────────────────────── */}
       {modal && (

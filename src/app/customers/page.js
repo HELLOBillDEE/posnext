@@ -179,6 +179,13 @@ export default function CustomersPage() {
               <div className="flex gap-2">
                 <button onClick={() => { setFormTarget(selected); setSelected(null) }}
                   className="bg-amber-400 text-white px-3 py-1.5 rounded-xl text-xs font-semibold">✏️ แก้ไข</button>
+                <button onClick={async () => {
+                  if (!confirm(`ลบลูกค้า "${selected.name}" ?\nข้อมูลจะหายถาวร`)) return
+                  const { error } = await supabase.from('customers').delete().eq('id', selected.id)
+                  if (error) return alert('ลบไม่ได้: ' + error.message)
+                  setSelected(null)
+                  loadData()
+                }} className="bg-red-500 text-white px-3 py-1.5 rounded-xl text-xs font-semibold">🗑 ลบ</button>
                 <button onClick={() => setSelected(null)} className="text-slate-300 hover:text-slate-500 text-2xl leading-none">×</button>
               </div>
             </div>

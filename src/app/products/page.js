@@ -234,8 +234,9 @@ export default function ProductsPage() {
         : await buildLabelESCPOS(items, size, parseInt(cfg.paper_width) || 100)
 
       // ลองพิมที่ IP ที่บันทึกไว้ก่อน
+      const bridgeUrl = cfg.bridge_url || ''
       try {
-        await printViaBridge('', cfg.ip, cfg.port || 9100, bytes, [0, 4000])
+        await printViaBridge(bridgeUrl, cfg.ip, cfg.port || 9100, bytes, [0, 4000])
         setPrintModal(false)
         return
       } catch (connErr) {
@@ -254,7 +255,7 @@ export default function ProductsPage() {
         localStorage.setItem('printer_barcode', JSON.stringify(newCfg))
         supabase.from('settings').upsert({ key: 'printer_barcode', value: JSON.stringify(newCfg) }, { onConflict: 'key' })
         setPrinterCfg(newCfg)
-        await printViaBridge('', found.ip, cfg.port || 9100, bytes, [0])
+        await printViaBridge(bridgeUrl, found.ip, cfg.port || 9100, bytes, [0])
         setPrintModal(false)
       }
     } catch (e) {
