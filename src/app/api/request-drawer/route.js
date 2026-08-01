@@ -1,6 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
 import { notifyDrawerRequest } from '@/lib/telegramStaff'
-import { notifyDrawerRequest as lineNotifyDrawerRequest } from '@/lib/lineStaff'
 import { sendPushToAll } from '@/lib/webPush'
 
 const supabase = createClient(
@@ -37,7 +36,6 @@ export async function POST(req) {
       .select('id').single()
 
     notifyDrawerRequest({ id: req_.id, empName, note, amount: amount ? Number(amount) : null }).catch(() => {})
-    lineNotifyDrawerRequest({ id: req_.id, empName, note }).catch(() => {})
     sendPushToAll({
       title: '🔓 คำขอเปิดลิ้นชัก',
       body: empName + (note ? ` — ${note}` : ''),

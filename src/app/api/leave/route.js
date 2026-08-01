@@ -1,6 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
 import { notifyLeave } from '@/lib/telegramStaff'
-import { notifyLeave as lineNotifyLeave } from '@/lib/lineStaff'
 import { sendPushToAll } from '@/lib/webPush'
 
 const supabase = createClient(
@@ -61,7 +60,6 @@ export async function POST(req) {
       const dateStr  = from === to ? fmtD(from) : `${fmtD(from)} – ${fmtD(to)}`
       notifyLeave({ id: inserted.id, empName, dateFrom: from, dateTo: to, period, leaveType: leave_type, note: note || null })
         .catch(e => console.error('[leave notify]', e?.message))
-      lineNotifyLeave({ id: inserted.id, empName, dateFrom: from, dateTo: to, period, leaveType: leave_type, note: note || null }).catch(() => {})
       sendPushToAll({
         title: '🏖 คำขอลา',
         body: `${empName} — ${dateStr}${note ? `\n${note}` : ''}`,
