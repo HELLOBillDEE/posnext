@@ -288,7 +288,7 @@ ${(emp.carryPayIn||0)>0?`<div class="row"><span>ค้างจ่ายจา�
 
 ${(emp.totalWithdrawn>0||emp.installmentDetail.some(i=>i.deductAmount>0)||emp.carryForwardIn>0)?`<div class="section">หัก</div>`:''}
 ${emp.totalWithdrawn>0?`<div class="row"><span>เบิกล่วงหน้า</span><span class="deduct">-฿${fmt(emp.totalWithdrawn)}</span></div>`:''}
-${emp.installmentDetail.filter(i=>i.deductAmount>0).map(i=>{const afterRem=i.remaining-i.thisMonth;return`<div class="row"><span>${i.name} (${i.thisMonth} วัน${afterRem>0?` · ผ่อนต่ออีก ${afterRem} วัน`:''})</span><span class="deduct">-฿${fmt(i.deductAmount)}</span></div>`}).join('')}
+${emp.installmentDetail.filter(i=>i.deductAmount>0).map(i=>{const left=Math.max(0,i.remaining-i.thisMonth);return`<div class="row"><span>${i.name} (${i.thisMonth} วัน${left>0?` · เหลือ ${left} วัน`:' · ครบเดือนนี้'})</span><span class="deduct">-฿${fmt(i.deductAmount)}</span></div>`}).join('')}
 ${emp.carryForwardIn>0?`<div class="row"><span>ทบจากเดือนก่อน</span><span class="deduct">-฿${fmt(emp.carryForwardIn)}</span></div>`:''}
 
 <div class="row total"><span>${emp.netPayDue>=0?'คงเหลือจ่าย':'ทบเดือนหน้า'}</span><span class="${emp.netPayDue>=0?'net':'deduct'}">${emp.netPayDue<0?'−':''}฿${fmt(Math.abs(emp.netPayDue))}</span></div>
