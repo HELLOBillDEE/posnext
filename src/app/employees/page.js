@@ -286,9 +286,9 @@ ${(emp.bonusDetail||[]).map(b=>`<div class="row"><span>${b.note||'โบนั�
 ${(emp.carryPayIn||0)>0?`<div class="row"><span>ค้างจ่ายจากเดือนก่อน</span><span class="earn">+฿${fmt(emp.carryPayIn)}</span></div>`:''}
 <div class="row" style="font-weight:600"><span>รวมรายได้</span><span class="earn">฿${fmt(emp.totalEarned)}</span></div>
 
-${(emp.totalWithdrawn>0||emp.installmentDetail.some(i=>i.deductAmount>0)||emp.carryForwardIn>0)?`<div class="section">หัก</div>`:''}
+${(emp.totalWithdrawn>0||emp.installmentDetail.some(i=>i.remaining>0)||emp.carryForwardIn>0)?`<div class="section">หัก</div>`:''}
 ${emp.totalWithdrawn>0?`<div class="row"><span>เบิกล่วงหน้า</span><span class="deduct">-฿${fmt(emp.totalWithdrawn)}</span></div>`:''}
-${emp.installmentDetail.filter(i=>i.deductAmount>0).map(i=>{const left=Math.max(0,i.remaining-i.thisMonth);return`<div class="row"><span>${i.name} (${i.thisMonth} วัน${left>0?` · เหลือ ${left} วัน`:' · ครบเดือนนี้'})</span><span class="deduct">-฿${fmt(i.deductAmount)}</span></div>`}).join('')}
+${emp.installmentDetail.filter(i=>i.remaining>0).map(i=>{const left=Math.max(0,i.remaining-i.thisMonth);const label=i.thisMonth>0?`${i.name} (${i.thisMonth} วัน${left>0?` · เหลือ ${left} วัน`:' · ครบเดือนนี้'})`:` ${i.name} (เหลือ ${i.remaining} วัน — ไม่ได้หักเดือนนี้)`;return i.deductAmount>0?`<div class="row"><span>${label}</span><span class="deduct">-฿${fmt(i.deductAmount)}</span></div>`:`<div class="row" style="color:#aaa"><span>${label}</span><span>฿0</span></div>`}).join('')}
 ${emp.carryForwardIn>0?`<div class="row"><span>ทบจากเดือนก่อน</span><span class="deduct">-฿${fmt(emp.carryForwardIn)}</span></div>`:''}
 
 <div class="row total"><span>${emp.netPayDue>=0?'คงเหลือจ่าย':'ทบเดือนหน้า'}</span><span class="${emp.netPayDue>=0?'net':'deduct'}">${emp.netPayDue<0?'−':''}฿${fmt(Math.abs(emp.netPayDue))}</span></div>
@@ -385,12 +385,17 @@ ${emp.carryForwardIn>0?`<div class="row"><span>ทบจากเดือนก
                 <span className="text-red-500">−฿{fmt(emp.totalWithdrawn)}</span>
               </div>
             )}
-            {emp.installmentDetail.filter(i=>i.thisMonth>0).map(inst => (
-              <div key={inst.id} className="flex justify-between text-slate-600">
-                <span>{inst.name} ({inst.thisMonth} วัน · เหลือ {inst.remaining-inst.thisMonth} วัน)</span>
-                <span className="text-red-500">−฿{fmt(inst.deductAmount)}</span>
-              </div>
-            ))}
+            {emp.installmentDetail.filter(i=>i.remaining>0).map(inst => {
+              const left = Math.max(0, inst.remaining - inst.thisMonth)
+              return (
+                <div key={inst.id} className="flex justify-between text-slate-600">
+                  <span>{inst.name}{inst.thisMonth>0?` (${inst.thisMonth} วัน · เหลือ ${left} วัน)`:` (เหลือ ${inst.remaining} วัน)`}</span>
+                  <span className={inst.deductAmount>0?'text-red-500':'text-slate-400'}>
+                    {inst.deductAmount>0?`−฿${fmt(inst.deductAmount)}`:'ไม่ได้หักเดือนนี้'}
+                  </span>
+                </div>
+              )
+            })}
             {emp.carryForwardIn>0 && (
               <div className="flex justify-between text-slate-600">
                 <span>ทบจากเดือนก่อน</span>
