@@ -807,6 +807,12 @@ export default function POSPage() {
         settings.shop_name || ''
       )
 
+      // แจ้งเตือน Telegram (fire-and-forget)
+      fetch('/api/notify-sale', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sale: { ...receipt, shopName: settings.shop_name || 'ร้านค้า' } }),
+      }).catch(() => {})
 
       // แจ้งเตือนส่วนลด (เฉพาะพนักงาน + มีส่วนลดจริง)
       if (empMode && (totalDisc > 0 || cart.some(i => i.origPrice !== undefined && i.price !== i.origPrice))) {
