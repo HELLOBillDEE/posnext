@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
 import { fmt, fmtDate } from '@/lib/utils'
-import { printViaBridge, buildReceiptESCPOS, buildLabelTSPL, buildLabelESCPOS, kickDrawerViaBridge } from '@/lib/printBridge'
+import { printViaBridge, printViaUSB, buildReceiptESCPOS, buildLabelTSPL, buildLabelESCPOS, kickDrawerViaBridge } from '@/lib/printBridge'
 import { useAuth } from '@/components/AuthProvider'
 import { savePinCredentials, hasPinCredentials, clearPinCredentials } from '@/lib/pinAuth'
 import { hasFaceId, isFaceIdAvailable, registerFaceId, clearFaceId, getFaceIdData } from '@/lib/faceAuth'
@@ -634,9 +634,13 @@ export default function AdminPage() {
       ],
     }
     try {
-      if (cfg.ip) {
+      if (cfg.usb_mode || cfg.ip) {
         const bytes = await buildReceiptESCPOS(testReceipt, parseInt(cfg.paper_width) || 80)
-        await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
+        if (cfg.usb_mode) {
+          await printViaUSB(bytes, cfg.usb_port || 'USB001')
+        } else {
+          await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
+        }
         setTestReceiptStatus('ok')
       } else {
         const html = buildTestReceiptHTML(testReceipt)
@@ -1259,13 +1263,14 @@ export default function AdminPage() {
               <div className="w-10 h-10 bg-brand-50 rounded-xl flex items-center justify-center text-xl">🧾</div>
               <div className="flex-1">
                 <h2 className="font-heading font-semibold text-slate-800">เครื่องปริ้นใบเสร็จ</h2>
-                <p className="text-xs text-slate-400">เชื่อมต่อผ่าน WiFi / IP</p>
+                <p className="text-xs text-slate-400">{printers.receipt.usb_mode ? '🔌 USB (PC)' : 'เชื่อมต่อผ่าน WiFi / IP'}</p>
               </div>
             </div>
             <PrinterFields
               values={printers.receipt}
               onChange={v => setPrinters(p => ({...p, receipt: {...p.receipt, ...v}}))}
               paperOptions={[{v:'80',l:'80mm (มาตรฐาน)'},{v:'58',l:'58mm (แคบ)'}]}
+              showUsb
             />
             <button onClick={testPrintReceipt} disabled={testReceiptStatus === 'printing'}
               className={`w-full py-2.5 rounded-xl text-sm font-semibold border transition-all active:scale-95 disabled:opacity-50
@@ -2121,43 +2126,95 @@ function DeviceSettings() {
 
       <div className="bg-slate-50 rounded-2xl border border-slate-200 p-4 space-y-2">
         <p className="text-xs font-semibold text-slate-500">เครื่องพิมพ์ใบเสร็จ (ปัจจุบัน)</p>
-        <p className="text-sm text-slate-700">IP: <span className="font-mono font-semibold">{printerCfg.ip || '-'}</span></p>
-        <p className="text-sm text-slate-700">Port: <span className="font-mono font-semibold">{printerCfg.port || '9100'}</span></p>
+        {printerCfg.usb_mode ? (
+          <p className="text-sm text-slate-700">🔌 USB: <span className="font-mono font-semibold">{printerCfg.usb_port || 'USB001'}</span></p>
+        ) : (
+          <>
+            <p className="text-sm text-slate-700">IP: <span className="font-mono font-semibold">{printerCfg.ip || '-'}</span></p>
+            <p className="text-sm text-slate-700">Port: <span className="font-mono font-semibold">{printerCfg.port || '9100'}</span></p>
+          </>
+        )}
         <p className="text-xs text-slate-400 mt-1">แก้ไขได้ที่แท็บ "เครื่องพิมพ์"</p>
       </div>
     </div>
   )
 }
 
-function PrinterFields({ values, onChange, paperOptions, showMac = false }) {
+function PrinterFields({ values, onChange, paperOptions, showMac = false, showUsb = false }) {
+  const usbMode = !!values.usb_mode
   return (
     <div className="space-y-3">
       <div>
         <label className="text-xs font-semibold text-slate-500 block mb-1.5">ชื่อเครื่องพิมพ์</label>
         <input value={values.name} onChange={e => onChange({ name: e.target.value })} className="field w-full" placeholder="เช่น Barcode Printer 1" />
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="text-xs font-semibold text-slate-500 block mb-1.5">IP Address</label>
-          <input value={values.ip} onChange={e => onChange({ ip: e.target.value })}
-            className="field w-full" placeholder="192.168.1.100" />
-        </div>
-        <div>
-          <label className="text-xs font-semibold text-slate-500 block mb-1.5">Port</label>
-          <input value={values.port} onChange={e => onChange({ port: e.target.value })}
-            className="field w-full" placeholder="9100" type="number" />
-        </div>
-      </div>
-      {showMac && (
+
+      {showUsb && (
+        <button type="button"
+          onClick={() => onChange({ usb_mode: !usbMode })}
+          className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border-2 transition-all
+            ${usbMode ? 'border-violet-400 bg-violet-50' : 'border-slate-200 bg-white'}`}>
+          <span className="text-sm font-medium text-slate-700">🔌 ต่อสาย USB (PC เท่านั้น)</span>
+          <span className={`w-10 h-6 rounded-full transition-colors flex items-center px-0.5
+            ${usbMode ? 'bg-violet-500' : 'bg-slate-300'}`}>
+            <span className={`w-5 h-5 rounded-full bg-white shadow transition-transform
+              ${usbMode ? 'translate-x-4' : 'translate-x-0'}`} />
+          </span>
+        </button>
+      )}
+
+      {showUsb && usbMode ? (
         <div>
           <label className="text-xs font-semibold text-slate-500 block mb-1.5">
-            MAC Address <span className="font-normal text-slate-400">(สำหรับค้นหา IP อัตโนมัติ)</span>
+            USB Port Name <span className="font-normal text-slate-400">(Windows — ดูใน Device Manager)</span>
           </label>
-          <input value={values.mac || ''} onChange={e => onChange({ mac: e.target.value.trim() })}
-            className="field w-full font-mono text-xs" placeholder="24:4c:ab:56:b5:34" />
-          <p className="text-[10px] text-slate-400 mt-1">ดูได้จากสติ๊กเกอร์ใต้เครื่องพิมพ์</p>
+          <input value={values.usb_port || ''} onChange={e => onChange({ usb_port: e.target.value.trim() })}
+            className="field w-full font-mono" placeholder="USB001" />
+          <p className="text-[10px] text-slate-400 mt-1">
+            Windows → Device Manager → Ports หรือ Printers → ดูชื่อ port ที่ printer USB ต่ออยู่ เช่น USB001
+          </p>
         </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-semibold text-slate-500 block mb-1.5">IP Address</label>
+              <input value={values.ip} onChange={e => onChange({ ip: e.target.value })}
+                className="field w-full" placeholder="192.168.1.100" />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 block mb-1.5">Port</label>
+              <input value={values.port} onChange={e => onChange({ port: e.target.value })}
+                className="field w-full" placeholder="9100" type="number" />
+            </div>
+          </div>
+          {showMac && (
+            <div>
+              <label className="text-xs font-semibold text-slate-500 block mb-1.5">
+                MAC Address <span className="font-normal text-slate-400">(สำหรับค้นหา IP อัตโนมัติ)</span>
+              </label>
+              <input value={values.mac || ''} onChange={e => onChange({ mac: e.target.value.trim() })}
+                className="field w-full font-mono text-xs" placeholder="24:4c:ab:56:b5:34" />
+              <p className="text-[10px] text-slate-400 mt-1">ดูได้จากสติ๊กเกอร์ใต้เครื่องพิมพ์</p>
+            </div>
+          )}
+          <div>
+            <label className="text-xs font-semibold text-slate-500 block mb-1.5">
+              Bridge URL <span className="font-normal text-slate-400">(URL ของ Mac ในร้าน)</span>
+            </label>
+            <input value={values.bridge_url || ''} onChange={e => onChange({ bridge_url: e.target.value })}
+              className="field w-full font-mono text-xs" placeholder="http://192.168.2.xxx:3000" />
+            <p className="text-[10px] text-slate-400 mt-1">
+              เปิด Terminal บน Mac แล้วพิมพ์ <code className="bg-slate-100 px-1 rounded">ipconfig getifaddr en0</code> เพื่อดู IP
+            </p>
+          </div>
+          <div className="border-t border-slate-100 bg-emerald-50 rounded-xl px-3 py-2">
+            <p className="text-[11px] text-emerald-700 font-semibold">✅ วิธีพิมพ์ผ่าน WiFi</p>
+            <p className="text-[10px] text-emerald-600 mt-0.5">1) เปิดแอป Mac ในร้านไว้ (npm run dev)  2) กรอก IP เครื่องพิมพ์  3) กรอก Bridge URL = IP ของ Mac</p>
+          </div>
+        </>
       )}
+
       <div>
         <label className="text-xs font-semibold text-slate-500 block mb-1.5">ความกว้างกระดาษ</label>
         <div className="flex gap-2">
@@ -2169,20 +2226,6 @@ function PrinterFields({ values, onChange, paperOptions, showMac = false }) {
             </button>
           ))}
         </div>
-      </div>
-      <div>
-        <label className="text-xs font-semibold text-slate-500 block mb-1.5">
-          Bridge URL <span className="font-normal text-slate-400">(URL ของ Mac ในร้าน)</span>
-        </label>
-        <input value={values.bridge_url || ''} onChange={e => onChange({ bridge_url: e.target.value })}
-          className="field w-full font-mono text-xs" placeholder="http://192.168.2.xxx:3000" />
-        <p className="text-[10px] text-slate-400 mt-1">
-          เปิด Terminal บน Mac แล้วพิมพ์ <code className="bg-slate-100 px-1 rounded">ipconfig getifaddr en0</code> เพื่อดู IP
-        </p>
-      </div>
-      <div className="border-t border-slate-100 bg-emerald-50 rounded-xl px-3 py-2">
-        <p className="text-[11px] text-emerald-700 font-semibold">✅ วิธีพิมพ์ผ่าน WiFi</p>
-        <p className="text-[10px] text-emerald-600 mt-0.5">1) เปิดแอป Mac ในร้านไว้ (npm run dev)  2) กรอก IP เครื่องพิมพ์  3) กรอก Bridge URL = IP ของ Mac</p>
       </div>
     </div>
   )

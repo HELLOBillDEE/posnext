@@ -4,7 +4,7 @@ import dynamic from 'next/dynamic'
 import { useAuth } from '@/components/AuthProvider'
 import { supabase } from '@/lib/supabase'
 import { convertThaiBarcode, fmt, genReceiptNo } from '@/lib/utils'
-import { printViaBridge, buildReceiptESCPOS, buildDeliverySlipESCPOS, buildMapSnapshotESCPOS, kickDrawerViaBridge, buildDrawerKickESCPOS } from '@/lib/printBridge'
+import { printViaBridge, printViaUSB, buildReceiptESCPOS, buildDeliverySlipESCPOS, buildMapSnapshotESCPOS, kickDrawerViaBridge, buildDrawerKickESCPOS } from '@/lib/printBridge'
 import { syncSaleToBillDee } from '@/lib/billdeeSyncClient'
 import { buildFormalDocHTML, previewNextDocNo, commitNextDocNo } from '@/lib/docBuilder'
 import { cacheSet, cacheGet, addToQueue } from '@/lib/offlineQueue'
@@ -40,6 +40,15 @@ function getReceiptCfg() {
     bridge_url: typeof window !== 'undefined' ? window.location.origin : '',
     ...saved,
   }
+}
+
+// true = มีเครื่องพิมพ์ (IP หรือ USB)
+function canPrintReceipt(cfg) { return !!(cfg.ip || cfg.usb_mode) }
+
+// ส่ง bytes ไปเครื่องพิมพ์ตาม mode
+async function printReceiptBytes(cfg, bytes) {
+  if (cfg.usb_mode) return printViaUSB(bytes, cfg.usb_port || 'USB001')
+  return printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
 }
 
 function camSnap(payload) {
@@ -575,7 +584,7 @@ export default function POSPage() {
   async function printQRSlip(amount, qrOverride) {
     const qrSrc = qrOverride || settings.payment_qr
     const cfg = getReceiptCfg()
-    if (!cfg.ip) {
+    if (!canPrintReceipt(cfg)) {
       const html = `<html><body style="text-align:center;font-family:sans-serif;padding:20px">
         <p style="font-size:18px;font-weight:bold">${settings.shop_name || 'ร้านค้า'}</p>
         <p>สแกน QR เพื่อชำระ</p>
@@ -632,7 +641,7 @@ export default function POSPage() {
     const bytes = new Uint8Array([0x1B,0x40, GS,0x76,0x30,0x00,
       wBytes&0xFF,(wBytes>>8)&0xFF, canvas.height&0xFF,(canvas.height>>8)&0xFF,
       ...bitmap, GS,0x56,0x00])
-    printViaBridge(cfg.bridge_url||'', cfg.ip, cfg.port||9100, bytes)
+    printReceiptBytes(cfg, bytes)
       .catch(e => console.warn('QR print error:', e.message))
   }
 
@@ -653,7 +662,7 @@ export default function POSPage() {
     }
 
     const cfg = getReceiptCfg()
-    const useBridge = !!cfg.ip  // ถ้ามี IP เครื่องพิมพ์ → พิมพ์ผ่าน API โดยตรง
+    const useBridge = canPrintReceipt(cfg)
 
     setSaving(true)
     try {
@@ -711,9 +720,9 @@ export default function POSPage() {
         }
         setLastDone(receipt)
         const cfg = getReceiptCfg()
-        if (cfg.ip) {
+        if (canPrintReceipt(cfg)) {
           buildReceiptESCPOS(receipt, parseInt(cfg.paper_width) || 80).then(bytes =>
-            printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
+            printReceiptBytes(cfg, bytes)
           ).catch(() => {})
         }
         paidUntilRef.current = Date.now() + 7000
@@ -772,14 +781,14 @@ export default function POSPage() {
             const combined = new Uint8Array(kick.length + bytes.length)
             combined.set(kick, 0)
             combined.set(bytes, kick.length)
-            await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, combined)
+            await printReceiptBytes(cfg, combined)
           } else {
             if (saveMethod === 'transfer') {
               const empCam  = currentEmp ? (currentEmp.nickname || currentEmp.name) : 'POS'
               const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
               camSnap({ caption: `📱 โอน — ${empCam}  🕐 ${timeCam}`, terminal_id: getTerminalId() || '', duration: 5 })
             }
-            await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
+            await printReceiptBytes(cfg, bytes)
           }
           setPrintStatus('ok')
         }).catch(e => {
@@ -888,7 +897,7 @@ export default function POSPage() {
 
       // พิมใบแจ้งหนี้ยังไม่ชำระ
       const cfg = getReceiptCfg()
-      if (cfg.ip) {
+      if (canPrintReceipt(cfg)) {
         buildDeliverySlipESCPOS({
           doc_no: finalDocNo,
           shopName: settings.shop_name, shopAddress: settings.shop_address,
@@ -899,7 +908,7 @@ export default function POSPage() {
           delivery_fee: 0, total,
           note: note || '', created_at: new Date().toISOString(),
         }, parseInt(cfg.paper_width) || 80).then(bytes =>
-          printViaBridge(cfg.bridge_url || window.location.origin, cfg.ip, cfg.port || 9100, bytes)
+          printReceiptBytes(cfg, bytes)
         ).catch(e => console.warn('Credit invoice print error:', e))
       }
 
@@ -984,10 +993,10 @@ export default function POSPage() {
 
   async function openReceipt(r) {
     const cfg = getReceiptCfg()
-    if (cfg.ip) {
+    if (canPrintReceipt(cfg)) {
       try {
         const bytes = await buildReceiptESCPOS(r, parseInt(cfg.paper_width) || 80)
-        await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
+        await printReceiptBytes(cfg, bytes)
       } catch (e) {
         console.error('Reprint error:', e)
         alert('❌ พิมใบเสร็จไม่ได้: ' + (e?.message || String(e)) + '\nตรวจสอบ IP เครื่องพิมพ์ในหน้า Admin')
@@ -2187,7 +2196,7 @@ function CancelBillModal({ sale, settings, currentEmp, empMode, onClose, onVoide
           setStep('saving')
           try {
             const cfg = getReceiptCfg()
-            if (cfg.ip) await kickDrawerViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100)
+            if (canPrintReceipt(cfg)) await printReceiptBytes(cfg, buildDrawerKickESCPOS())
           } catch {}
           await supabase.from('drawer_logs').insert({
             employee_name: 'แอดมิน', amount: refundAmt, note: `เบิกเงินออก — ${voidNote}`,
@@ -2214,7 +2223,7 @@ function CancelBillModal({ sale, settings, currentEmp, empMode, onClose, onVoide
           clearInterval(iv)
           try {
             const cfg = getReceiptCfg()
-            if (cfg.ip) await kickDrawerViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100)
+            if (canPrintReceipt(cfg)) await printReceiptBytes(cfg, buildDrawerKickESCPOS())
           } catch {}
           await supabase.from('drawer_logs').insert({
             employee_name: empName, amount: drawerData.amount,
@@ -2343,7 +2352,7 @@ function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
           setStep('opening')
           try {
             const cfg = getReceiptCfg()
-            if (cfg.ip) await kickDrawerViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100)
+            if (canPrintReceipt(cfg)) await printReceiptBytes(cfg, buildDrawerKickESCPOS())
           } catch (e) { console.warn('Drawer kick error:', e.message) }
           supabase.from('drawer_logs').insert({
             employee_name: empName,
@@ -2367,7 +2376,7 @@ function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
     setSaving(true); setErrMsg('')
     try {
       const cfg = getReceiptCfg()
-      if (cfg.ip) await kickDrawerViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100)
+      if (canPrintReceipt(cfg)) await printReceiptBytes(cfg, buildDrawerKickESCPOS())
     } catch (e) { console.warn('Drawer kick error:', e.message) }
 
     const dirLabel = direction === 'in' ? 'รับเงินเข้า' : 'เบิกเงินออก'
@@ -2747,7 +2756,7 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
           clearInterval(iv)
           try {
             const cfg = getReceiptCfg()
-            if (cfg.ip) await kickDrawerViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100)
+            if (canPrintReceipt(cfg)) await printReceiptBytes(cfg, buildDrawerKickESCPOS())
           } catch {}
           setDrawerReq('sent')
         } else if (j.status === 'rejected') {
@@ -2760,11 +2769,11 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
 
   async function requestDrawerOpen() {
     const cfg = getReceiptCfg()
-    if (!empMode && cfg.ip) {
+    if (!empMode && canPrintReceipt(cfg)) {
       // admin — เปิดตรง
       setDrawerReq('sending')
       try {
-        await kickDrawerViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100)
+        await printReceiptBytes(cfg, buildDrawerKickESCPOS())
         startShiftRec()
         setDrawerReq('sent')
       } catch { setDrawerReq('error') }
@@ -3305,7 +3314,7 @@ function DeliverySlipModal({ cart, totals, settings, currentEmp, customer, onClo
 
       const cfg = JSON.parse(settings.printer_receipt || localStorage.getItem('printer_receipt') || '{}')
       const paperW = parseInt(cfg.paper_width) || 80
-      if (cfg.ip) {
+      if (canPrintReceipt(cfg)) {
         const printImg = mapSnapshotUrl || mapImageDataUrl
         buildDeliverySlipESCPOS({
           doc_no: finalDocNo,
@@ -3329,9 +3338,9 @@ function DeliverySlipModal({ cart, totals, settings, currentEmp, customer, onClo
             const mapBytes = await buildMapSnapshotESCPOS(printImg, paperW, mapDetails)
             const combined = new Uint8Array(slipBytes.length + mapBytes.length)
             combined.set(slipBytes, 0); combined.set(mapBytes, slipBytes.length)
-            await printViaBridge(cfg.bridge_url || window.location.origin, cfg.ip, cfg.port || 9100, combined)
+            await printReceiptBytes(cfg, combined)
           } else {
-            await printViaBridge(cfg.bridge_url || window.location.origin, cfg.ip, cfg.port || 9100, slipBytes)
+            await printReceiptBytes(cfg, slipBytes)
           }
         }).catch(e => console.warn('Delivery slip print error:', e))
       }

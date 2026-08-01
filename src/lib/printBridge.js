@@ -81,6 +81,20 @@ export async function kickDrawerViaBridge(bridgeUrl, ip, port) {
   return printViaBridge(bridgeUrl, ip, port, buildDrawerKickESCPOS(), [0, 3000, 6000])
 }
 
+// ส่ง ESC/POS ตรงไปเครื่องพิมพ์ USB ผ่าน /api/print-usb (รันบน server เครื่อง PC เท่านั้น)
+export async function printViaUSB(bytes, usbPort = 'USB001') {
+  const b64 = btoa(Array.from(bytes).map(b => String.fromCharCode(b)).join(''))
+  const res = await fetch('/api/print-usb', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ data: b64, usb_port: usbPort }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error || 'USB print failed')
+  }
+}
+
 // สร้าง ESC/POS ใบเสร็จแบบ bitmap — ไม่มีปัญหา Thai codepage
 // ── Shared helpers ──────────────────────────────────────────────────────────
 
