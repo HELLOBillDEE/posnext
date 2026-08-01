@@ -2385,8 +2385,6 @@ function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
       body: JSON.stringify({
         employeeName: 'แอดมิน', note: fullNote,
         shopName: settings.shop_name || 'ร้านค้า',
-        line_channel_token: settings.line_channel_token || '',
-        line_group_id: settings.line_group_id || '',
       }),
     }).catch(() => {})
 
