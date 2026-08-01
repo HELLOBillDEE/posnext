@@ -42,7 +42,7 @@ export async function GET(req) {
       supabase.from('salary_advances').select('employee_id, amount, status, requested_at').in('status', ['approved']).gte('requested_at', dateFrom + 'T00:00:00').lte('requested_at', dateTo + 'T23:59:59'),
       supabase.from('employee_installments').select('*').eq('active', true),
       supabase.from('payroll_settlements').select('*').eq('period', period),
-      supabase.from('payroll_settlements').select('employee_id, carry_forward_out').eq('period', prevPeriod),
+      supabase.from('payroll_settlements').select('employee_id, carry_forward_out, carry_pay_out').eq('period', prevPeriod),
       supabase.from('employee_bonus').select('employee_id, amount, note').eq('period', period),
       supabase.from('settings').select('key, value').eq('key', 'shop_name'),
     ])
@@ -98,6 +98,7 @@ export async function GET(req) {
       const settled  = (settlements || []).find(s => s.employee_id === emp.id) || null
       const prevSet  = (prevSettlements || []).find(s => s.employee_id === emp.id)
       const carryForwardIn = prevSet ? Number(prevSet.carry_forward_out) : 0
+      const carryPayIn     = prevSet ? Number(prevSet.carry_pay_out || 0) : 0
 
       // คำนวณวันทำงานและ consecutive streak
       let daysWorked = 0
@@ -169,7 +170,7 @@ export async function GET(req) {
       const dailyRate    = Number(emp.daily_rate || 0)
       const grossPay     = daysWorked * dailyRate
       const manualBonus  = empBonus.reduce((s, b) => s + Number(b.amount), 0)
-      const totalEarned  = grossPay + streakBonus + commission + manualBonus
+      const totalEarned  = grossPay + streakBonus + commission + manualBonus + carryPayIn
       const totalWithdrawn = empAdv.reduce((s, a) => s + Number(a.amount), 0)
       const netPayDue    = totalEarned - totalWithdrawn - installmentDeduct - carryForwardIn
       // carryForwardIn > 0 = employee owes shop (debt from last month)
@@ -191,6 +192,7 @@ export async function GET(req) {
         laborTotal,
         grossPay,
         manualBonus,
+        carryPayIn,
         bonusDetail: empBonus,
         totalEarned,
         totalWithdrawn,

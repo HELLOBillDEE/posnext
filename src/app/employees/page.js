@@ -231,8 +231,12 @@ function EmpCard({ emp, period, shopName, onSettled }) {
     setUnsettling(false); onSettled()
   }
 
-  async function settle() {
-    if (!confirm(`ปิดบัญชีเดือนนี้ให้ ${emp.nickname||emp.name}?\nพนักงานได้รับเงิน ฿${fmt(Math.max(0,emp.netPayDue))}`)) return
+  async function settle(deferPay = false) {
+    const netDue = Math.max(0, emp.netPayDue)
+    const confirmMsg = deferPay
+      ? `ค้างจ่าย ฿${fmt(netDue)} ให้ ${emp.nickname||emp.name}\nยอดนี้จะทบรวมเดือนหน้าโดยอัตโนมัติ`
+      : `ปิดบัญชีเดือนนี้ให้ ${emp.nickname||emp.name}?\nพนักงานได้รับเงิน ฿${fmt(netDue)}`
+    if (!confirm(confirmMsg)) return
     setSettling(true)
     const installment_updates = emp.installmentDetail.filter(i=>i.thisMonth>0).map(i=>({id:i.id,days_to_add:i.thisMonth}))
     await fetch('/api/payroll/settle', {
@@ -244,6 +248,7 @@ function EmpCard({ emp, period, shopName, onSettled }) {
         total_withdrawn:emp.totalWithdrawn, installment_deduct:emp.installmentDeduct,
         carry_forward_in:emp.carryForwardIn, net_pay_due:emp.netPayDue,
         settled_by:'admin', installment_updates,
+        defer_pay: deferPay,
       }),
     })
     setSettling(false); onSettled()
@@ -278,6 +283,7 @@ footer{text-align:center;color:#aaa;font-size:10px;margin-top:18px;border-top:1p
 ${emp.commission>0?`<div class="row"><span>ค่าคอมช่าง</span><span class="earn">+฿${fmt(emp.commission)}</span></div>`:''}
 ${emp.streakBonus>0?`<div class="row"><span>โบนัส 10 วันติด</span><span class="earn">+฿${fmt(emp.streakBonus)}</span></div>`:''}
 ${(emp.bonusDetail||[]).map(b=>`<div class="row"><span>${b.note||'โบนัสพิเศษ'}</span><span class="earn">+฿${fmt(b.amount)}</span></div>`).join('')}
+${(emp.carryPayIn||0)>0?`<div class="row"><span>ค้างจ่ายจากเดือนก่อน</span><span class="earn">+฿${fmt(emp.carryPayIn)}</span></div>`:''}
 <div class="row" style="font-weight:600"><span>รวมรายได้</span><span class="earn">฿${fmt(emp.totalEarned)}</span></div>
 
 ${(emp.totalWithdrawn>0||emp.installmentDetail.some(i=>i.deductAmount>0)||emp.carryForwardIn>0)?`<div class="section">หัก</div>`:''}
@@ -364,6 +370,12 @@ ${emp.carryForwardIn>0?`<div class="row"><span>ทบจากเดือนก
                 <span className="text-emerald-600">+฿{fmt(b.amount)}</span>
               </div>
             ))}
+            {(emp.carryPayIn||0)>0 && (
+              <div className="flex justify-between text-slate-600">
+                <span>ค้างจ่ายจากเดือนก่อน</span>
+                <span className="text-emerald-600">+฿{fmt(emp.carryPayIn)}</span>
+              </div>
+            )}
             <div className="flex justify-between font-semibold text-slate-700 border-t border-dashed pt-1.5">
               <span>รายได้รวม</span><span className="text-emerald-700">฿{fmt(emp.totalEarned)}</span>
             </div>
@@ -420,12 +432,18 @@ ${emp.carryForwardIn>0?`<div class="row"><span>ทบจากเดือนก
               className="flex-1 py-2 border border-slate-200 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-50">
               🖨️ สลิป
             </button>
-            {!isSettled ? (
-              <button onClick={settle} disabled={settling}
+            {!isSettled ? (<>
+              {emp.netPayDue > 0 && (
+                <button onClick={() => settle(true)} disabled={settling}
+                  className="flex-1 py-2 border border-amber-400 text-amber-700 rounded-xl text-sm font-medium hover:bg-amber-50 disabled:opacity-40">
+                  {settling?'...':'⏳ ค้างจ่าย'}
+                </button>
+              )}
+              <button onClick={() => settle(false)} disabled={settling}
                 className="flex-1 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-40">
-                {settling?'...':'✅ ปิดบัญชี'}
+                {settling?'...':'✅ จ่ายแล้ว'}
               </button>
-            ) : (
+            </>) : (
               <button onClick={unsettle} disabled={unsettling}
                 className="flex-1 py-2 border border-red-200 text-red-500 rounded-xl text-sm font-medium hover:bg-red-50 disabled:opacity-40">
                 {unsettling?'...':'↩ ยกเลิกปิด'}

@@ -15,12 +15,15 @@ export async function POST(req) {
       streak_bonus, commission, total_withdrawn, installment_deduct,
       carry_forward_in, net_pay_due, note, settled_by,
       installment_updates, // [{ id, days_to_add }]
+      defer_pay, // true = ค้างจ่าย → ทบเดือนหน้าเป็น carryPayIn
     } = body
 
     if (!employee_id || !period) return Response.json({ error: 'ข้อมูลไม่ครบ' }, { status: 400 })
 
-    // carry_forward_out: ถ้า netPayDue < 0 แสดงว่าพนักงานยังติดหนี้ → ทบเดือนหน้า
+    // carry_forward_out: พนักงานติดหนี้ร้าน (netPayDue < 0)
     const carry_forward_out = net_pay_due < 0 ? Math.abs(net_pay_due) : 0
+    // carry_pay_out: ร้านค้างจ่ายพนักงาน → ทบรวมเดือนหน้า
+    const carry_pay_out = defer_pay && net_pay_due > 0 ? Number(net_pay_due) : 0
 
     // Upsert settlement record
     const { error: settleErr } = await supabase.from('payroll_settlements').upsert({
@@ -35,6 +38,7 @@ export async function POST(req) {
       installment_deduct: Number(installment_deduct || 0),
       carry_forward_in: Number(carry_forward_in || 0),
       carry_forward_out: Number(carry_forward_out || 0),
+      carry_pay_out: Number(carry_pay_out || 0),
       net_pay_due: Math.max(0, Number(net_pay_due || 0)),
       note: note || null,
       settled_at: new Date().toISOString(),
@@ -64,7 +68,7 @@ export async function POST(req) {
       }
     }
 
-    return Response.json({ ok: true, carry_forward_out })
+    return Response.json({ ok: true, carry_forward_out, carry_pay_out })
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 })
   }
