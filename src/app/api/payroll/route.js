@@ -42,7 +42,7 @@ export async function GET(req) {
       supabase.from('salary_advances').select('employee_id, amount, status, requested_at').in('status', ['approved']).gte('requested_at', dateFrom + 'T00:00:00').lte('requested_at', dateTo + 'T23:59:59'),
       supabase.from('employee_installments').select('*').eq('active', true),
       supabase.from('payroll_settlements').select('*').eq('period', period),
-      supabase.from('payroll_settlements').select('employee_id, carry_forward_out, carry_pay_out').eq('period', prevPeriod),
+      supabase.from('payroll_settlements').select('*').eq('period', prevPeriod),
       supabase.from('employee_bonus').select('employee_id, amount, note').eq('period', period),
       supabase.from('settings').select('key, value').eq('key', 'shop_name'),
     ])
