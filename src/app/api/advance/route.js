@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { notifyAdvance } from '@/lib/telegramStaff'
+import { notifyAdvance as lineNotifyAdvance } from '@/lib/lineStaff'
 import { sendPushToAll } from '@/lib/webPush'
 
 const supabase = createClient(
@@ -73,8 +74,8 @@ export async function POST(req) {
     console.log('[advance] inserted id:', inserted?.id, 'emp:', empName, 'amount:', amount, 'auto:', autoApprove)
     notifyAdvance({ id: inserted?.id, empName, amount: Number(amount), note: note || null, autoApproved: autoApprove })
       .catch(e => console.error('[advance notify error]', e?.message))
-
     if (!autoApprove) {
+      lineNotifyAdvance({ id: inserted?.id, empName, amount: Number(amount), note: note || null }).catch(() => {})
         sendPushToAll({
           title: '💵 คำขอเบิก',
           body: `${empName} — ฿${Number(amount).toLocaleString('th-TH')}`,

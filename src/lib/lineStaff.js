@@ -195,4 +195,37 @@ export async function notifyDrawerRequest({ id, empName, note }) {
   await pushFlex(cfg.line_channel_token, cfg.line_group_id, `🔓 คำขอเปิดลิ้นชัก - ${empName} ${now}`, bubble)
 }
 
+/* ── แจ้งเตือนเปิดลิ้นชัก (จริง หลังอนุมัติ หรือตรง) ── */
+export async function notifyDrawer({ employeeName, shopName, note }) {
+  const cfg = await getLineSettings()
+  if (!cfg) return
+
+  const now = new Date().toLocaleString('th-TH', {
+    timeZone: 'Asia/Bangkok',
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
+
+  const rows = [
+    infoRow('👤', 'พนักงาน', employeeName || 'ไม่ระบุ'),
+    separator(),
+    infoRow('🕐', 'เวลา', now),
+    ...(note ? [separator(), infoRow('📝', 'หมายเหตุ', note, '#64748b')] : []),
+  ]
+
+  const bubble = {
+    type: 'bubble', size: 'kilo',
+    header: {
+      type: 'box', layout: 'vertical', backgroundColor: '#7c3aed', paddingAll: '14px',
+      contents: [
+        { type: 'text', text: '🔓  เปิดลิ้นชักเงิน', color: '#ffffff', weight: 'bold', size: 'lg' },
+        { type: 'text', text: shopName || cfg.shop_name || 'ร้านค้า', color: '#ede9fe', size: 'xs', margin: 'xs' },
+      ],
+    },
+    body: { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '16px', contents: rows },
+  }
+
+  await pushFlex(cfg.line_channel_token, cfg.line_group_id, `🔓 เปิดลิ้นชัก — ${employeeName || ''}`, bubble)
+}
+
 export { getLineSettings }
