@@ -2209,7 +2209,19 @@ function CancelBillModal({ sale, settings, currentEmp, empMode, onClose, onVoide
         refund_terminal_id: getTerminalId() || null,
       }).eq('id', sale.id)
 
-      // 2. cash refund → open drawer
+      // 2. คืนสต็อก
+      const { data: saleItems } = await supabase.from('sale_items').select('product_id,qty').eq('sale_id', sale.id)
+      for (const i of saleItems || []) {
+        if (!i.product_id) continue
+        try {
+          await supabase.rpc('adjust_stock', { p_product_id: i.product_id, p_qty_change: i.qty, p_type: 'return', p_ref_id: sale.id })
+        } catch {
+          const { data: pd } = await supabase.from('products').select('stock').eq('id', i.product_id).single()
+          if (pd) await supabase.from('products').update({ stock: (pd.stock || 0) + i.qty }).eq('id', i.product_id)
+        }
+      }
+
+      // 3. cash refund → open drawer
       if (refundMethod === 'cash') {
         if (empMode) {
           // employee → request approval
