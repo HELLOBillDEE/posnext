@@ -29,7 +29,8 @@ function buildCameraUrl(s) {
 function recordCamera(url, durationSec, outPath) {
   return new Promise((resolve, reject) => {
     const proc = spawn(FFMPEG, [
-      '-rtsp_transport', 'tcp', '-timeout', '10000000',
+      '-rtsp_transport', 'tcp', '-timeout', '20000000',
+      '-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_delay_max', '5',
       '-i', url,
       '-t', String(durationSec),
       '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28',
@@ -72,9 +73,15 @@ async function sendToTelegram(token, chatId, buffer, caption) {
   form.append('chat_id', chatId)
   form.append('video', new Blob([buffer], { type: 'video/mp4' }), 'clip.mp4')
   if (caption) form.append('caption', caption)
-  const res  = await fetch(`https://api.telegram.org/bot${token}/sendVideo`, { method: 'POST', body: form })
-  const json = await res.json()
-  if (!json.ok) console.error('[camera] Telegram sendVideo error:', json.description)
+  const ctrl = new AbortController()
+  const tid  = setTimeout(() => ctrl.abort(), 90_000) // 90s timeout
+  try {
+    const res  = await fetch(`https://api.telegram.org/bot${token}/sendVideo`, { method: 'POST', body: form, signal: ctrl.signal })
+    const json = await res.json()
+    if (!json.ok) console.error('[camera] Telegram sendVideo error:', json.description)
+  } finally {
+    clearTimeout(tid)
+  }
 }
 
 export async function recordAndNotify(s, caption, duration = 15) {
