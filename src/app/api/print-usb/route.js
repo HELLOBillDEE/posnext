@@ -94,6 +94,7 @@ export async function POST(req) {
 
     const stdout = await new Promise((resolve, reject) => {
       execFile('powershell', [
+        '-WindowStyle', 'Hidden',
         '-NonInteractive', '-ExecutionPolicy', 'Bypass',
         '-File', ps1,
       ], { windowsHide: true }, (err, out) => {
