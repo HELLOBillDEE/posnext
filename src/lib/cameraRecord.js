@@ -30,7 +30,6 @@ function recordCamera(url, durationSec, outPath) {
   return new Promise((resolve, reject) => {
     const proc = spawn(FFMPEG, [
       '-rtsp_transport', 'tcp', '-timeout', '20000000',
-      '-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_delay_max', '5',
       '-i', url,
       '-t', String(durationSec),
       '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28',
