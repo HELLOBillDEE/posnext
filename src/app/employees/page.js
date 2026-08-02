@@ -212,7 +212,28 @@ function EmpCard({ emp, period, shopName, onSettled }) {
   const [expanded, setExpanded]     = useState(false)
   const [editRate, setEditRate]     = useState(false)
   const [rateVal, setRateVal]       = useState(String(emp.daily_rate||''))
+  const [cycle, setCycle]           = useState(null)
+  const [payingCycle, setPayingCycle] = useState(false)
   const isSettled = !!emp.settled
+
+  useEffect(() => {
+    fetch(`/api/payroll/cycle?employee_id=${emp.id}`)
+      .then(r => r.json()).then(d => setCycle(d[0] || null)).catch(() => {})
+  }, [emp.id])
+
+  async function payCycle() {
+    if (!cycle?.isComplete) return
+    const newDayTo = cycle.lastCycleDayTo + 10
+    if (!confirm(`จ่ายค่าแรงรอบวันที่ ${cycle.lastCycleDayTo+1}–${newDayTo} ให้ ${emp.nickname||emp.name}?\n฿${fmt(cycle.cycleAmount)}`)) return
+    setPayingCycle(true)
+    await fetch('/api/payroll/cycle', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ employee_id: emp.id, amount: cycle.cycleAmount, cycle_day_to: newDayTo }),
+    })
+    const d = await fetch(`/api/payroll/cycle?employee_id=${emp.id}`).then(r => r.json())
+    setCycle(d[0] || null)
+    setPayingCycle(false)
+  }
 
   async function saveRate() {
     const rate = parseFloat(rateVal)
@@ -350,6 +371,30 @@ ${emp.carryForwardIn>0?`<div class="row"><span>ทบจากเดือนก
             </p>
           </div>
         </div>
+
+        {/* 10-day cycle */}
+        {cycle && (
+          <div className="px-4 py-2.5 border-b border-slate-50 bg-slate-50/60">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[11px] text-slate-500 font-semibold">
+                รอบ 10 วัน — วันที่ {cycle.lastCycleDayTo+1}–{cycle.lastCycleDayTo+10}
+                <span className="ml-1.5 text-slate-400">({cycle.daysInCycle}/10 วัน)</span>
+              </span>
+              {cycle.isComplete ? (
+                <button onClick={payCycle} disabled={payingCycle}
+                  className="text-xs bg-emerald-500 text-white px-3 py-1 rounded-full font-bold disabled:opacity-50 animate-pulse">
+                  {payingCycle ? '...' : `💰 จ่าย ฿${fmt(cycle.cycleAmount)}`}
+                </button>
+              ) : (
+                <span className="text-[11px] text-slate-400">อีก {cycle.daysUntilPay} วัน</span>
+              )}
+            </div>
+            <div className="w-full bg-slate-200 rounded-full h-2">
+              <div className="bg-emerald-500 h-2 rounded-full transition-all"
+                style={{ width: `${Math.min(100, (cycle.daysInCycle / 10) * 100)}%` }} />
+            </div>
+          </div>
+        )}
 
         {/* Detail */}
         {expanded && (
