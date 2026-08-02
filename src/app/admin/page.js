@@ -2166,12 +2166,12 @@ function PrinterFields({ values, onChange, paperOptions, showMac = false, showUs
       {showUsb && usbMode ? (
         <div>
           <label className="text-xs font-semibold text-slate-500 block mb-1.5">
-            ชื่อเครื่องพิมพ์ใน Windows <span className="font-normal text-slate-400">(ไม่ใช่ port)</span>
+            USB Port Name <span className="font-normal text-slate-400">(Windows)</span>
           </label>
           <input value={values.usb_port || ''} onChange={e => onChange({ usb_port: e.target.value.trim() })}
-            className="field w-full" placeholder="เครื่องพิมพ์ใบเสร็จ" />
+            className="field w-full font-mono" placeholder="USB001" />
           <p className="text-[10px] text-slate-400 mt-1">
-            Windows → Control Panel → Devices and Printers → ดูชื่อเครื่องพิมพ์ เช่น "เครื่องพิมพ์ใบเสร็จ"
+            ดูได้จาก Control Panel → Devices and Printers → คลิกขวาเครื่องพิมพ์ → Printer Properties → Ports เช่น USB004
           </p>
         </div>
       ) : (
