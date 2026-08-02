@@ -1,7 +1,19 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
-import { printViaBridge, buildReceiptESCPOS } from '@/lib/printBridge'
+import { printViaBridge, printViaUSB, buildReceiptESCPOS } from '@/lib/printBridge'
+
+let _serverUsb = null
+async function getServerUsb() {
+  if (_serverUsb !== null) return _serverUsb
+  try { const r = await fetch('/api/server-caps'); const d = await r.json(); _serverUsb = !!d.usb } catch { _serverUsb = false }
+  return _serverUsb
+}
+async function printReceiptCfg(cfg, bytes) {
+  const usbAuto = cfg.usb_port && (cfg.usb_mode || await getServerUsb())
+  if (usbAuto) return printViaUSB(bytes, cfg.usb_port)
+  return printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
+}
 import { cacheSet, cacheGet, addToQueue, genOfflineRepairNo } from '@/lib/offlineQueue'
 
 const STATUS = {
@@ -46,10 +58,10 @@ async function printRepairReceipt(job, settings, receiptCfg, barcodeCfg) {
   const w = pm >= 80 ? '72mm' : '48mm'
 
   // ─── ใบรับเครื่อง (receipt printer) ───
-  if (cfg.ip) {
+  if (cfg.ip || cfg.usb_port) {
     try {
       const bytes = await buildRepairESCPOS(job, settings, pm, dtStr, apptStr)
-      await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
+      await printReceiptCfg(cfg, bytes)
     } catch (e) {
       console.error('receipt print error', e)
       alert('❌ พิมใบนัดไม่ได้: ' + (e?.message || e) + '\nตรวจสอบ IP เครื่องพิมพ์ในหน้า Admin')
@@ -595,9 +607,9 @@ export default function RepairPage() {
 
       // พิมพ์ใบแจ้งรายการซ่อม (ถ้ามีเครื่องพิมพ์)
       const rcfg = printerCfg.receipt
-      if (rcfg?.ip) {
+      if (rcfg?.ip || rcfg?.usb_port) {
         buildQuoteESCPOS(quoteJob, quoteItems, subtotal, deposit, total, settings, parseInt(rcfg.paper_mm) || 80)
-          .then(bytes => printViaBridge(rcfg.bridge_url || '', rcfg.ip, rcfg.port || 9100, bytes))
+          .then(bytes => printReceiptCfg(rcfg, bytes))
           .catch(e => console.error('print quote error', e))
       }
 
