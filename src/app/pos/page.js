@@ -758,14 +758,14 @@ export default function POSPage() {
 
       // บิลผสม + มีเชื่อ → สร้าง pending invoice ให้โผล่ใน รอชำระ
       if (payMode === 'mixed' && mixCredit > 0) {
-        const docItems = cart.map(i => ({ product_name: i.name, qty: i.qty, price: i.price, subtotal: i.price * i.qty - (i.disc || 0) }))
+        const crItems = [{ name: `ยอดเชื่อจากบิล ${receiptNo}`, pid: null, barcode: '', unit: '', qty: 1, price: mixCredit, disc: 0, subtotal: mixCredit }]
         const { data: pendingQ } = await supabase.from('quotations').insert({
           doc_no: `CR-${receiptNo}`,
           doc_type: 'invoice',
           customer_id: customer?.id || null,
           customer_name: customer?.name || null,
           customer_phone: customer?.phone || null,
-          items: docItems,
+          items: crItems,
           subtotal: mixCredit,
           total: mixCredit,
           note: `[เชื่อจากบิลผสม ${receiptNo}]`,
@@ -1723,6 +1723,7 @@ export default function POSPage() {
           onClose={() => setShowHistPanel(false)}
           onReprint={openReceipt}
           onEditBill={handleEditBill}
+          onLoadQuote={q => { loadQuote(q); setShowHistPanel(false) }}
         />
       )}
 
@@ -1968,7 +1969,7 @@ export default function POSPage() {
   }
 }
 
-function SalesHistoryPanel({ settings, currentEmp, empMode, terminalId, terminalName, onClose, onReprint, onEditBill }) {
+function SalesHistoryPanel({ settings, currentEmp, empMode, terminalId, terminalName, onClose, onReprint, onEditBill, onLoadQuote }) {
   const [search, setSearch]           = useState('')
   const [sales, setSales]             = useState([])
   const [creditSales, setCreditSales] = useState([])
@@ -1999,12 +2000,12 @@ function SalesHistoryPanel({ settings, currentEmp, empMode, terminalId, terminal
         const { data } = await q
         setSales(data || [])
       } else if (histTab === 'credit') {
-        let q = supabase.from('sales')
-          .select('id,receipt_no,created_at,total,payment_method,status,note,customer_id,customers(name)')
-          .or('payment_method.eq.credit,and(payment_method.eq.mixed,note.ilike.%เชื่อ%)')
-          .neq('status', 'voided')
+        let q = supabase.from('quotations')
+          .select('id,doc_no,doc_type,created_at,total,customer_name,customer_phone,items,status,note')
+          .eq('status', 'pending')
+          .or('doc_type.eq.invoice,doc_no.like.CR-%')
           .order('created_at', { ascending: false }).limit(60)
-        if (search.trim()) q = q.ilike('receipt_no', `%${search.trim()}%`)
+        if (search.trim()) q = q.or(`doc_no.ilike.%${search.trim()}%,customer_name.ilike.%${search.trim()}%`)
         const { data } = await q
         setCreditSales(data || [])
       } else if (histTab === 'delivery') {
@@ -2158,20 +2159,30 @@ function SalesHistoryPanel({ settings, currentEmp, empMode, terminalId, terminal
                 ))
               ) : histTab === 'credit' ? (
                 creditSales.length === 0 ? <div className="p-10 text-center text-slate-400 text-sm">ไม่มียอดเชื่อค้างชำระ 🎉</div>
-                : creditSales.map(sale => (
-                  <button key={sale.id} onClick={() => openDetail(sale)}
-                    className="w-full px-4 py-3 text-left hover:bg-gray-50 transition-colors flex items-center gap-3">
-                    <div className="flex-1 min-w-0">
-                      <p className="font-bold text-slate-800 text-sm">{sale.receipt_no}</p>
-                      <p className="text-xs text-slate-400">
-                        {new Date(sale.created_at).toLocaleString('th-TH', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                        {sale.customers?.name && <span className="ml-1 text-violet-500">· {sale.customers.name}</span>}
-                      </p>
-                      {sale.note && <p className="text-xs text-slate-300 truncate mt-0.5">{sale.note}</p>}
-                    </div>
-                    <span className="font-bold text-base shrink-0 text-orange-500">฿{fmt(sale.total)}</span>
-                  </button>
-                ))
+                : creditSales.map(q => {
+                  const isMixed = q.doc_no?.startsWith('CR-')
+                  const displayNo = isMixed ? q.doc_no.slice(3) : q.doc_no
+                  return (
+                    <button key={q.id} onClick={() => onLoadQuote ? onLoadQuote(q) : null}
+                      className="w-full px-4 py-3 text-left hover:bg-gray-50 transition-colors flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <p className="font-bold text-slate-800 text-sm">{displayNo}</p>
+                          {isMixed && <span className="text-[10px] bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded font-semibold">ผสม</span>}
+                        </div>
+                        <p className="text-xs text-slate-400">
+                          {new Date(q.created_at).toLocaleString('th-TH', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                          {q.customer_name && <span className="ml-1 text-violet-500">· {q.customer_name}</span>}
+                        </p>
+                        <p className="text-xs text-slate-300 mt-0.5">📋 {(q.items||[]).length} รายการ</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="font-bold text-base text-orange-500">฿{fmt(q.total)}</span>
+                        <p className="text-[10px] text-slate-400">ค้างชำระ</p>
+                      </div>
+                    </button>
+                  )
+                })
               ) : (
                 deliveryDocs.length === 0 ? <div className="p-10 text-center text-slate-400 text-sm">ไม่พบใบส่งของ</div>
                 : deliveryDocs.map(doc => (
