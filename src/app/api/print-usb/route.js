@@ -5,9 +5,10 @@ import { tmpdir } from 'os'
 
 export const runtime = 'nodejs'
 
-// PowerShell code ส่งผ่าน -EncodedCommand เพื่อหลีกเลี่ยงปัญหา encoding
+// ใช้ try/catch + Write-Output เพื่อให้ error ออกมาเป็น plain text ไม่ใช่ CLIXML
 const PS_PRINT = `
-Add-Type -TypeDefinition @"
+try {
+  Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
 public class WinPrint {
@@ -33,27 +34,30 @@ public struct DOCINFOA {
     [MarshalAs(UnmanagedType.LPStr)] public string pDataType;
 }
 "@
-$pn = $env:PRINTER_NAME
-$fp = $env:FILE_PATH
-$bytes = [System.IO.File]::ReadAllBytes($fp)
-$h = [IntPtr]::Zero
-if (-not [WinPrint]::OpenPrinter($pn, [ref]$h, [IntPtr]::Zero)) {
+  $pn = $env:PRINTER_NAME
+  $fp = $env:FILE_PATH
+  $bytes = [System.IO.File]::ReadAllBytes($fp)
+  $h = [IntPtr]::Zero
+  if (-not [WinPrint]::OpenPrinter($pn, [ref]$h, [IntPtr]::Zero)) {
     $code = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
-    throw "Cannot open printer '$pn' (Win32 error $code)"
-}
-try {
-    $di = New-Object DOCINFOA
-    $di.pDocName = "POS"
-    $di.pDataType = "RAW"
-    $job = [WinPrint]::StartDocPrinter($h, 1, [ref]$di)
-    if ($job -le 0) { throw "StartDocPrinter failed" }
-    [WinPrint]::StartPagePrinter($h) | Out-Null
-    $w = 0
-    [WinPrint]::WritePrinter($h, $bytes, $bytes.Length, [ref]$w) | Out-Null
-    [WinPrint]::EndPagePrinter($h) | Out-Null
-    [WinPrint]::EndDocPrinter($h) | Out-Null
-} finally {
-    [WinPrint]::ClosePrinter($h) | Out-Null
+    Write-Output "ERROR:Cannot open printer '$pn' (Win32 $code)"
+    exit 1
+  }
+  $di = New-Object DOCINFOA
+  $di.pDocName = "POS"
+  $di.pDataType = "RAW"
+  $job = [WinPrint]::StartDocPrinter($h, 1, [ref]$di)
+  if ($job -le 0) { [WinPrint]::ClosePrinter($h); Write-Output "ERROR:StartDocPrinter failed"; exit 1 }
+  [WinPrint]::StartPagePrinter($h) | Out-Null
+  $w = 0
+  [WinPrint]::WritePrinter($h, $bytes, $bytes.Length, [ref]$w) | Out-Null
+  [WinPrint]::EndPagePrinter($h) | Out-Null
+  [WinPrint]::EndDocPrinter($h) | Out-Null
+  [WinPrint]::ClosePrinter($h) | Out-Null
+  Write-Output "OK"
+} catch {
+  Write-Output "ERROR:$($_.Exception.Message)"
+  exit 1
 }
 `
 
@@ -69,19 +73,21 @@ export async function POST(req) {
     const printerName = (usb_port || 'Receipt Printer').trim()
     const encoded = Buffer.from(PS_PRINT, 'utf16le').toString('base64')
 
-    await new Promise((resolve, reject) => {
+    const output = await new Promise((resolve, reject) => {
       execFile('powershell', [
         '-NonInteractive', '-ExecutionPolicy', 'Bypass',
         '-EncodedCommand', encoded,
       ], {
         env: { ...process.env, PRINTER_NAME: printerName, FILE_PATH: tmp },
-      }, (err, stdout, stderr) => {
+      }, (err, stdout) => {
         fs.unlink(tmp).catch(() => {})
-        if (err) reject(new Error([stderr, stdout, err.message].filter(Boolean).join('\n').trim()))
-        else resolve()
+        resolve({ err, stdout: (stdout || '').trim() })
       })
     })
 
+    const { err, stdout } = output
+    if (stdout.startsWith('ERROR:')) return Response.json({ error: stdout.slice(6) }, { status: 500 })
+    if (err) return Response.json({ error: err.message }, { status: 500 })
     return Response.json({ ok: true })
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 })
