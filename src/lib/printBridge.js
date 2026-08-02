@@ -300,6 +300,40 @@ export async function buildReceiptESCPOS(r, paperMM = 80) {
   return renderDLtoESCPOS(dl, pw)
 }
 
+// ── ใบตรวจจัดของ (Checker) ─────────────────────────────────────────────────
+
+export async function buildCheckerESCPOS(r, paperMM = 80) {
+  const pw  = paperMM >= 80 ? 576 : 384
+  const fSm = 26
+  const fLg = 36
+  const dl  = []
+  const line = (text, align = 'left', size = fSm, bold = false) => dl.push({ text, align, size, bold })
+  const two  = (left, right, bold = false) => dl.push({ two: true, left, right, size: fSm, bold })
+  const div  = () => dl.push({ divider: true })
+  const nl   = () => dl.push({ text: '', align: 'left', size: fSm })
+
+  line('ใบตรวจจัดของ', 'center', fLg, true)
+  line(r.receipt_no || '', 'center', fSm, true)
+  line(new Date(r.created_at || Date.now()).toLocaleString('th-TH'), 'center', Math.round(fSm * 0.85))
+  if (r.customerName || r.customer_name) line('ลูกค้า: ' + (r.customerName || r.customer_name), 'center', fSm)
+  div()
+
+  let totalQty = 0
+  let no = 0
+  for (const i of r.items || []) {
+    no++
+    totalQty += Number(i.qty) || 0
+    line(`[ ]  ${no}. ${i.name || ''}`, 'left', fSm, true)
+    two('', `x ${i.qty} ${i.unit || 'ชิ้น'}`)
+    nl()
+  }
+  div()
+  two('รวม', `${no} รายการ  ${totalQty} ชิ้น`, true)
+  nl(); nl(); nl(); nl(); nl(); nl()
+
+  return renderDLtoESCPOS(dl, pw)
+}
+
 // ── ใบส่งของ / แจ้งหนี้ ────────────────────────────────────────────────────
 
 export async function buildDeliverySlipESCPOS(r, paperMM = 80) {

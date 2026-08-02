@@ -4,7 +4,7 @@ import dynamic from 'next/dynamic'
 import { useAuth } from '@/components/AuthProvider'
 import { supabase } from '@/lib/supabase'
 import { convertThaiBarcode, fmt, genReceiptNo } from '@/lib/utils'
-import { printViaBridge, printViaUSB, buildReceiptESCPOS, buildDeliverySlipESCPOS, buildMapSnapshotESCPOS, kickDrawerViaBridge, buildDrawerKickESCPOS } from '@/lib/printBridge'
+import { printViaBridge, printViaUSB, buildReceiptESCPOS, buildCheckerESCPOS, buildDeliverySlipESCPOS, buildMapSnapshotESCPOS, kickDrawerViaBridge, buildDrawerKickESCPOS } from '@/lib/printBridge'
 import { syncSaleToBillDee } from '@/lib/billdeeSyncClient'
 import { buildFormalDocHTML, previewNextDocNo, commitNextDocNo } from '@/lib/docBuilder'
 import { cacheSet, cacheGet, addToQueue } from '@/lib/offlineQueue'
@@ -107,6 +107,7 @@ export default function POSPage() {
   const [generatedQr, setGeneratedQr]       = useState(null) // data URL
   const [mixAmounts, setMixAmounts] = useState({ cash: '', transfer: '', credit: '' })
   const [billDiscount, setBillDiscount] = useState('')
+  const [billDiscMode, setBillDiscMode] = useState('baht') // 'baht' | 'pct'
   const [note, setNote]             = useState('')
   const [saving, setSaving]         = useState(false)
   const [lastDone, setLastDone]     = useState(null)
@@ -542,7 +543,9 @@ export default function POSPage() {
   }
 
   const subtotal  = cart.reduce((s, i) => s + i.price * i.qty - i.disc, 0)
-  const billDisc  = parseFloat(billDiscount) || 0
+  const billDisc  = billDiscMode === 'pct'
+    ? Math.ceil(subtotal * (parseFloat(billDiscount) || 0) / 100)
+    : parseFloat(billDiscount) || 0
   const tierPct   = PRICE_TIERS.find(t => t.id === priceTier)?.pct || 0
   const tierDisc  = Math.ceil(subtotal * tierPct / 100)
   const totalDisc = billDisc + tierDisc
@@ -942,7 +945,7 @@ export default function POSPage() {
     const entry = {
       id: Date.now(),
       savedAt: new Date().toISOString(),
-      cart, customer, billDiscount, note, priceTier,
+      cart, customer, billDiscount, billDiscMode, note, priceTier,
     }
     const updated = [...heldSales, entry]
     setHeldSales(updated)
@@ -958,6 +961,7 @@ export default function POSPage() {
     setCart(entry.cart || entry.items || [])
     setCustomer(entry.customer || null)
     setBillDiscount(entry.billDiscount || '')
+    setBillDiscMode(entry.billDiscMode || 'baht')
     setNote(entry.note || '')
     setPriceTier(entry.priceTier || null)
     const updated = heldSales.filter(h => h.id !== id)
@@ -1384,9 +1388,16 @@ export default function POSPage() {
               </button>
             </div>
             {lastDone && (
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <button onClick={() => openReceipt(lastDone)}
                   className="flex-1 text-xs text-slate-400 hover:text-slate-600 underline py-1 transition-colors">พิมพ์ใบเสร็จล่าสุด</button>
+                {canPrintReceipt(getReceiptCfg()) && (
+                  <button onClick={async () => {
+                    const cfg = getReceiptCfg()
+                    try { await printReceiptBytes(cfg, await buildCheckerESCPOS(lastDone, parseInt(cfg.paper_width) || 80)) }
+                    catch (e) { alert('พิมใบ Checker ไม่ได้: ' + e.message) }
+                  }} className="flex-1 text-xs text-violet-400 hover:text-violet-600 underline py-1 transition-colors">พิมใบ Checker</button>
+                )}
                 {lastDone.id && (
                   <button onClick={() => setShowCancelModal(true)}
                     className="flex-1 text-xs text-red-400 hover:text-red-600 underline py-1 transition-colors">ยกเลิกบิล</button>
@@ -1611,9 +1622,15 @@ export default function POSPage() {
                 <label className="text-xs font-semibold text-slate-500 whitespace-nowrap">ส่วนลดบิล</label>
                 <button onClick={() => setNumpad({ idx: -1, field: 'billdisc', value: billDiscount || '0' })}
                   className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-right text-sm font-semibold text-slate-800 bg-white hover:border-brand transition-colors">
-                  {billDiscount || <span className="text-slate-300">0</span>}
+                  {billDiscount
+                    ? <>{billDiscount}{billDiscMode === 'pct' && billDisc > 0 ? <span className="text-xs text-slate-400 ml-1">% = ฿{fmt(billDisc)}</span> : ''}</>
+                    : <span className="text-slate-300">0</span>}
                 </button>
-                <span className="text-xs text-slate-400">บาท</span>
+                <button onClick={() => { setBillDiscMode(m => m === 'baht' ? 'pct' : 'baht'); setBillDiscount('') }}
+                  className={`text-xs font-bold border rounded-lg px-2 py-2 w-10 text-center transition-colors
+                    ${billDiscMode === 'pct' ? 'border-brand text-brand bg-brand/5' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
+                  {billDiscMode === 'baht' ? '฿' : '%'}
+                </button>
               </div>
 
               <input value={note} onChange={e => setNote(e.target.value)}

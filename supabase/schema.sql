@@ -214,6 +214,18 @@ CREATE TABLE IF NOT EXISTS drawer_logs (
   note          TEXT
 );
 
+-- การคืนสินค้า / Refund
+CREATE TABLE IF NOT EXISTS returns (
+  id           SERIAL PRIMARY KEY,
+  sale_id      INT REFERENCES sales(id) ON DELETE SET NULL,
+  receipt_no   TEXT,
+  items        JSONB NOT NULL DEFAULT '[]',
+  total_refund NUMERIC(14,2) NOT NULL DEFAULT 0,
+  reason       TEXT,
+  refunded_by  TEXT,
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- ============================================================
 -- RPC: adjust stock atomically
 -- ============================================================
