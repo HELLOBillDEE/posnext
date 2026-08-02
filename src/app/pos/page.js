@@ -2003,7 +2003,7 @@ function SalesHistoryPanel({ settings, currentEmp, empMode, terminalId, terminal
         let q = supabase.from('quotations')
           .select('id,doc_no,doc_type,created_at,total,customer_name,customer_phone,items,status,note')
           .eq('status', 'pending')
-          .or('doc_type.eq.invoice,doc_no.like.CR-%')
+          .eq('doc_type', 'invoice')
           .order('created_at', { ascending: false }).limit(60)
         if (search.trim()) q = q.or(`doc_no.ilike.%${search.trim()}%,customer_name.ilike.%${search.trim()}%`)
         const { data } = await q
