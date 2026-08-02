@@ -756,6 +756,24 @@ export default function POSPage() {
 
       await supabase.from('sale_items').insert(saleItems.map(i => ({ ...i, sale_id: sale.id })))
 
+      // บิลผสม + มีเชื่อ → สร้าง pending invoice ให้โผล่ใน รอชำระ
+      if (payMode === 'mixed' && mixCredit > 0) {
+        const docItems = cart.map(i => ({ product_name: i.name, qty: i.qty, price: i.price, subtotal: i.price * i.qty - (i.disc || 0) }))
+        const { data: pendingQ } = await supabase.from('quotations').insert({
+          doc_no: `CR-${receiptNo}`,
+          doc_type: 'invoice',
+          customer_id: customer?.id || null,
+          customer_name: customer?.name || null,
+          customer_phone: customer?.phone || null,
+          items: docItems,
+          subtotal: mixCredit,
+          total: mixCredit,
+          note: `[เชื่อจากบิลผสม ${receiptNo}]`,
+          status: 'pending',
+        }).select().single()
+        if (pendingQ) setPendingQuotes(p => [pendingQ, ...p])
+      }
+
       for (const i of cart) {
         try {
           const { error: rpcErr } = await supabase.rpc('adjust_stock', {
