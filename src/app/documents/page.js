@@ -4,7 +4,19 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/AuthProvider'
 import { fmt, fmtDT, todayISO, PAY_LABEL } from '@/lib/utils'
 import { buildFormalDocHTML, commitNextDocNo } from '@/lib/docBuilder'
-import { buildReceiptESCPOS, buildDeliverySlipESCPOS, buildMapSnapshotESCPOS, printViaBridge } from '@/lib/printBridge'
+import { buildReceiptESCPOS, buildDeliverySlipESCPOS, buildMapSnapshotESCPOS, printViaBridge, printViaUSB } from '@/lib/printBridge'
+
+let _serverUsb = null
+async function getServerUsb() {
+  if (_serverUsb !== null) return _serverUsb
+  try { const r = await fetch('/api/server-caps'); const d = await r.json(); _serverUsb = !!d.usb } catch { _serverUsb = false }
+  return _serverUsb
+}
+async function printCfgBytes(cfg, bytes) {
+  const usbAuto = cfg.usb_port && (cfg.usb_mode || await getServerUsb())
+  if (usbAuto) return printViaUSB(bytes, cfg.usb_port)
+  return printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
+}
 import { cacheSet, cacheGet } from '@/lib/offlineQueue'
 import { getTerminalId, getTerminalName } from '@/lib/deviceConfig'
 
@@ -468,7 +480,7 @@ async function printReceiptSmall(d, settings) {
     }
     if (cfg.ip) {
       const bytes = await buildReceiptESCPOS(r, cfg.paper_mm || 80)
-      await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
+      await printCfgBytes(cfg, bytes)
     } else {
       const blob = new Blob([buildDocReceiptHTML(r)], { type: 'text/html;charset=utf-8' })
       window.open(URL.createObjectURL(blob))
@@ -513,12 +525,12 @@ function ARQuoteDetail({ d, settings, onCancelled }) {
         // slip (2 ใบ + cut) → แผนที่ (header + ภาพ + cut) ส่งเป็น job เดียว
         const combined = new Uint8Array(slipBytes.length + mapBytes.length)
         combined.set(slipBytes, 0); combined.set(mapBytes, slipBytes.length)
-        await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, combined)
+        await printCfgBytes(cfg, combined)
           .catch(e => { alert('พิมไม่สำเร็จ: ' + e.message) })
         return
       }
     }
-    await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, slipBytes)
+    await printCfgBytes(cfg, slipBytes)
       .catch(e => { alert('พิมไม่สำเร็จ: ' + e.message) })
   }
 
@@ -835,7 +847,7 @@ function EditBillModal({ sale, settings, onClose, onSaved }) {
       const cfg = JSON.parse(localStorage.getItem('printer_receipt') || '{}')
       if (cfg.ip) {
         const bytes = await buildReceiptESCPOS(r, cfg.paper_mm || 80)
-        await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
+        await printCfgBytes(cfg, bytes)
       } else {
         const blob = new Blob([buildDocReceiptHTML(r)], { type: 'text/html;charset=utf-8' })
         window.open(URL.createObjectURL(blob))
