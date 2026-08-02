@@ -1953,30 +1953,54 @@ export default function POSPage() {
 function SalesHistoryPanel({ settings, currentEmp, empMode, terminalId, terminalName, onClose, onReprint, onEditBill }) {
   const [search, setSearch]           = useState('')
   const [sales, setSales]             = useState([])
+  const [creditSales, setCreditSales] = useState([])
+  const [deliveryDocs, setDeliveryDocs] = useState([])
   const [loading, setLoading]         = useState(false)
   const [selected, setSelected]       = useState(null)
+  const [selectedDelivery, setSelectedDelivery] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [page, setPage]               = useState('list') // 'list' | 'detail'
   const [voidSale, setVoidSale]       = useState(null)
   const [termFilter, setTermFilter]   = useState(terminalId ? 'mine' : 'all')
+  const [histTab, setHistTab]         = useState('sales') // 'sales' | 'credit' | 'delivery'
 
   useEffect(() => {
-    const t = setTimeout(loadSales, search ? 300 : 0)
+    const t = setTimeout(loadData, search ? 300 : 0)
     return () => clearTimeout(t)
-  }, [search, termFilter])
+  }, [search, termFilter, histTab])
 
-  async function loadSales() {
+  async function loadData() {
     setLoading(true)
     try {
-      let q = supabase.from('sales')
-        .select('id,receipt_no,created_at,total,payment_method,status,note,void_reason,payment_amount,discount,customer_id,terminal_id')
-        .order('created_at', { ascending: false }).limit(60)
-      if (search.trim()) q = q.ilike('receipt_no', `%${search.trim()}%`)
-      if (termFilter === 'mine' && terminalId) q = q.eq('terminal_id', terminalId)
-      const { data } = await q
-      setSales(data || [])
+      if (histTab === 'sales') {
+        let q = supabase.from('sales')
+          .select('id,receipt_no,created_at,total,payment_method,status,note,void_reason,payment_amount,discount,customer_id,terminal_id')
+          .order('created_at', { ascending: false }).limit(60)
+        if (search.trim()) q = q.ilike('receipt_no', `%${search.trim()}%`)
+        if (termFilter === 'mine' && terminalId) q = q.eq('terminal_id', terminalId)
+        const { data } = await q
+        setSales(data || [])
+      } else if (histTab === 'credit') {
+        let q = supabase.from('sales')
+          .select('id,receipt_no,created_at,total,payment_method,status,note,customer_id,customers(name)')
+          .eq('payment_method', 'credit').neq('status', 'voided')
+          .order('created_at', { ascending: false }).limit(60)
+        if (search.trim()) q = q.ilike('receipt_no', `%${search.trim()}%`)
+        const { data } = await q
+        setCreditSales(data || [])
+      } else if (histTab === 'delivery') {
+        let q = supabase.from('quotations')
+          .select('id,doc_no,doc_type,status,customer_name,customer_phone,customer_address,total,subtotal,discount,delivery_fee,distance_km,map_snapshot_url,items,note,created_at')
+          .eq('doc_type', 'delivery_invoice')
+          .order('created_at', { ascending: false }).limit(60)
+        if (search.trim()) q = q.or(`doc_no.ilike.%${search.trim()}%,customer_name.ilike.%${search.trim()}%`)
+        const { data } = await q
+        setDeliveryDocs(data || [])
+      }
     } finally { setLoading(false) }
   }
+
+  async function loadSales() { await loadData() }
 
   async function openDetail(sale) {
     setDetailLoading(true)
@@ -2034,12 +2058,14 @@ function SalesHistoryPanel({ settings, currentEmp, empMode, terminalId, terminal
         {/* Header */}
         <div className="bg-[#0f1b14] text-white px-4 py-3.5 flex items-center gap-3 shrink-0">
           {page === 'detail' ? (
-            <button onClick={() => { setPage('list'); setSelected(null) }} className="text-xl opacity-60 hover:opacity-100">←</button>
+            <button onClick={() => { setPage('list'); setSelected(null); setSelectedDelivery(null) }} className="text-xl opacity-60 hover:opacity-100">←</button>
           ) : (
             <button onClick={onClose} className="text-2xl leading-none opacity-60 hover:opacity-100">×</button>
           )}
           <h2 className="font-heading font-bold flex-1 text-base">
-            {page === 'detail' ? `📄 ${selected?.receipt_no}` : '📋 ประวัติบิล'}
+            {page === 'detail'
+              ? selectedDelivery ? `📦 ${selectedDelivery.doc_no}` : `📄 ${selected?.receipt_no}`
+              : '📋 ประวัติบิล'}
           </h2>
           {page === 'detail' && (
             <button onClick={onClose} className="text-2xl leading-none opacity-60 hover:opacity-100">×</button>
@@ -2049,8 +2075,17 @@ function SalesHistoryPanel({ settings, currentEmp, empMode, terminalId, terminal
         {page === 'list' ? (
           <>
             <div className="px-3 py-2.5 border-b border-gray-100 shrink-0 space-y-2">
+              {/* Tab selector */}
+              <div className="flex gap-1">
+                {[['sales','บิลขาย'],['credit','เชื่อ'],['delivery','ส่งของ']].map(([t,l]) => (
+                  <button key={t} onClick={() => { setHistTab(t); setSelected(null); setSelectedDelivery(null) }}
+                    className={`flex-1 py-1.5 rounded-xl text-xs font-semibold transition-colors ${histTab===t ? 'bg-brand text-white' : 'bg-gray-100 text-gray-500'}`}>
+                    {l}
+                  </button>
+                ))}
+              </div>
               <input value={search} onChange={e => setSearch(e.target.value)}
-                placeholder="🔍 ค้นหาเลขบิล..."
+                placeholder={histTab==='delivery' ? '🔍 ค้นหาเลขใบ / ลูกค้า...' : '🔍 ค้นหาเลขบิล...'}
                 className="w-full border border-gray-200 rounded-2xl px-4 py-2 text-sm focus:border-brand outline-none bg-gray-50" />
               {terminalId && (
                 <div className="flex gap-1.5">
@@ -2068,34 +2103,73 @@ function SalesHistoryPanel({ settings, currentEmp, empMode, terminalId, terminal
             <div className="flex-1 overflow-y-auto divide-y divide-gray-50">
               {loading ? (
                 <div className="p-10 text-center text-slate-400 text-sm">กำลังโหลด...</div>
-              ) : sales.length === 0 ? (
-                <div className="p-10 text-center text-slate-400 text-sm">ไม่พบบิล</div>
-              ) : sales.map(sale => (
-                <button key={sale.id} onClick={() => openDetail(sale)}
-                  className="w-full px-4 py-3 text-left hover:bg-gray-50 transition-colors flex items-center gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <p className="font-bold text-slate-800 text-sm">{sale.receipt_no}</p>
-                      {sale.status === 'voided' && (
-                        <span className="text-[10px] bg-red-100 text-red-500 px-1.5 py-0.5 rounded font-semibold">ยกเลิก</span>
-                      )}
+              ) : histTab === 'sales' ? (
+                sales.length === 0 ? <div className="p-10 text-center text-slate-400 text-sm">ไม่พบบิล</div>
+                : sales.map(sale => (
+                  <button key={sale.id} onClick={() => openDetail(sale)}
+                    className="w-full px-4 py-3 text-left hover:bg-gray-50 transition-colors flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <p className="font-bold text-slate-800 text-sm">{sale.receipt_no}</p>
+                        {sale.status === 'voided' && (
+                          <span className="text-[10px] bg-red-100 text-red-500 px-1.5 py-0.5 rounded font-semibold">ยกเลิก</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-400">
+                        {new Date(sale.created_at).toLocaleString('th-TH', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        {' · '}{payLabel(sale.payment_method)}
+                        {termFilter === 'all' && sale.terminal_id && <span className="ml-1 text-[10px] bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded font-medium">💻 {sale.terminal_id}</span>}
+                      </p>
+                      {sale.note && <p className="text-xs text-slate-300 truncate mt-0.5">{sale.note}</p>}
                     </div>
-                    <p className="text-xs text-slate-400">
-                      {new Date(sale.created_at).toLocaleString('th-TH', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                      {' · '}{payLabel(sale.payment_method)}
-                      {termFilter === 'all' && sale.terminal_id && <span className="ml-1 text-[10px] bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded font-medium">💻 {sale.terminal_id}</span>}
-                    </p>
-                    {sale.note && <p className="text-xs text-slate-300 truncate mt-0.5">{sale.note}</p>}
-                  </div>
-                  <span className={`font-bold text-base shrink-0 ${sale.status === 'voided' ? 'text-slate-300 line-through' : 'text-brand'}`}>
-                    ฿{fmt(sale.total)}
-                  </span>
-                </button>
-              ))}
+                    <span className={`font-bold text-base shrink-0 ${sale.status === 'voided' ? 'text-slate-300 line-through' : 'text-brand'}`}>
+                      ฿{fmt(sale.total)}
+                    </span>
+                  </button>
+                ))
+              ) : histTab === 'credit' ? (
+                creditSales.length === 0 ? <div className="p-10 text-center text-slate-400 text-sm">ไม่มียอดเชื่อค้างชำระ 🎉</div>
+                : creditSales.map(sale => (
+                  <button key={sale.id} onClick={() => openDetail(sale)}
+                    className="w-full px-4 py-3 text-left hover:bg-gray-50 transition-colors flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-slate-800 text-sm">{sale.receipt_no}</p>
+                      <p className="text-xs text-slate-400">
+                        {new Date(sale.created_at).toLocaleString('th-TH', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        {sale.customers?.name && <span className="ml-1 text-violet-500">· {sale.customers.name}</span>}
+                      </p>
+                      {sale.note && <p className="text-xs text-slate-300 truncate mt-0.5">{sale.note}</p>}
+                    </div>
+                    <span className="font-bold text-base shrink-0 text-orange-500">฿{fmt(sale.total)}</span>
+                  </button>
+                ))
+              ) : (
+                deliveryDocs.length === 0 ? <div className="p-10 text-center text-slate-400 text-sm">ไม่พบใบส่งของ</div>
+                : deliveryDocs.map(doc => (
+                  <button key={doc.id} onClick={() => { setSelectedDelivery(doc); setPage('detail') }}
+                    className="w-full px-4 py-3 text-left hover:bg-gray-50 transition-colors flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <p className="font-bold text-slate-800 text-sm">{doc.doc_no}</p>
+                        {doc.status === 'cancelled' && (
+                          <span className="text-[10px] bg-red-100 text-red-500 px-1.5 py-0.5 rounded font-semibold">ยกเลิก</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-400">
+                        {new Date(doc.created_at).toLocaleString('th-TH', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        {doc.customer_name && <span className="ml-1 text-blue-500">· {doc.customer_name}</span>}
+                      </p>
+                    </div>
+                    <span className={`font-bold text-base shrink-0 ${doc.status === 'cancelled' ? 'text-slate-300 line-through' : 'text-blue-600'}`}>฿{fmt(doc.total)}</span>
+                  </button>
+                ))
+              )}
             </div>
           </>
         ) : detailLoading ? (
           <div className="flex-1 flex items-center justify-center text-slate-400">กำลังโหลด...</div>
+        ) : selectedDelivery ? (
+          <DeliveryDetailInHistory doc={selectedDelivery} settings={settings} onBack={() => { setPage('list'); setSelectedDelivery(null) }} />
         ) : selected ? (
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* Sale meta */}
@@ -2182,6 +2256,72 @@ function SalesHistoryPanel({ settings, currentEmp, empMode, terminalId, terminal
             onVoided={handleVoided}
           />
         )}
+      </div>
+    </div>
+  )
+}
+
+function DeliveryDetailInHistory({ doc, settings, onBack }) {
+  const isCancelled = doc.status === 'cancelled'
+
+  async function reprint() {
+    const cfg = JSON.parse(localStorage.getItem('printer_receipt') || '{}')
+    const paperW = parseInt(cfg.paper_width) || 80
+    try {
+      const slipBytes = await buildDeliverySlipESCPOS({
+        doc_no: doc.doc_no,
+        shopName: settings?.shop_name, shopAddress: settings?.shop_address, shopPhone: settings?.shop_phone,
+        customer_name: doc.customer_name, customer_phone: doc.customer_phone,
+        customer_address: doc.customer_address,
+        items: doc.items || [], subtotal: doc.subtotal || doc.total,
+        discount: doc.discount || 0, delivery_fee: doc.delivery_fee || 0,
+        total: doc.total, note: doc.note, created_at: doc.created_at,
+      }, paperW)
+      const usbAuto = cfg.usb_port && (cfg.usb_mode || await getServerUsb())
+      if (usbAuto) await printViaUSB(slipBytes, cfg.usb_port)
+      else await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, slipBytes)
+    } catch (e) { alert('พิมไม่สำเร็จ: ' + e.message) }
+  }
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="px-4 py-3 bg-blue-50 border-b border-blue-100 shrink-0">
+        <div className="flex justify-between items-start">
+          <div>
+            <p className="font-bold text-blue-700">{doc.doc_no}</p>
+            <p className="text-xs text-slate-400">{new Date(doc.created_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}</p>
+            {isCancelled && <span className="text-xs font-semibold text-red-400">ยกเลิกแล้ว</span>}
+          </div>
+          <span className={`font-bold text-lg ${isCancelled ? 'text-slate-300 line-through' : 'text-blue-600'}`}>฿{fmt(doc.total)}</span>
+        </div>
+        {doc.customer_name && (
+          <div className="mt-2 text-xs text-slate-600 space-y-0.5">
+            <p className="font-semibold">{doc.customer_name}</p>
+            {doc.customer_phone && <p>📞 {doc.customer_phone}</p>}
+            {doc.customer_address && <p>📍 {doc.customer_address}</p>}
+            {doc.distance_km && <p className="text-blue-500">🛣️ {Number(doc.distance_km).toFixed(1)} กม. · ค่าส่ง ฿{fmt(doc.delivery_fee || 0)}</p>}
+          </div>
+        )}
+      </div>
+      <div className="flex-1 overflow-y-auto divide-y divide-gray-50">
+        {(doc.items || []).map((item, i) => (
+          <div key={i} className="px-4 py-2.5 flex items-start gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-slate-800">{item.name || item.product_name}</p>
+              {item.note && <p className="text-xs text-slate-400">{item.note}</p>}
+            </div>
+            <div className="text-right shrink-0">
+              <p className="text-sm font-bold text-blue-600">฿{fmt(Number(item.price || 0) * Number(item.qty || 1) - Number(item.disc || 0))}</p>
+              <p className="text-xs text-slate-400">{item.qty} × {fmt(item.price || 0)}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="px-4 py-3 border-t border-gray-100 shrink-0">
+        <button onClick={reprint}
+          className="w-full bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold py-3 rounded-2xl text-sm transition-colors">
+          🖨️ พิมพ์ใบส่งของ
+        </button>
       </div>
     </div>
   )
