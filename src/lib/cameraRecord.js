@@ -35,7 +35,7 @@ function recordCamera(url, durationSec, outPath) {
       '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28',
       '-movflags', '+faststart',
       '-y', outPath,
-    ])
+    ], { windowsHide: true })
     const errBuf = []
     proc.stderr.on('data', d => errBuf.push(d))
     proc.on('close', async code => {
@@ -113,7 +113,7 @@ export async function startShiftRecording(s) {
     '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28',
     '-movflags', '+faststart',
     '-y', outPath,
-  ], { stdio: ['pipe', 'pipe', 'pipe'] })
+  ], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
 
   proc.on('error', e => console.error('[camera] startShiftRecording spawn error:', e.message))
   activeRecordings.set(sessionId, { proc, outPath })

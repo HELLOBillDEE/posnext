@@ -27,7 +27,7 @@ async function captureRTSP(cameraIp, username, password) {
       '-y', '-rtsp_transport', 'tcp', '-timeout', '10000000',
       '-i', rtspUrl,
       '-frames:v', '1', '-q:v', '2', '-update', '1', outPath,
-    ], { timeout: 20000 }, (err) => {
+    ], { timeout: 20000, windowsHide: true }, (err) => {
       // ffmpeg 8.x exits with signal/code 3221225786 on Windows even on success
       const code = err?.code
       const ignored = !code || code === 3221225786 || code === 255
