@@ -1992,7 +1992,7 @@ function SalesHistoryPanel({ settings, currentEmp, empMode, terminalId, terminal
     try {
       if (histTab === 'sales') {
         let q = supabase.from('sales')
-          .select('id,receipt_no,created_at,total,payment_method,status,note,void_reason,payment_amount,discount,customer_id,terminal_id')
+          .select('id,receipt_no,created_at,total,payment_method,status,note,void_reason,payment_amount,discount,customer_id,employee_id,terminal_id')
           .order('created_at', { ascending: false }).limit(60)
         if (search.trim()) q = q.ilike('receipt_no', `%${search.trim()}%`)
         if (termFilter === 'mine' && terminalId) q = q.eq('terminal_id', terminalId)
@@ -2023,21 +2023,31 @@ function SalesHistoryPanel({ settings, currentEmp, empMode, terminalId, terminal
 
   async function openDetail(sale) {
     setDetailLoading(true)
-    const { data: items } = await supabase.from('sale_items').select('*').eq('sale_id', sale.id).order('id')
-    setSelected({ ...sale, items: items || [] })
+    const [{ data: items }, { data: cust }, { data: emp }] = await Promise.all([
+      supabase.from('sale_items').select('*').eq('sale_id', sale.id).order('id'),
+      sale.customer_id ? supabase.from('customers').select('name,phone,address').eq('id', sale.customer_id).single() : Promise.resolve({ data: null }),
+      sale.employee_id ? supabase.from('employees').select('name,nickname').eq('id', sale.employee_id).single() : Promise.resolve({ data: null }),
+    ])
+    setSelected({ ...sale, items: items || [], _customer: cust, _employee: emp })
     setPage('detail')
     setDetailLoading(false)
   }
 
   function buildReceipt(sale) {
+    const cust = sale._customer
+    const emp  = sale._employee
     return {
       ...sale,
-      items: (sale.items || []).map(i => ({ ...i, name: i.product_name, disc: i.discount || 0 })),
+      items: (sale.items || []).map(i => ({ ...i, name: i.product_name, disc: i.discount || 0, tech_name: i.technician_name || '' })),
       shopName: settings.shop_name || '', shopAddress: settings.shop_address || '',
-      shopPhone: settings.shop_phone || '', footer: settings.receipt_footer || '',
-      cashier: currentEmp ? (currentEmp.nickname || currentEmp.name) : '',
+      shopPhone: settings.shop_phone || '', shopLogo: settings.shop_logo || '',
+      footer: settings.receipt_footer || '',
+      cashier: emp ? (emp.nickname || emp.name) : (currentEmp ? (currentEmp.nickname || currentEmp.name) : ''),
       change: Math.max(0, (sale.payment_amount || 0) - sale.total),
-      vatRate: 0, customerName: '', customerPhone: '',
+      vatRate: 0,
+      customerName: cust?.name || '',
+      customerPhone: cust?.phone || '',
+      customerAddress: cust?.address || '',
     }
   }
 
@@ -2197,6 +2207,9 @@ function SalesHistoryPanel({ settings, currentEmp, empMode, terminalId, terminal
                 <div>
                   <p className="text-xs text-slate-400">{new Date(selected.created_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}</p>
                   <p className="text-sm font-semibold text-slate-700 mt-0.5">{payLabel(selected.payment_method)} · ฿{fmt(selected.total)}</p>
+                  {selected._customer && <p className="text-xs text-violet-600 mt-0.5">👤 {selected._customer.name}{selected._customer.phone ? ` · ${selected._customer.phone}` : ''}</p>}
+                  {selected._employee && <p className="text-xs text-blue-500 mt-0.5">🧑‍💼 {selected._employee.nickname || selected._employee.name}</p>}
+                  {selected.terminal_id && <p className="text-xs text-slate-400 mt-0.5">💻 {selected.terminal_id}</p>}
                   {selected.note && <p className="text-xs text-slate-400 mt-0.5">{selected.note}</p>}
                 </div>
                 {selected.status === 'voided' && (

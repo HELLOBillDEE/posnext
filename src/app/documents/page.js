@@ -129,13 +129,16 @@ export default function DocumentsPage() {
 
   async function openSaleDetail(sale) {
     const { data: saleData } = await supabase.from('sales').select('*').eq('id', sale.id).single()
-    const [{ data: items }, { data: customers }] = await Promise.all([
+    const [{ data: items }, { data: customers }, { data: employee }] = await Promise.all([
       supabase.from('sale_items').select('*').eq('sale_id', sale.id).order('id'),
       saleData?.customer_id
         ? supabase.from('customers').select('*').eq('id', saleData.customer_id).single()
         : Promise.resolve({ data: null }),
+      saleData?.employee_id
+        ? supabase.from('employees').select('name,nickname').eq('id', saleData.employee_id).single()
+        : Promise.resolve({ data: null }),
     ])
-    setDetail({ type: 'sale', data: { ...(saleData || {}), sale_items: items || [], customers: customers || null } })
+    setDetail({ type: 'sale', data: { ...(saleData || {}), sale_items: items || [], customers: customers || null, employee: employee || null } })
   }
 
   async function openPODetail(po) {
@@ -470,13 +473,18 @@ async function printReceiptSmall(d, settings) {
       items: (d.sale_items || []).map(i => ({
         name: i.product_name, qty: Number(i.qty), price: Number(i.price),
         disc: Number(i.discount) || 0, note: i.note || '',
+        tech_name: i.technician_name || '',
       })),
       subtotal: Number(d.subtotal), discount: Number(d.discount) || 0,
       vat: Number(d.vat) || 0, vatRate: 0, total: Number(d.total),
       payment_method: d.payment_method, payment_amount: Number(d.payment_amount) || 0,
       change: Number(d.change_amount) || 0,
       receipt_no: d.receipt_no, created_at: d.created_at,
+      footer: settings.receipt_footer || '',
+      shopLogo: settings.shop_logo || '',
+      cashier: d.employee ? (d.employee.nickname || d.employee.name) : '',
       customerName: d.customers?.name || '', customerPhone: d.customers?.phone || '',
+      customerAddress: d.customers?.address || '',
     }
     if (cfg.ip) {
       const bytes = await buildReceiptESCPOS(r, cfg.paper_mm || 80)
@@ -654,9 +662,15 @@ function SaleDetail({ d, settings, docType, docDate, blankDate, onDocTypeChange,
             {d.customers.phone && <span className="text-xs text-brand">{d.customers.phone}</span>}
           </div>
         )}
+        {(d.employee || d.terminal_id) && (
+          <div className="flex flex-wrap gap-2 mb-1">
+            {d.employee && <span className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded-lg">🧑‍💼 {d.employee.nickname || d.employee.name}</span>}
+            {d.terminal_id && <span className="text-xs bg-slate-100 text-slate-500 px-2 py-1 rounded-lg">💻 {d.terminal_id}</span>}
+          </div>
+        )}
         {(d.sale_items || []).map(i => (
           <div key={i.id} className="flex justify-between text-sm">
-            <span className="flex-1 text-gray-700">{i.product_name} × {i.qty}</span>
+            <span className="flex-1 text-gray-700">{i.product_name} × {i.qty}{i.technician_name ? <span className="text-xs text-violet-500 ml-1">🔧 {i.technician_name}</span> : ''}</span>
             <span className="text-gray-600">฿{fmt(i.subtotal)}</span>
           </div>
         ))}
