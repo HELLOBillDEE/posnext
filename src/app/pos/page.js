@@ -42,12 +42,26 @@ function getReceiptCfg() {
   }
 }
 
+// cache server capability (windows = USB auto-mode)
+let _serverUsb = null
+async function getServerUsb() {
+  if (_serverUsb !== null) return _serverUsb
+  try {
+    const r = await fetch('/api/server-caps')
+    const d = await r.json()
+    _serverUsb = !!d.usb
+  } catch { _serverUsb = false }
+  return _serverUsb
+}
+
 // true = มีเครื่องพิมพ์ (IP หรือ USB)
-function canPrintReceipt(cfg) { return !!(cfg.ip || cfg.usb_mode) }
+function canPrintReceipt(cfg) { return !!(cfg.ip || cfg.usb_mode || cfg.usb_port) }
 
 // ส่ง bytes ไปเครื่องพิมพ์ตาม mode
+// ถ้า server เป็น Windows + มี usb_port → ใช้ USB อัตโนมัติ
 async function printReceiptBytes(cfg, bytes) {
-  if (cfg.usb_mode) return printViaUSB(bytes, cfg.usb_port || 'USB001')
+  const usbAuto = cfg.usb_port && (cfg.usb_mode || await getServerUsb())
+  if (usbAuto) return printViaUSB(bytes, cfg.usb_port)
   return printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
 }
 
