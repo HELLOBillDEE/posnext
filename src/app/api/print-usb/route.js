@@ -62,10 +62,12 @@ public struct DOCINFOW {
   [WinPrint3]::StartPagePrinter($h) | Out-Null
   $w = 0
   [WinPrint3]::WritePrinter($h, $bytes, $bytes.Length, [ref]$w) | Out-Null
+  Start-Sleep -Milliseconds 300
   [WinPrint3]::EndPagePrinter($h) | Out-Null
   [WinPrint3]::EndDocPrinter($h) | Out-Null
+  Start-Sleep -Milliseconds 200
   [WinPrint3]::ClosePrinter($h) | Out-Null
-  Write-Output "OK"
+  Write-Output "OK:$w"
 } catch {
   Write-Output "ERR:$($_.Exception.Message)"
   exit 1
