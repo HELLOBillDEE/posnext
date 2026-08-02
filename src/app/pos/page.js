@@ -511,8 +511,14 @@ export default function POSPage() {
     setCart(p => { const n=[...p]; n[idx]={...n[idx],note}; return n })
   }
 
-  function setItemTech(idx, techName) {
-    setCart(p => { const n=[...p]; n[idx]={...n[idx],tech_name:techName||''}; return n })
+  function toggleItemTech(idx, name) {
+    setCart(p => {
+      const n = [...p]
+      const cur = n[idx].tech_names || (n[idx].tech_name ? [n[idx].tech_name] : [])
+      const next = cur.includes(name) ? cur.filter(x => x !== name) : [...cur, name]
+      n[idx] = { ...n[idx], tech_names: next, tech_name: next[0] || '' }
+      return n
+    })
   }
 
   function openNumpad(idx, field) {
@@ -716,7 +722,8 @@ export default function POSPage() {
         barcode: i.barcode, unit: i.unit, qty: i.qty,
         price: i.price, cost: i.cost, discount: i.disc,
         subtotal: i.price * i.qty - i.disc, note: i.note || null,
-        technician_name: i.tech_name || null,
+        technician_name: (i.tech_names?.length ? i.tech_names[0] : i.tech_name) || null,
+        technician_names: i.tech_names?.length ? i.tech_names : (i.tech_name ? [i.tech_name] : []),
       }))
 
       // ── ออฟไลน์: เพิ่มเข้า queue ──
@@ -1363,10 +1370,11 @@ export default function POSPage() {
                         <div className="flex flex-wrap gap-1">
                           {employees.map(emp => {
                             const name = emp.nickname || emp.name
-                            const selected = item.tech_name === name
+                            const techNames = item.tech_names || (item.tech_name ? [item.tech_name] : [])
+                            const selected = techNames.includes(name)
                             return (
                               <button key={emp.id}
-                                onPointerDown={e => { e.stopPropagation(); setItemTech(idx, selected ? '' : name) }}
+                                onPointerDown={e => { e.stopPropagation(); toggleItemTech(idx, name) }}
                                 className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${selected ? 'bg-violet-500 text-white border-violet-500' : 'bg-white text-slate-500 border-slate-200 active:bg-violet-50 active:border-violet-300'}`}>
                                 {name}
                               </button>
@@ -2238,8 +2246,8 @@ function SalesHistoryPanel({ settings, currentEmp, empMode, terminalId, terminal
                 <div key={i} className="px-4 py-2.5 flex items-start gap-3">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-slate-800">{item.product_name}</p>
-                    {item.technician_name && (
-                      <p className="text-xs mt-0.5" style={{ color: '#7c3aed' }}>🔧 {item.technician_name}</p>
+                    {(item.technician_names?.length || item.technician_name) && (
+                      <p className="text-xs mt-0.5" style={{ color: '#7c3aed' }}>🔧 {(item.technician_names?.length ? item.technician_names : [item.technician_name]).join(', ')}</p>
                     )}
                     {item.note && <p className="text-xs text-slate-400">{item.note}</p>}
                   </div>

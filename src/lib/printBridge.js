@@ -274,7 +274,8 @@ export async function buildReceiptESCPOS(r, paperMM = 80) {
     line(i.name || '')
     two(`  ${i.qty} x ${Number(i.price).toFixed(2)}`,
         Number(i.price * i.qty - (i.disc || 0)).toFixed(2))
-    if (i.tech_name) line(`  🔧 ช่าง: ${i.tech_name}`, 'left', Math.round(fSm * 0.85))
+    const techDisplay = i.technician_names?.length ? i.technician_names.join(', ') : i.tech_name
+    if (techDisplay) line(`  🔧 ช่าง: ${techDisplay}`, 'left', Math.round(fSm * 0.85))
   }
   div()
 

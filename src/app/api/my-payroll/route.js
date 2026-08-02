@@ -69,9 +69,10 @@ export async function POST(req) {
     if (saleIds.length) {
       const [{ data: repairOrders }, { data: posRepairItems }] = await Promise.all([
         supabase.from('repair_orders').select('id, sale_id').in('sale_id', saleIds),
-        supabase.from('sale_items').select('price, qty')
+        supabase.from('sale_items').select('price, qty, technician_names')
           .in('sale_id', saleIds).ilike('product_name', '%ค่าซ่อม%')
-          .eq('technician_name', displayName).not('technician_name', 'is', null),
+          .or(`technician_name.eq.${displayName},technician_names.cs.["${displayName}"]`)
+          .not('technician_name', 'is', null),
       ])
       // quotations labor items ที่ tag empId
       const repairIds = (repairOrders || []).map(r => r.id)
@@ -85,9 +86,12 @@ export async function POST(req) {
           })
         })
       }
-      // sale_items ค่าซ่อมที่ tag ชื่อช่าง
+      // sale_items ค่าซ่อม — หารตามจำนวนช่างที่ tag
       ;(posRepairItems || []).forEach(si => {
-        laborTotal += (parseFloat(si.price) || 0) * (parseFloat(si.qty) || 1)
+        const names = Array.isArray(si.technician_names) && si.technician_names.length
+          ? si.technician_names : [displayName]
+        const share = ((parseFloat(si.price) || 0) * (parseFloat(si.qty) || 1)) / names.length
+        laborTotal += share
       })
     }
 

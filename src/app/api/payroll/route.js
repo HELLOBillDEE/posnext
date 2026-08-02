@@ -57,7 +57,7 @@ export async function GET(req) {
         .gte('sales.created_at', startISO).lt('sales.created_at', endISO)
         .neq('sales.status', 'voided'),
       supabase.from('sale_items')
-        .select('technician_name, price, qty, sales!inner(created_at, status)')
+        .select('technician_name, technician_names, price, qty, sales!inner(created_at, status)')
         .gte('sales.created_at', startISO).lt('sales.created_at', endISO)
         .neq('sales.status', 'voided')
         .ilike('product_name', '%ค่าซ่อม%')
@@ -81,12 +81,19 @@ export async function GET(req) {
       })
     }
 
-    // sale_items ค่าซ่อม → หา emp_id จาก technician_name
+    // sale_items ค่าซ่อม → หารค่าคอมถ้ามีช่างหลายคน
     ;(posRepairItems || []).forEach(si => {
-      const emp = (employees || []).find(e => (e.nickname || e.name) === si.technician_name)
-      if (!emp) return
+      const names = Array.isArray(si.technician_names) && si.technician_names.length
+        ? si.technician_names
+        : (si.technician_name ? [si.technician_name] : [])
+      if (!names.length) return
       const labor = (parseFloat(si.price) || 0) * (parseFloat(si.qty) || 1)
-      laborByEmpId[emp.id] = (laborByEmpId[emp.id] || 0) + labor
+      const share = labor / names.length
+      names.forEach(name => {
+        const emp = (employees || []).find(e => (e.nickname || e.name) === name)
+        if (!emp) return
+        laborByEmpId[emp.id] = (laborByEmpId[emp.id] || 0) + share
+      })
     })
 
     const result = (employees || []).map(emp => {
