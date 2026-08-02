@@ -40,11 +40,12 @@ function recordCamera(url, durationSec, outPath) {
     proc.stderr.on('data', d => errBuf.push(d))
     proc.on('close', async code => {
       if (code === 0) { resolve(); return }
-      // Windows: ffmpeg exits with 3221225786 (STATUS_CONTROL_C_EXIT) even on success
-      // ถ้าไฟล์มีข้อมูลแปลว่าบันทึกสำเร็จ
+      // Windows: ffmpeg exits with non-zero (e.g. 3221225786) even on success
+      // ถ้าไฟล์ใหญ่พอ (>50KB) แปลว่าบันทึกได้จริง
       try {
         const s = await stat(outPath)
-        if (s.size > 0) { resolve(); return }
+        const minBytes = 50 * 1024 // 50KB — ไฟล์ที่สั้นเกินไปถือว่า fail
+        if (s.size >= minBytes) { resolve(); return }
       } catch {}
       reject(new Error(`ffmpeg exit ${code}: ${Buffer.concat(errBuf).toString().slice(-300)}`))
     })
