@@ -96,7 +96,7 @@ export async function POST(req) {
       execFile('powershell', [
         '-NonInteractive', '-ExecutionPolicy', 'Bypass',
         '-File', ps1,
-      ], (err, out) => {
+      ], { windowsHide: true }, (err, out) => {
         fs.unlink(ps1).catch(() => {})
         fs.unlink(tmp).catch(() => {})
         resolve((out || '').trim())
