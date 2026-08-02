@@ -59,8 +59,8 @@ export async function GET(req) {
       }
     }
 
-    // ยอดค่าแรงรอบนี้ = 10 วัน × daily_rate
-    const cycleAmount = 10 * Number(emp.daily_rate || 0)
+    // ยอดค่าแรงรอบนี้ = 10 วัน × daily_rate + โบนัส 200
+    const cycleAmount = 10 * Number(emp.daily_rate || 0) + 200
 
     result.push({
       employee_id: emp.id,
