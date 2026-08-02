@@ -5,7 +5,14 @@ import { useAuth } from '@/components/AuthProvider'
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { queueCount, processQueue } from '@/lib/offlineQueue'
-import { printViaBridge, buildReceiptESCPOS } from '@/lib/printBridge'
+import { printViaBridge, printViaUSB, buildReceiptESCPOS } from '@/lib/printBridge'
+
+let _serverUsb = null
+async function getServerUsbNav() {
+  if (_serverUsb !== null) return _serverUsb
+  try { const r = await fetch('/api/server-caps'); const d = await r.json(); _serverUsb = !!d.usb } catch { _serverUsb = false }
+  return _serverUsb
+}
 
 /* ── SVG Icon set ── */
 const IC = {
@@ -148,12 +155,12 @@ export default function Nav() {
   useEffect(() => {
     try {
       const cfg = JSON.parse(localStorage.getItem('printer_receipt') || '{}')
-      if (cfg.ip) setPrinterCfg(cfg)
+      if (cfg.ip || cfg.usb_port) setPrinterCfg(cfg)
     } catch {}
   }, [])
 
   async function quickTestPrint() {
-    if (!printerCfg?.ip || printStatus === 'printing') return
+    if ((!printerCfg?.ip && !printerCfg?.usb_port) || printStatus === 'printing') return
     setPrintStatus('printing')
     try {
       const testData = {
@@ -165,7 +172,9 @@ export default function Nav() {
         items: [{ name: 'ทดสอบการเชื่อมต่อ', qty: 1, price: 0, disc: 0 }],
       }
       const bytes = await buildReceiptESCPOS(testData, parseInt(printerCfg.paper_width) || 80)
-      await printViaBridge(printerCfg.bridge_url || '', printerCfg.ip, printerCfg.port || 9100, bytes)
+      const usbAuto = printerCfg.usb_port && (printerCfg.usb_mode || await getServerUsbNav())
+      if (usbAuto) await printViaUSB(bytes, printerCfg.usb_port)
+      else await printViaBridge(printerCfg.bridge_url || '', printerCfg.ip, printerCfg.port || 9100, bytes)
       setPrintStatus('ok')
     } catch {
       setPrintStatus('error')

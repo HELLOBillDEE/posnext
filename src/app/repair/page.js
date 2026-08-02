@@ -439,11 +439,16 @@ export default function RepairPage() {
     const list = (rows||[]).map(r => ({ tid: r.key.replace('printer_receipt_', ''), cfg: parseCfg(r.value, null) }))
     setPrinterList(list)
     const { data } = await supabase.from('settings').select('key,value')
-      .in('key', ['shop_name','shop_address','shop_phone',`printer_receipt_${tid}`,`printer_barcode_${tid}`])
+      .in('key', ['shop_name','shop_address','shop_phone',`printer_receipt_${tid}`,`printer_barcode_${tid}`,'printer_receipt'])
     const m = {}; (data||[]).forEach(r => m[r.key]=r.value); setSettings(m)
     let receipt = parseCfg(m[`printer_receipt_${tid}`], 'printer_receipt')
     let barcode = parseCfg(m[`printer_barcode_${tid}`], 'printer_barcode')
     if (!receipt && list.length > 0) receipt = list[0].cfg
+    // overlay USB settings from global printer_receipt if this terminal's config lacks them
+    const globalCfg = parseCfg(m['printer_receipt'], null)
+    if (receipt && globalCfg?.usb_port && !receipt.usb_port) {
+      receipt = { ...receipt, usb_mode: globalCfg.usb_mode, usb_port: globalCfg.usb_port }
+    }
     if (!barcode) {
       const { data: bc } = await supabase.from('settings').select('key,value').like('key', 'printer_barcode_%')
       const row = (bc||[]).find(r => r.value)
