@@ -1983,7 +1983,8 @@ function SalesHistoryPanel({ settings, currentEmp, empMode, terminalId, terminal
       } else if (histTab === 'credit') {
         let q = supabase.from('sales')
           .select('id,receipt_no,created_at,total,payment_method,status,note,customer_id,customers(name)')
-          .eq('payment_method', 'credit').neq('status', 'voided')
+          .or('payment_method.eq.credit,and(payment_method.eq.mixed,note.ilike.%เชื่อ%)')
+          .neq('status', 'voided')
           .order('created_at', { ascending: false }).limit(60)
         if (search.trim()) q = q.ilike('receipt_no', `%${search.trim()}%`)
         const { data } = await q
