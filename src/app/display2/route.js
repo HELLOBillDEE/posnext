@@ -143,9 +143,12 @@ const fmt = n => Number(n||0).toLocaleString('th-TH',{minimumFractionDigits:2,ma
 let cfg = {}
 let stA = {status:'idle',items:[],subtotal:0,discount:0,total:0}
 let stB = {status:'idle',items:[],subtotal:0,discount:0,total:0}
-let _slideTimer = null, _slideIdx = 0, _vidIdx = 0
+let _slideTimer = null, _slideIdx = 0, _ytTimer2 = null
 let _timerA = null, _timerB = null
 let _promos = [], _promoPage = 0, _cycleTimer = null, _showPromo = false
+
+function isYT(u){return!!u&&(u.includes('youtube.com')||u.includes('youtu.be'))}
+function ytId(u){try{const p=new URL(u);if(p.hostname==='youtu.be')return p.pathname.slice(1).split('?')[0];return p.searchParams.get('v')||''}catch{return ''}}
 const ITEMS_PER_PAGE = 8
 const CYCLE_SEC = 12000
 
@@ -263,17 +266,19 @@ function renderPromoSlide() {
 /* ── MEDIA CENTER ── */
 function renderMedia() {
   const bg = document.getElementById('med-bg')
-  const vids = [cfg.display_video_1,cfg.display_video_2,cfg.display_video_3,cfg.display_video_4,cfg.display_video_5].filter(Boolean)
+  const allUrls = [cfg.display_video_1,cfg.display_video_2,cfg.display_video_3,cfg.display_video_4,cfg.display_video_5].filter(Boolean)
+  const items = allUrls.map(u=>({url:u,yt:isYT(u),id:ytId(u)}))
   const imgs = [cfg.display_image_1,cfg.display_image_2,cfg.display_image_3].filter(Boolean)
 
   if (_slideTimer) { clearInterval(_slideTimer); _slideTimer = null }
   if (_cycleTimer) { clearInterval(_cycleTimer); _cycleTimer = null }
 
-  if (vids.length > 0) {
-    bg.innerHTML = '<video id="vid" muted autoplay playsinline style="width:100%;height:100%;object-fit:cover"></video>'
+  if (items.length > 0) {
     const muteBtn = document.getElementById('muteBtn')
-    if (muteBtn) muteBtn.style.display = 'flex'
-    setupVid(vids)
+    bg.innerHTML = '<video id="vid" muted autoplay playsinline style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0;display:none"></video>'
+      + '<iframe id="ytFrame2" style="width:100%;height:100%;border:none;position:absolute;inset:0;display:none" allow="autoplay;encrypted-media" allowfullscreen></iframe>'
+    if (muteBtn) muteBtn.style.display = 'none'
+    setupVid(items, muteBtn)
   } else if (imgs.length > 0) {
     const slides = imgs.map((u,i)=>'<div class="slide'+(i===0?' on':'')+'">'
       +'<img src="'+u+'"></div>').join('')
@@ -311,18 +316,50 @@ function startCycle() {
   }, CYCLE_SEC)
 }
 
-function setupVid(vids) {
+function setupVid(items, muteBtn) {
   const v = document.getElementById('vid')
-  if (!v) return
-  _vidIdx = 0; v.src = vids[0]
-  v.onended = () => { _vidIdx = (_vidIdx+1)%vids.length; v.src = vids[_vidIdx]; v.play().catch(()=>{}) }
-  v.play().catch(()=>{})
+  const f = document.getElementById('ytFrame2')
+  if (!items.length) return
+  const ytItems = items.filter(i=>i.yt), dirItems = items.filter(i=>!i.yt)
+  if (ytItems.length && !dirItems.length) {
+    if (v) v.style.display = 'none'
+    if (f) {
+      const ids = ytItems.map(i=>i.id).filter(Boolean)
+      f.src = 'https://www.youtube.com/embed/'+ids[0]+'?autoplay=1&mute=1&loop=1&playlist='+ids.join(',')+'&controls=0&rel=0&modestbranding=1'
+      f.style.display = 'block'
+    }
+    return
+  }
+  let idx = 0
+  function show(i) {
+    const it = items[i]
+    if (it.yt) {
+      if (v) { v.pause(); v.style.display = 'none' }
+      if (muteBtn) muteBtn.style.display = 'none'
+      if (f) {
+        f.src = 'https://www.youtube.com/embed/'+it.id+'?autoplay=1&mute=1&controls=0&rel=0&modestbranding=1'
+        f.style.display = 'block'
+        if (_ytTimer2) clearTimeout(_ytTimer2)
+        _ytTimer2 = setTimeout(()=>{ idx=(idx+1)%items.length; show(idx) }, 60000)
+      }
+    } else {
+      if (f) { f.src = 'about:blank'; f.style.display = 'none' }
+      if (_ytTimer2) { clearTimeout(_ytTimer2); _ytTimer2 = null }
+      if (muteBtn) muteBtn.style.display = 'flex'
+      if (v) {
+        v.style.display = 'block'; v.src = it.url
+        v.onended = () => { idx=(idx+1)%items.length; show(idx) }
+        v.play().catch(()=>{})
+      }
+    }
+  }
+  show(0)
 }
 
 function toggleMute() {
   const v = document.getElementById('vid')
   const b = document.getElementById('muteBtn')
-  if (!v) return
+  if (!v || v.style.display === 'none') return
   v.muted = !v.muted
   if (b) b.textContent = v.muted ? '🔇' : '🔊'
 }

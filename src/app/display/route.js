@@ -109,7 +109,10 @@ const fmt = n => Number(n||0).toLocaleString('th-TH',{minimumFractionDigits:2,ma
 let cfg={shop_name:'',shop_logo:'',shop_phone:'',payment_qr:'',display_video_1:'',display_video_2:'',display_video_3:'',display_video_4:'',display_video_5:'',display_image_1:'',display_image_2:'',display_image_3:''}
 let state={status:'idle',items:[],subtotal:0,discount:0,total:0}
 let slideIdx=0, slideTimer=null
-let _vidIdx=0
+let _ytTimer=null
+
+function isYT(u){return!!u&&(u.includes('youtube.com')||u.includes('youtu.be'))}
+function ytId(u){try{const p=new URL(u);if(p.hostname==='youtu.be')return p.pathname.slice(1).split('?')[0];return p.searchParams.get('v')||''}catch{return ''}}
 
 const app=document.getElementById('app')
 const sb=window.supabase.createClient(SURL,SKEY,{db:{schema:'pos'}})
@@ -142,12 +145,48 @@ function updateSlide(){
 function stopSlides(){
   if(slideTimer){clearInterval(slideTimer);slideTimer=null}
 }
-function setupPlaylist(vids){
+function setupPlaylist(items){
   const v=document.getElementById('vidPlayer')
-  if(!v||!vids.length) return
-  _vidIdx=0; v.src=vids[0]
-  v.onended=()=>{ _vidIdx=(_vidIdx+1)%vids.length; v.src=vids[_vidIdx]; v.play().catch(()=>{}) }
-  v.play().catch(()=>{})
+  const f=document.getElementById('ytFrame')
+  const btn=document.getElementById('muteBtn')
+  if(!items.length)return
+  const ytItems=items.filter(i=>i.yt), dirItems=items.filter(i=>!i.yt)
+  // All YouTube — use native YouTube playlist (YouTube handles cycling & looping)
+  if(ytItems.length&&!dirItems.length){
+    if(v)v.style.display='none'
+    if(btn)btn.style.display='none'
+    if(f){
+      const ids=ytItems.map(i=>i.id).filter(Boolean)
+      f.src='https://www.youtube.com/embed/'+ids[0]+'?autoplay=1&mute=1&loop=1&playlist='+ids.join(',')+'&controls=0&rel=0&modestbranding=1'
+      f.style.display='block'
+    }
+    return
+  }
+  // Mixed or all-direct: cycle items; timer for YT, onended for direct
+  let idx=0
+  function show(i){
+    const it=items[i]
+    if(it.yt){
+      if(v){v.pause();v.style.display='none'}
+      if(btn)btn.style.display='none'
+      if(f){
+        f.src='https://www.youtube.com/embed/'+it.id+'?autoplay=1&mute=1&controls=0&rel=0&modestbranding=1'
+        f.style.display='block'
+        if(_ytTimer)clearTimeout(_ytTimer)
+        _ytTimer=setTimeout(()=>{idx=(idx+1)%items.length;show(idx)},60000)
+      }
+    }else{
+      if(f){f.src='about:blank';f.style.display='none'}
+      if(_ytTimer){clearTimeout(_ytTimer);_ytTimer=null}
+      if(btn)btn.style.display='flex'
+      if(v){
+        v.style.display='block';v.src=it.url
+        v.onended=()=>{idx=(idx+1)%items.length;show(idx)}
+        v.play().catch(()=>{})
+      }
+    }
+  }
+  show(0)
 }
 
 function render(){
@@ -156,12 +195,13 @@ function render(){
 
   /* ── IDLE ── */
   if(s.status==='idle'){
-    const vids=[cfg.display_video_1,cfg.display_video_2,cfg.display_video_3,cfg.display_video_4,cfg.display_video_5].filter(Boolean)
+    const allUrls=[cfg.display_video_1,cfg.display_video_2,cfg.display_video_3,cfg.display_video_4,cfg.display_video_5].filter(Boolean)
+    const items=allUrls.map(u=>({url:u,yt:isYT(u),id:ytId(u)}))
     const imgs=[cfg.display_image_1,cfg.display_image_2,cfg.display_image_3].filter(Boolean)
-    let leftPanel='', slideCount=0, pendingVids=null
-    if(vids.length>0){
-      leftPanel='<div class="pL" style="background:#000;position:relative"><video id="vidPlayer" muted autoplay playsinline style="width:100%;height:100%;object-fit:cover"></video><div id="muteBtn" onclick="toggleMute()" style="position:absolute;bottom:12px;right:12px;background:rgba(0,0,0,0.5);color:#fff;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:18px;cursor:pointer;user-select:none" title="แตะเพื่อเปิด/ปิดเสียง">🔇</div></div>'
-      pendingVids=vids
+    let leftPanel='', slideCount=0, pendingItems=null
+    if(items.length>0){
+      leftPanel='<div class="pL" style="background:#000;position:relative"><video id="vidPlayer" muted autoplay playsinline style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0;display:none"></video><iframe id="ytFrame" style="width:100%;height:100%;border:none;position:absolute;inset:0;display:none" allow="autoplay;encrypted-media" allowfullscreen></iframe><div id="muteBtn" onclick="toggleMute()" style="position:absolute;bottom:12px;right:12px;background:rgba(0,0,0,0.5);color:#fff;border-radius:50%;width:36px;height:36px;display:none;align-items:center;justify-content:center;font-size:18px;cursor:pointer;user-select:none" title="แตะเพื่อเปิด/ปิดเสียง">🔇</div></div>'
+      pendingItems=items
     } else if(imgs.length>0){
       const imgSlides=imgs.map((u,i)=>'<div class="slide"'+(i===0?' style="opacity:1"':'')+'>'+
         '<img src="'+u+'" style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0"></div>').join('')
@@ -181,7 +221,7 @@ function render(){
     const tid=CHANNEL.replace('customer-display-','').replace('customer-display','')
     const rightPanel='<div class="pR idle-r">'+logoElWhite('150px')+'<div style="margin-top:12px;padding:10px 16px;border:2px solid #C72C41;border-radius:14px;text-align:center;color:#C72C41;font-weight:700;font-size:15px;line-height:1.5">🧾 กรุณารับใบเสร็จ<br>จากพนักงานทุกครั้ง</div>'+'<div class="wlc" style="margin-top:6px">ยินดีต้อนรับ</div>'+(tid?'<div style="font-size:11px;color:#94a3b8;margin-top:8px">'+tid+'</div>':'')+'</div>'
     app.innerHTML='<div class="split">'+leftPanel+rightPanel+'</div>'
-    if(pendingVids) setupPlaylist(pendingVids)
+    if(pendingItems) setupPlaylist(pendingItems)
     else if(slideCount>0) startSlides(slideCount)
     return
   }
@@ -265,9 +305,9 @@ function render(){
 function toggleMute(){
   const v=document.getElementById('vidPlayer')
   const btn=document.getElementById('muteBtn')
-  if(!v) return
+  if(!v||v.style.display==='none')return
   v.muted=!v.muted
-  if(btn) btn.textContent=v.muted?'🔇':'🔊'
+  if(btn)btn.textContent=v.muted?'🔇':'🔊'
 }
 
 render()
