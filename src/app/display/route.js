@@ -112,6 +112,8 @@ let slideIdx=0, slideTimer=null
 let _ytTimer=null, _ytMuted=true, _ytBaseSrc=''
 
 function isYT(u){return!!u&&(u.includes('youtube.com')||u.includes('youtu.be'))}
+function isPlaylist(u){try{return isYT(u)&&!!new URL(u).searchParams.get('list')}catch{return false}}
+function playlistId(u){try{return new URL(u).searchParams.get('list')||''}catch{return ''}}
 function ytId(u){try{const p=new URL(u);if(p.hostname==='youtu.be')return p.pathname.slice(1).split('?')[0];if(p.pathname.startsWith('/shorts/'))return p.pathname.split('/')[2]||'';return p.searchParams.get('v')||''}catch{return ''}}
 function ytSrc(baseSrc){return baseSrc+(_ytMuted?'&mute=1':'')}
 
@@ -154,6 +156,16 @@ function setupPlaylist(items){
   const ytItems=items.filter(i=>i.yt), dirItems=items.filter(i=>!i.yt)
   function showMuteBtn(show){
     if(btn){btn.style.display=show?'flex':'none';btn.textContent=_ytMuted?'🔇':'🔊'}
+  }
+  // Playlist URL — embed ทั้ง playlist เลย (วางแค่ช่องเดียว)
+  const plItem=items.find(i=>i.playlist)
+  if(plItem){
+    if(v)v.style.display='none'
+    if(f){
+      _ytBaseSrc='https://www.youtube.com/embed?listType=playlist&list='+plItem.listId+'&autoplay=1&loop=1&controls=0&rel=0&modestbranding=1'
+      f.src=ytSrc(_ytBaseSrc);f.style.display='block'
+    }
+    showMuteBtn(true);return
   }
   // All YouTube — use native YouTube playlist (YouTube handles cycling & looping)
   if(ytItems.length&&!dirItems.length){
@@ -200,7 +212,7 @@ function render(){
   /* ── IDLE ── */
   if(s.status==='idle'){
     const allUrls=[cfg.display_video_1,cfg.display_video_2,cfg.display_video_3,cfg.display_video_4,cfg.display_video_5].filter(Boolean)
-    const items=allUrls.map(u=>({url:u,yt:isYT(u),id:ytId(u)}))
+    const items=allUrls.map(u=>({url:u,yt:isYT(u),id:ytId(u),playlist:isPlaylist(u),listId:playlistId(u)}))
     const imgs=[cfg.display_image_1,cfg.display_image_2,cfg.display_image_3].filter(Boolean)
     let leftPanel='', slideCount=0, pendingItems=null
     if(items.length>0){

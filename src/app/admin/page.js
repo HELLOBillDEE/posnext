@@ -1131,6 +1131,7 @@ export default function AdminPage() {
             {/* Video slots — รองรับทั้ง YouTube URL และไฟล์อัปโหลด */}
             <div>
               <label className="text-xs font-semibold text-slate-500 block mb-2">🎬 วีดีโอโปรโมชั่น (เล่นวนทีละคลิป สูงสุด 5 คลิป)</label>
+              <p className="text-xs text-slate-400 mb-2">💡 วาง YouTube Playlist URL ช่องเดียว → เล่นวนทุกคลิปใน playlist อัตโนมัติ<br/><span className="text-slate-300">เช่น youtube.com/playlist?list=PLxxxxxx หรือ Short แต่ละคลิป</span></p>
               <div className="flex gap-3 flex-wrap">
                 {[1, 2, 3, 4, 5].map(slot => {
                   const key = `display_video_${slot}`
