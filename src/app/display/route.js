@@ -112,7 +112,7 @@ let slideIdx=0, slideTimer=null
 let _ytTimer=null
 
 function isYT(u){return!!u&&(u.includes('youtube.com')||u.includes('youtu.be'))}
-function ytId(u){try{const p=new URL(u);if(p.hostname==='youtu.be')return p.pathname.slice(1).split('?')[0];return p.searchParams.get('v')||''}catch{return ''}}
+function ytId(u){try{const p=new URL(u);if(p.hostname==='youtu.be')return p.pathname.slice(1).split('?')[0];if(p.pathname.startsWith('/shorts/'))return p.pathname.split('/')[2]||'';return p.searchParams.get('v')||''}catch{return ''}}
 
 const app=document.getElementById('app')
 const sb=window.supabase.createClient(SURL,SKEY,{db:{schema:'pos'}})
