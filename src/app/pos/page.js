@@ -37,8 +37,9 @@ function getReceiptCfg() {
     ip: '192.168.2.88',
     port: 9100,
     paper_width: 80,
-    bridge_url: typeof window !== 'undefined' ? window.location.origin : '',
     ...saved,
+    // bridge_url ใช้ origin ปัจจุบันเสมอ (ไม่ใช่ค่าที่ save ไว้ ซึ่งอาจมาจาก localhost ของ PC)
+    bridge_url: typeof window !== 'undefined' ? window.location.origin : '',
   }
 }
 
