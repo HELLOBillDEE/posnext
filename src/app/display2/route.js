@@ -148,7 +148,7 @@ let _timerA = null, _timerB = null
 let _promos = [], _promoPage = 0, _cycleTimer = null, _showPromo = false
 
 function isYT(u){return!!u&&(u.includes('youtube.com')||u.includes('youtu.be'))}
-function isPlaylist(u){try{return isYT(u)&&!!new URL(u).searchParams.get('list')}catch{return false}}
+function isPlaylist(u){try{const p=new URL(u);return isYT(u)&&p.pathname==='/playlist'&&!!p.searchParams.get('list')}catch{return false}}
 function playlistId(u){try{return new URL(u).searchParams.get('list')||''}catch{return ''}}
 function ytId(u){try{const p=new URL(u);if(p.hostname==='youtu.be')return p.pathname.slice(1).split('?')[0];if(p.pathname.startsWith('/shorts/'))return p.pathname.split('/')[2]||'';return p.searchParams.get('v')||''}catch{return ''}}
 function ytSrc2(base){return base+(_ytMuted2?'&mute=1':'')}

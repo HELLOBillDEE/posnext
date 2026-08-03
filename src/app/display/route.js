@@ -112,7 +112,7 @@ let slideIdx=0, slideTimer=null
 let _ytTimer=null, _ytMuted=true, _ytBaseSrc=''
 
 function isYT(u){return!!u&&(u.includes('youtube.com')||u.includes('youtu.be'))}
-function isPlaylist(u){try{return isYT(u)&&!!new URL(u).searchParams.get('list')}catch{return false}}
+function isPlaylist(u){try{const p=new URL(u);return isYT(u)&&p.pathname==='/playlist'&&!!p.searchParams.get('list')}catch{return false}}
 function playlistId(u){try{return new URL(u).searchParams.get('list')||''}catch{return ''}}
 function ytId(u){try{const p=new URL(u);if(p.hostname==='youtu.be')return p.pathname.slice(1).split('?')[0];if(p.pathname.startsWith('/shorts/'))return p.pathname.split('/')[2]||'';return p.searchParams.get('v')||''}catch{return ''}}
 function ytSrc(baseSrc){return baseSrc+(_ytMuted?'&mute=1':'')}
