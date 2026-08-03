@@ -1,7 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { spawn } from 'child_process'
-import { readFile, unlink, stat } from 'fs/promises'
-import { tmpdir } from 'os'
+import { readFile, unlink, stat, mkdir } from 'fs/promises'
 import { join } from 'path'
 
 const supabase = createClient(
@@ -9,12 +8,10 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
   { db: { schema: 'pos' } }
 )
-const supabaseStorage = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-)
 
 const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg'
+const SAVE_DIR = process.env.SNAPSHOT_DIR || join(process.cwd(), 'drawer-snapshots')
+mkdir(SAVE_DIR, { recursive: true }).catch(() => {})
 
 // Active shift recordings: sessionId -> { proc, outPath }
 const activeRecordings = new Map()
@@ -32,7 +29,8 @@ function recordCamera(url, durationSec, outPath) {
       '-rtsp_transport', 'tcp', '-timeout', '20000000',
       '-i', url,
       '-t', String(durationSec),
-      '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28',
+      '-vf', 'scale=640:-2',
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '35',
       '-movflags', '+faststart',
       '-y', outPath,
     ], { windowsHide: true })
@@ -53,21 +51,6 @@ function recordCamera(url, durationSec, outPath) {
   })
 }
 
-async function uploadToStorage(buffer, filename, contentType) {
-  const { error } = await supabaseStorage.storage
-    .from('drawer-snapshots')
-    .upload(filename, buffer, { contentType, upsert: false })
-  if (error) throw error
-  const { data } = supabaseStorage.storage.from('drawer-snapshots').getPublicUrl(filename)
-  return data.publicUrl
-}
-
-async function saveToDrawerLog(field, url) {
-  const { data: log } = await supabase.from('drawer_logs')
-    .select('id').order('opened_at', { ascending: false }).limit(1).maybeSingle()
-  if (log) await supabase.from('drawer_logs').update({ [field]: url }).eq('id', log.id)
-}
-
 async function sendToTelegram(token, chatId, buffer, caption) {
   const form = new FormData()
   form.append('chat_id', chatId)
@@ -86,7 +69,7 @@ async function sendToTelegram(token, chatId, buffer, caption) {
 
 export async function recordAndNotify(s, caption, duration = 15) {
   const ts      = Date.now()
-  const outPath = join(tmpdir(), `drawer-${ts}.mp4`)
+  const outPath = join(SAVE_DIR, `drawer-${ts}.mp4`)
   const url     = buildCameraUrl(s)
 
   try {
@@ -95,26 +78,26 @@ export async function recordAndNotify(s, caption, duration = 15) {
     await sendToTelegram(s.telegram_bot_token, s.telegram_chat_id, buf, caption)
   } catch (e) {
     console.error('[camera] recordAndNotify error:', e.message)
+    await unlink(outPath).catch(() => {})
     if (s.telegram_bot_token && s.telegram_chat_id) {
       fetch(`https://api.telegram.org/bot${s.telegram_bot_token}/sendMessage`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chat_id: s.telegram_chat_id, text: `⚠️ กล้องบันทึกไม่ได้: ${e.message.slice(0, 300)}` }),
       }).catch(() => {})
     }
-  } finally {
-    await unlink(outPath).catch(() => {})
   }
 }
 
 export async function startShiftRecording(s) {
   const sessionId = `shift-${Date.now()}`
-  const outPath   = join(tmpdir(), `${sessionId}.mp4`)
+  const outPath   = join(SAVE_DIR, `${sessionId}.mp4`)
   const url       = buildCameraUrl(s)
 
   const proc = spawn(FFMPEG, [
     '-rtsp_transport', 'tcp', '-timeout', '10000000',
     '-i', url,
-    '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28',
+    '-vf', 'scale=640:-2',
+    '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '35',
     '-movflags', '+faststart',
     '-y', outPath,
   ], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })

@@ -1,57 +1,45 @@
 import { createClient } from '@supabase/supabase-js'
 import { recordAndNotify } from '@/lib/cameraRecord'
 import { execFile } from 'child_process'
-import { readFile, unlink } from 'fs/promises'
-import { tmpdir } from 'os'
+import { readFile, unlink, mkdir, writeFile } from 'fs/promises'
 import { join } from 'path'
 
 export const runtime = 'nodejs'
 
 const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg'
+const SAVE_DIR = process.env.SNAPSHOT_DIR || join(process.cwd(), 'drawer-snapshots')
+mkdir(SAVE_DIR, { recursive: true }).catch(() => {})
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
   { db: { schema: 'pos' } }
 )
-const supabaseStorage = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-)
 
 async function captureRTSP(cameraIp, username, password) {
   const rtspUrl = `rtsp://${username}:${password}@${cameraIp}/cam/realmonitor?channel=1&subtype=0`
-  const outPath = join(tmpdir(), `snap_${Date.now()}.jpg`)
+  const tmpPath = join(SAVE_DIR, `snap_tmp_${Date.now()}.jpg`)
   await new Promise((resolve, reject) => {
     execFile(FFMPEG, [
       '-y', '-rtsp_transport', 'tcp', '-timeout', '10000000',
       '-i', rtspUrl,
-      '-frames:v', '1', '-q:v', '2', '-update', '1', outPath,
+      '-vf', 'scale=640:-2',
+      '-frames:v', '1', '-q:v', '5', '-update', '1', tmpPath,
     ], { timeout: 20000, windowsHide: true }, (err) => {
-      // ffmpeg 8.x exits with signal/code 3221225786 on Windows even on success
       const code = err?.code
       const ignored = !code || code === 3221225786 || code === 255
       if (err && !ignored) reject(err); else resolve()
     })
   })
-  const buf = await readFile(outPath)
-  await unlink(outPath).catch(() => {})
+  const buf = await readFile(tmpPath)
+  await unlink(tmpPath).catch(() => {})
   return buf
 }
 
-async function uploadSnapshot(buffer, filename, contentType) {
-  const { error } = await supabaseStorage.storage
-    .from('drawer-snapshots')
-    .upload(filename, buffer, { contentType, upsert: false })
-  if (error) throw error
-  const { data } = supabaseStorage.storage.from('drawer-snapshots').getPublicUrl(filename)
-  return data.publicUrl
-}
-
-async function saveSnapshotToLog(url) {
-  const { data: log } = await supabase.from('drawer_logs')
-    .select('id').order('opened_at', { ascending: false }).limit(1).maybeSingle()
-  if (log) await supabase.from('drawer_logs').update({ snapshot_url: url }).eq('id', log.id)
+async function saveSnapshotLocally(buffer, filename) {
+  const filePath = join(SAVE_DIR, filename)
+  await writeFile(filePath, buffer)
+  return filePath
 }
 
 async function sendPhotoToTelegram(token, chatId, buffer, contentType, filename, caption) {
@@ -88,10 +76,9 @@ export async function POST(req) {
     if (!s.telegram_chat_id)   return Response.json({ ok: false, reason: 'no telegram chat_id' })
 
     if (mode === 'snapshot') {
-      const imgBuffer   = await captureRTSP(cameraIp, cameraUsername || 'admin', cameraPassword || '')
-      const filename    = `${Date.now()}.jpg`
-      const publicUrl   = await uploadSnapshot(imgBuffer, filename, 'image/jpeg').catch(() => null)
-      if (publicUrl) await saveSnapshotToLog(publicUrl)
+      const imgBuffer = await captureRTSP(cameraIp, cameraUsername || 'admin', cameraPassword || '')
+      const filename  = `${Date.now()}.jpg`
+      await saveSnapshotLocally(imgBuffer, filename).catch(() => {})
       await sendPhotoToTelegram(s.telegram_bot_token, s.telegram_chat_id, imgBuffer, 'image/jpeg', filename, caption)
       return Response.json({ ok: true, mode: 'snapshot' })
     }
