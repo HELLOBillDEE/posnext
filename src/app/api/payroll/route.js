@@ -132,20 +132,23 @@ export async function GET(req) {
         }
       }
 
-      // Streak bonus 200 บาท ต่อทุก 10 วันเต็มติดต่อกัน (ไม่นับครึ่งวัน)
+      // Streak bonus 200 บาท ต่อทุก 10 วันเต็มติดต่อกัน
+      // วันลาครึ่งวัน (factor 0.5) ไม่ตัด streak แต่ไม่นับเป็นวันเต็ม
       let streakBonus = 0
-      const fullDays = workDates.filter(d => d.factor >= 1).sort((a, b) => a.date.localeCompare(b.date))
-      if (fullDays.length >= 10) {
-        let streak = 1
-        for (let i = 1; i < fullDays.length; i++) {
-          const prev = new Date(fullDays[i - 1].date)
-          const curr = new Date(fullDays[i].date)
+      const allDaysSorted = workDates.slice().sort((a, b) => a.date.localeCompare(b.date))
+      if (allDaysSorted.filter(d => d.factor >= 1).length >= 10) {
+        let fullCount = allDaysSorted[0]?.factor >= 1 ? 1 : 0
+        for (let i = 1; i < allDaysSorted.length; i++) {
+          const prev = new Date(allDaysSorted[i - 1].date)
+          const curr = new Date(allDaysSorted[i].date)
           const diff = Math.round((curr - prev) / 86400000)
           if (diff === 1) {
-            streak++
-            if (streak % 10 === 0) streakBonus += 200
+            if (allDaysSorted[i].factor >= 1) {
+              fullCount++
+              if (fullCount % 10 === 0) streakBonus += 200
+            }
           } else {
-            streak = 1
+            fullCount = allDaysSorted[i].factor >= 1 ? 1 : 0
           }
         }
       }
