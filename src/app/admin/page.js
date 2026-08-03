@@ -246,6 +246,7 @@ export default function AdminPage() {
   const [lineQrUploading, setLineQrUploading]     = useState(false)
   const [displayVideoUploading, setDisplayVideoUploading]     = useState(null) // null | 1..5
   const [displayImgUploading, setDisplayImgUploading]         = useState(null) // null | 1 | 2 | 3
+  const [ytInputs, setYtInputs]   = useState({1:'',2:'',3:'',4:'',5:''})
   const [promoTemplateUploading, setPromoTemplateUploading]   = useState(null) // null | 1 | 2 | 3
   const [announcements, setAnnouncements]     = useState([])
   const [annForm, setAnnForm]                 = useState({ title: '', body: '', type: 'info' })
@@ -578,6 +579,21 @@ export default function AdminPage() {
   async function clearDisplayMedia(key) {
     await supabase.from('settings').upsert({ key, value: '' }, { onConflict: 'key' })
     setSettings(p => ({ ...p, [key]: '' }))
+  }
+
+  function ytIdFromUrl(url) {
+    try {
+      const u = new URL(url)
+      if (u.hostname === 'youtu.be') return u.pathname.slice(1).split('?')[0]
+      return u.searchParams.get('v') || ''
+    } catch { return '' }
+  }
+
+  async function saveDisplayVideoUrl(url, slot) {
+    const key = `display_video_${slot}`
+    await supabase.from('settings').upsert({ key, value: url }, { onConflict: 'key' })
+    setSettings(p => ({ ...p, [key]: url }))
+    setYtInputs(p => ({ ...p, [slot]: '' }))
   }
 
   async function saveSettings() {
@@ -1112,30 +1128,53 @@ export default function AdminPage() {
               <p className="text-xs text-slate-400 mt-0.5">วีดีโอหรือรูปโปรโมชั่นที่แสดงบน tablet หน้าร้าน (ขณะรอลูกค้า)</p>
             </div>
 
-            {/* Video upload — multiple slots */}
+            {/* Video slots — รองรับทั้ง YouTube URL และไฟล์อัปโหลด */}
             <div>
-              <label className="text-xs font-semibold text-slate-500 block mb-2">🎬 วีดีโอโปรโมชั่น (เล่นวนทีละไฟล์ สูงสุด 5 คลิป)</label>
+              <label className="text-xs font-semibold text-slate-500 block mb-2">🎬 วีดีโอโปรโมชั่น (เล่นวนทีละคลิป สูงสุด 5 คลิป)</label>
               <div className="flex gap-3 flex-wrap">
                 {[1, 2, 3, 4, 5].map(slot => {
                   const key = `display_video_${slot}`
                   const url = settings[key]
                   const busy = displayVideoUploading === slot
+                  const isYT = url && (url.includes('youtube.com') || url.includes('youtu.be'))
+                  const ytId = isYT ? ytIdFromUrl(url) : ''
                   return (
                     <div key={slot} className="flex flex-col items-center gap-1">
                       {url ? (
                         <div className="relative">
-                          <video src={url} className="h-20 w-28 object-cover rounded-xl border border-slate-200" muted />
+                          {isYT ? (
+                            <img src={`https://img.youtube.com/vi/${ytId}/mqdefault.jpg`}
+                              className="h-20 w-28 object-cover rounded-xl border border-red-200" alt="YouTube" />
+                          ) : (
+                            <video src={url} className="h-20 w-28 object-cover rounded-xl border border-slate-200" muted />
+                          )}
                           <button onClick={() => clearDisplayMedia(key)}
                             className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center shadow">×</button>
-                          <span className="text-xs text-slate-400 text-center block">{slot}</span>
+                          <span className="text-xs text-slate-400 text-center block">{isYT ? '▶ YT' : slot}</span>
                         </div>
                       ) : (
-                        <label className={`cursor-pointer h-20 w-28 rounded-xl border-2 border-dashed flex flex-col items-center justify-center text-xs gap-1 transition-all
-                          ${busy ? 'border-slate-300 text-slate-400' : 'border-slate-300 text-slate-400 hover:border-brand/40 hover:text-brand'}`}>
-                          {busy ? '⏳' : <><span className="text-lg">🎬</span><span>คลิปที่ {slot}</span></>}
-                          <input type="file" accept="video/*" className="hidden" disabled={!!displayVideoUploading}
-                            onChange={e => e.target.files[0] && uploadDisplayVideo(e.target.files[0], slot)} />
-                        </label>
+                        <div className="flex flex-col gap-1.5">
+                          <label className={`cursor-pointer h-20 w-28 rounded-xl border-2 border-dashed flex flex-col items-center justify-center text-xs gap-1 transition-all
+                            ${busy ? 'border-slate-300 text-slate-400' : 'border-slate-300 text-slate-400 hover:border-brand/40 hover:text-brand'}`}>
+                            {busy ? '⏳' : <><span className="text-lg">📁</span><span>อัปโหลดคลิป {slot}</span></>}
+                            <input type="file" accept="video/*" className="hidden" disabled={!!displayVideoUploading}
+                              onChange={e => e.target.files[0] && uploadDisplayVideo(e.target.files[0], slot)} />
+                          </label>
+                          <div className="flex gap-1 w-28">
+                            <input
+                              value={ytInputs[slot]}
+                              onChange={e => setYtInputs(p => ({ ...p, [slot]: e.target.value }))}
+                              placeholder="🔗 YouTube URL"
+                              className="flex-1 text-[10px] border border-slate-200 rounded-lg px-1.5 py-1 outline-none focus:border-red-400 min-w-0"
+                            />
+                            <button
+                              onClick={() => { const u = ytInputs[slot].trim(); if (u) saveDisplayVideoUrl(u, slot) }}
+                              disabled={!ytInputs[slot].trim()}
+                              className="text-[10px] bg-red-500 text-white rounded-lg px-1.5 py-1 disabled:opacity-30 shrink-0">
+                              ✓
+                            </button>
+                          </div>
+                        </div>
                       )}
                     </div>
                   )
