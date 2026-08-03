@@ -457,6 +457,12 @@ export default function POSPage() {
       if (physChar) {
         const now = Date.now()
         physBuf.current = { chars: physBuf.current.chars + physChar, t0: physBuf.current.t0 || now }
+      } else if (e.code === 'Unidentified' && e.key && e.key.length === 1) {
+        // fallback สำหรับ Bluetooth scanner บน iOS ที่ e.code = 'Unidentified'
+        // ใช้ e.key แล้วแปลงภาษาไทย→อังกฤษ ด้วย convertThaiBarcode
+        const now = Date.now()
+        const ch = convertThaiBarcode(e.key)
+        physBuf.current = { chars: physBuf.current.chars + ch, t0: physBuf.current.t0 || now }
       } else if (e.code && e.code !== 'Unidentified' && !SKIP_CODES.has(e.code)) {
         physBuf.current = { chars: '', t0: 0 }
       }
@@ -1341,7 +1347,7 @@ export default function POSPage() {
             ) : (
               <div className="divide-y divide-gray-50">
                 {cart.map((item, idx) => (
-                  <div key={idx} className="px-3 py-2 hover:bg-gray-50/60 transition-colors">
+                  <div key={item.pid} className="px-3 py-2 hover:bg-gray-50/60 transition-colors">
                     <div className="flex justify-between items-start mb-1.5">
                       <p className="text-xs font-semibold flex-1 leading-snug text-slate-800 pr-1">{item.name}</p>
                       <button onClick={() => setCart(p => p.filter((_,i)=>i!==idx))}
