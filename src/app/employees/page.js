@@ -692,6 +692,8 @@ export default function EmployeesPage() {
   // Tab 3 — Approvals
   const [pendingItems, setPendingItems] = useState([])
   const [pendingLoading, setPendingLoading] = useState(false)
+  const [historyItems, setHistoryItems] = useState([])
+  const [historyLoading, setHistoryLoading] = useState(false)
 
   useEffect(() => { loadEmployees() }, [])
 
@@ -708,7 +710,18 @@ export default function EmployeesPage() {
   }, [period])
 
   useEffect(() => { if (activeTab===1) loadPayroll() }, [activeTab, loadPayroll])
-  useEffect(() => { if (activeTab===2) loadPending() }, [activeTab])
+  useEffect(() => {
+    if (activeTab !== 2) return
+    loadPending()
+    loadHistory()
+    const ch = supabase.channel('pending-requests')
+      .on('postgres_changes', { event: 'INSERT', schema: 'pos', table: 'leave_requests' },   () => loadPending())
+      .on('postgres_changes', { event: 'INSERT', schema: 'pos', table: 'salary_advances' },  () => loadPending())
+      .on('postgres_changes', { event: 'INSERT', schema: 'pos', table: 'drawer_requests' },  () => loadPending())
+      .on('postgres_changes', { event: 'INSERT', schema: 'pos', table: 'expenses' },         () => loadPending())
+      .subscribe()
+    return () => supabase.removeChannel(ch)
+  }, [activeTab])
 
   async function loadEmployees() {
     const { data } = await supabase.from('employees').select('*').order('name')
@@ -734,6 +747,27 @@ export default function EmployeesPage() {
     } finally { setPendingLoading(false) }
   }
 
+  async function loadHistory() {
+    setHistoryLoading(true)
+    try {
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30)
+      const cutoffStr = cutoff.toISOString()
+      const [{ data: leaves }, { data: advances }, { data: drawers }, { data: expenseReqs }] = await Promise.all([
+        supabase.from('leave_requests').select('id,employee_name,date_from,date_to,period,leave_type,note,created_at,status').in('status',['approved','rejected']).gte('created_at',cutoffStr).order('created_at',{ascending:false}).limit(50),
+        supabase.from('salary_advances').select('id,employee_name,amount,note,created_at,status').in('status',['approved','rejected']).gte('created_at',cutoffStr).order('created_at',{ascending:false}).limit(50),
+        supabase.from('drawer_requests').select('id,employee_name,note,amount,created_at,status').in('status',['approved','rejected']).gte('created_at',cutoffStr).order('created_at',{ascending:false}).limit(50),
+        supabase.from('expenses').select('id,paid_by_name,description,amount,expense_date,category,note,created_at,status').in('status',['approved','rejected']).gte('created_at',cutoffStr).order('created_at',{ascending:false}).limit(50),
+      ])
+      const items = [
+        ...(leaves      ||[]).map(r=>({...r,_type:'leave'})),
+        ...(advances    ||[]).map(r=>({...r,_type:'advance'})),
+        ...(drawers     ||[]).map(r=>({...r,_type:'drawer'})),
+        ...(expenseReqs ||[]).map(r=>({...r,_type:'expense',employee_name:r.paid_by_name||'ไม่ระบุ'})),
+      ].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))
+      setHistoryItems(items)
+    } finally { setHistoryLoading(false) }
+  }
+
   async function handlePendingAction(action, type, id) {
     setPendingItems(prev=>prev.map(p=>p.id===id&&p._type===type?{...p,_acting:action}:p))
     try {
@@ -742,6 +776,7 @@ export default function EmployeesPage() {
         body: JSON.stringify({ action, type, id }),
       })
       setPendingItems(prev=>prev.filter(p=>!(p.id===id&&p._type===type)))
+      loadHistory()
     } catch {
       setPendingItems(prev=>prev.map(p=>p.id===id&&p._type===type?{...p,_acting:null}:p))
     }
@@ -971,6 +1006,36 @@ export default function EmployeesPage() {
               </div>
             )
           })}
+
+          {/* ── ประวัติการอนุมัติ (30 วัน) ── */}
+          {historyItems.length > 0 && (
+            <div className="mt-6">
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">ประวัติ 30 วันที่ผ่านมา</p>
+              <div className="space-y-2">
+                {historyItems.map(item => {
+                  const typeLabel = { leave:'คำขอลา', advance:'คำขอเบิก', drawer:'คำขอลิ้นชัก', expense:'เบิกค่าใช้จ่าย' }[item._type] || 'คำขอ'
+                  const approved = item.status === 'approved'
+                  const timeStr = new Date(item.created_at).toLocaleString('th-TH',{timeZone:'Asia/Bangkok',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})
+                  const amtStr = item.amount ? `  ฿${Number(item.amount).toLocaleString('th-TH')}` : ''
+                  return (
+                    <div key={`h-${item._type}-${item.id}`}
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white border border-slate-100">
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${approved ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
+                        {approved ? '✅' : '❌'}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-slate-700 truncate">{item.employee_name} · {typeLabel}{amtStr}</p>
+                        <p className="text-xs text-slate-400">{timeStr}</p>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+          {historyLoading && historyItems.length===0 && (
+            <p className="text-center text-slate-400 text-xs py-4">⏳ โหลดประวัติ...</p>
+          )}
         </div>
       )}
 
