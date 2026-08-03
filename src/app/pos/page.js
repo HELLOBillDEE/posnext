@@ -234,7 +234,9 @@ export default function POSPage() {
     wasPaying.current = showPay
   }, [showPay])
 
-  // Printer keepalive — โหลด per-terminal config จาก Supabase ทุกครั้ง แล้ว sync ลง localStorage
+  // Printer keepalive
+  // ใบเสร็จ: per-terminal (printer_receipt_{tid}) — แต่ละเครื่องมีเครื่องพิมพ์แยก
+  // บาร์โค้ด: global (printer_barcode) — ร้านมีเครื่องเดียว ทุก terminal ใช้ร่วม
   useEffect(() => {
     async function pingPrinters() {
       let receipt = JSON.parse(localStorage.getItem('printer_receipt') || '{}')
@@ -242,17 +244,18 @@ export default function POSPage() {
       try {
         const tid = (() => { try { return JSON.parse(localStorage.getItem('device_config') || '{}').terminal_id || 'default' } catch { return 'default' } })()
         const { data } = await supabase.from('settings').select('key,value')
-          .in('key', [`printer_receipt_${tid}`, `printer_barcode_${tid}`])
+          .in('key', [`printer_receipt_${tid}`, 'printer_barcode'])
         if (data) {
           data.forEach(r => {
             try {
               const v = JSON.parse(r.value)
-              // per-terminal Supabase config มีความสำคัญสูงกว่า localStorage ทั่วไป
+              // ใบเสร็จ: per-terminal override localStorage
               if (r.key === `printer_receipt_${tid}` && v?.ip) {
                 receipt = v
                 localStorage.setItem('printer_receipt', JSON.stringify(v))
               }
-              if (r.key === `printer_barcode_${tid}` && v?.ip) {
+              // บาร์โค้ด: global key — sync เฉพาะเมื่อ localStorage ว่าง
+              if (r.key === 'printer_barcode' && v?.ip && !barcode.ip) {
                 barcode = v
                 localStorage.setItem('printer_barcode', JSON.stringify(v))
               }
@@ -260,7 +263,7 @@ export default function POSPage() {
           })
         }
       } catch {}
-      if (!receipt.ip && !barcode.ip) return
+      if (!receipt.ip && !receipt.usb_mode && !receipt.usb_port && !barcode.ip) return
       fetch('/api/printer-keepalive', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -600,13 +600,12 @@ export default function AdminPage() {
     localStorage.setItem('printer_receipt', JSON.stringify(printers.receipt))
     try {
       const tid = (() => { try { return JSON.parse(localStorage.getItem('device_config') || '{}').terminal_id || 'default' } catch { return 'default' } })()
-      const r1 = await supabase.from('settings').upsert({ key: `printer_barcode_${tid}`, value: JSON.stringify(printers.barcode) }, { onConflict: 'key' })
-      if (r1.error) throw r1.error
+      // ใบเสร็จ: บันทึก per-terminal (แต่ละ POS มีเครื่องพิมพ์แยก)
       const r2 = await supabase.from('settings').upsert({ key: `printer_receipt_${tid}`, value: JSON.stringify(printers.receipt) }, { onConflict: 'key' })
       if (r2.error) throw r2.error
-      // อัปเดต global key ด้วย เพื่อให้หน้าสินค้าอ่านได้
-      await supabase.from('settings').upsert({ key: 'printer_barcode', value: JSON.stringify(printers.barcode) }, { onConflict: 'key' })
-      await supabase.from('settings').upsert({ key: 'printer_receipt', value: JSON.stringify(printers.receipt) }, { onConflict: 'key' })
+      // บาร์โค้ด: บันทึก global เท่านั้น (ร้านมีเครื่องเดียว ทุก terminal ใช้ร่วม)
+      const r1 = await supabase.from('settings').upsert({ key: 'printer_barcode', value: JSON.stringify(printers.barcode) }, { onConflict: 'key' })
+      if (r1.error) throw r1.error
       setPrinterSaved(true)
       setTimeout(() => setPrinterSaved(false), 2000)
     } catch (e) {
