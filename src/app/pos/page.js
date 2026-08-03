@@ -59,10 +59,9 @@ async function getServerUsb() {
 function canPrintReceipt(cfg) { return !!(cfg.ip || cfg.usb_mode || cfg.usb_port) }
 
 // ส่ง bytes ไปเครื่องพิมพ์ตาม mode
-// ถ้า server เป็น Windows + มี usb_port → ใช้ USB อัตโนมัติ
+// ใช้ USB เฉพาะเมื่อ usb_mode === true เท่านั้น (ต้องตั้งใน Admin → เครื่องพิมพ์)
 async function printReceiptBytes(cfg, bytes) {
-  const usbAuto = cfg.usb_port && (cfg.usb_mode || await getServerUsb())
-  if (usbAuto) return printViaUSB(bytes, cfg.usb_port)
+  if (cfg.usb_mode && cfg.usb_port) return printViaUSB(bytes, cfg.usb_port)
   return printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
 }
 
