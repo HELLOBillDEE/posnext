@@ -10,9 +10,9 @@ async function getServerUsb() {
   return _serverUsb
 }
 async function printReceiptCfg(cfg, bytes) {
-  const usbAuto = cfg.usb_port && (cfg.usb_mode || await getServerUsb())
-  if (usbAuto) return printViaUSB(bytes, cfg.usb_port)
-  return printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
+  if (cfg.usb_mode && cfg.usb_port) return printViaUSB(bytes, cfg.usb_port)
+  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+  return printViaBridge(cfg.bridge_url || origin, cfg.ip, cfg.port || 9100, bytes)
 }
 import { cacheSet, cacheGet, addToQueue, genOfflineRepairNo } from '@/lib/offlineQueue'
 
@@ -444,11 +444,7 @@ export default function RepairPage() {
     let receipt = parseCfg(m[`printer_receipt_${tid}`], 'printer_receipt')
     let barcode = parseCfg(m[`printer_barcode_${tid}`], 'printer_barcode')
     if (!receipt && list.length > 0) receipt = list[0].cfg
-    // overlay USB settings from global printer_receipt if this terminal's config lacks them
-    const globalCfg = parseCfg(m['printer_receipt'], null)
-    if (receipt && globalCfg?.usb_port && !receipt.usb_port) {
-      receipt = { ...receipt, usb_mode: globalCfg.usb_mode, usb_port: globalCfg.usb_port }
-    }
+    // ไม่ copy USB จาก global อีกต่อไป — แต่ละ terminal มี config แยกกัน
     if (!barcode) {
       const { data: bc } = await supabase.from('settings').select('key,value').like('key', 'printer_barcode_%')
       const row = (bc||[]).find(r => r.value)

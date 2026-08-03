@@ -2323,7 +2323,7 @@ function DeliveryDetailInHistory({ doc, settings, onBack }) {
   const isCancelled = doc.status === 'cancelled'
 
   async function reprint() {
-    const cfg = JSON.parse(localStorage.getItem('printer_receipt') || '{}')
+    const cfg = getReceiptCfg()
     const paperW = parseInt(cfg.paper_width) || 80
     try {
       const slipBytes = await buildDeliverySlipESCPOS({
@@ -3553,7 +3553,7 @@ function DeliverySlipModal({ cart, totals, settings, currentEmp, customer, onClo
       }).select().single()
       if (error) throw error
 
-      const cfg = JSON.parse(settings.printer_receipt || localStorage.getItem('printer_receipt') || '{}')
+      const cfg = getReceiptCfg()
       const paperW = parseInt(cfg.paper_width) || 80
       if (canPrintReceipt(cfg)) {
         const printImg = mapSnapshotUrl || mapImageDataUrl
