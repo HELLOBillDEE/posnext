@@ -296,7 +296,7 @@ function renderMedia() {
     bg.innerHTML = '<div class="no-media">'+logoHtml+'<div class="wlc">ยินดีต้อนรับ</div></div>'
   }
 
-  if (_promos.length > 0) startCycle()
+  // promo cycling ปิดแล้ว — ไม่ startCycle()
 }
 
 function startCycle() {
