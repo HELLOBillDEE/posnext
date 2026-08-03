@@ -143,12 +143,13 @@ const fmt = n => Number(n||0).toLocaleString('th-TH',{minimumFractionDigits:2,ma
 let cfg = {}
 let stA = {status:'idle',items:[],subtotal:0,discount:0,total:0}
 let stB = {status:'idle',items:[],subtotal:0,discount:0,total:0}
-let _slideTimer = null, _slideIdx = 0, _ytTimer2 = null
+let _slideTimer = null, _slideIdx = 0, _ytTimer2 = null, _ytMuted2 = true, _ytBaseSrc2 = ''
 let _timerA = null, _timerB = null
 let _promos = [], _promoPage = 0, _cycleTimer = null, _showPromo = false
 
 function isYT(u){return!!u&&(u.includes('youtube.com')||u.includes('youtu.be'))}
 function ytId(u){try{const p=new URL(u);if(p.hostname==='youtu.be')return p.pathname.slice(1).split('?')[0];if(p.pathname.startsWith('/shorts/'))return p.pathname.split('/')[2]||'';return p.searchParams.get('v')||''}catch{return ''}}
+function ytSrc2(base){return base+(_ytMuted2?'&mute=1':'')}
 const ITEMS_PER_PAGE = 8
 const CYCLE_SEC = 12000
 
@@ -321,36 +322,37 @@ function setupVid(items, muteBtn) {
   const f = document.getElementById('ytFrame2')
   if (!items.length) return
   const ytItems = items.filter(i=>i.yt), dirItems = items.filter(i=>!i.yt)
+  function showBtn(show){ if(muteBtn){muteBtn.style.display=show?'flex':'none';muteBtn.textContent=_ytMuted2?'🔇':'🔊'} }
   if (ytItems.length && !dirItems.length) {
     if (v) v.style.display = 'none'
     if (f) {
       const ids = ytItems.map(i=>i.id).filter(Boolean)
-      f.src = 'https://www.youtube.com/embed/'+ids[0]+'?autoplay=1&mute=1&loop=1&playlist='+ids.join(',')+'&controls=0&rel=0&modestbranding=1'
-      f.style.display = 'block'
+      _ytBaseSrc2='https://www.youtube.com/embed/'+ids[0]+'?autoplay=1&loop=1&playlist='+ids.join(',')+'&controls=0&rel=0&modestbranding=1'
+      f.src = ytSrc2(_ytBaseSrc2); f.style.display = 'block'
     }
-    return
+    showBtn(true); return
   }
   let idx = 0
   function show(i) {
     const it = items[i]
     if (it.yt) {
       if (v) { v.pause(); v.style.display = 'none' }
-      if (muteBtn) muteBtn.style.display = 'none'
       if (f) {
-        f.src = 'https://www.youtube.com/embed/'+it.id+'?autoplay=1&mute=1&controls=0&rel=0&modestbranding=1'
-        f.style.display = 'block'
+        _ytBaseSrc2='https://www.youtube.com/embed/'+it.id+'?autoplay=1&controls=0&rel=0&modestbranding=1'
+        f.src = ytSrc2(_ytBaseSrc2); f.style.display = 'block'
         if (_ytTimer2) clearTimeout(_ytTimer2)
         _ytTimer2 = setTimeout(()=>{ idx=(idx+1)%items.length; show(idx) }, 60000)
       }
+      showBtn(true)
     } else {
-      if (f) { f.src = 'about:blank'; f.style.display = 'none' }
+      if (f) { f.src = 'about:blank'; f.style.display = 'none'; _ytBaseSrc2='' }
       if (_ytTimer2) { clearTimeout(_ytTimer2); _ytTimer2 = null }
-      if (muteBtn) muteBtn.style.display = 'flex'
       if (v) {
         v.style.display = 'block'; v.src = it.url
         v.onended = () => { idx=(idx+1)%items.length; show(idx) }
         v.play().catch(()=>{})
       }
+      showBtn(true)
     }
   }
   show(0)
@@ -358,10 +360,12 @@ function setupVid(items, muteBtn) {
 
 function toggleMute() {
   const v = document.getElementById('vid')
+  const f = document.getElementById('ytFrame2')
   const b = document.getElementById('muteBtn')
-  if (!v || v.style.display === 'none') return
-  v.muted = !v.muted
-  if (b) b.textContent = v.muted ? '🔇' : '🔊'
+  _ytMuted2 = !_ytMuted2
+  if (b) b.textContent = _ytMuted2 ? '🔇' : '🔊'
+  if (f && f.style.display !== 'none' && _ytBaseSrc2) f.src = ytSrc2(_ytBaseSrc2)
+  if (v && v.style.display !== 'none') v.muted = _ytMuted2
 }
 
 /* ── POS PANEL ── */

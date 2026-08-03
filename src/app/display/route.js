@@ -109,10 +109,11 @@ const fmt = n => Number(n||0).toLocaleString('th-TH',{minimumFractionDigits:2,ma
 let cfg={shop_name:'',shop_logo:'',shop_phone:'',payment_qr:'',display_video_1:'',display_video_2:'',display_video_3:'',display_video_4:'',display_video_5:'',display_image_1:'',display_image_2:'',display_image_3:''}
 let state={status:'idle',items:[],subtotal:0,discount:0,total:0}
 let slideIdx=0, slideTimer=null
-let _ytTimer=null
+let _ytTimer=null, _ytMuted=true, _ytBaseSrc=''
 
 function isYT(u){return!!u&&(u.includes('youtube.com')||u.includes('youtu.be'))}
 function ytId(u){try{const p=new URL(u);if(p.hostname==='youtu.be')return p.pathname.slice(1).split('?')[0];if(p.pathname.startsWith('/shorts/'))return p.pathname.split('/')[2]||'';return p.searchParams.get('v')||''}catch{return ''}}
+function ytSrc(baseSrc){return baseSrc+(_ytMuted?'&mute=1':'')}
 
 const app=document.getElementById('app')
 const sb=window.supabase.createClient(SURL,SKEY,{db:{schema:'pos'}})
@@ -151,15 +152,18 @@ function setupPlaylist(items){
   const btn=document.getElementById('muteBtn')
   if(!items.length)return
   const ytItems=items.filter(i=>i.yt), dirItems=items.filter(i=>!i.yt)
+  function showMuteBtn(show){
+    if(btn){btn.style.display=show?'flex':'none';btn.textContent=_ytMuted?'🔇':'🔊'}
+  }
   // All YouTube — use native YouTube playlist (YouTube handles cycling & looping)
   if(ytItems.length&&!dirItems.length){
     if(v)v.style.display='none'
-    if(btn)btn.style.display='none'
     if(f){
       const ids=ytItems.map(i=>i.id).filter(Boolean)
-      f.src='https://www.youtube.com/embed/'+ids[0]+'?autoplay=1&mute=1&loop=1&playlist='+ids.join(',')+'&controls=0&rel=0&modestbranding=1'
-      f.style.display='block'
+      _ytBaseSrc='https://www.youtube.com/embed/'+ids[0]+'?autoplay=1&loop=1&playlist='+ids.join(',')+'&controls=0&rel=0&modestbranding=1'
+      f.src=ytSrc(_ytBaseSrc); f.style.display='block'
     }
+    showMuteBtn(true)
     return
   }
   // Mixed or all-direct: cycle items; timer for YT, onended for direct
@@ -168,22 +172,22 @@ function setupPlaylist(items){
     const it=items[i]
     if(it.yt){
       if(v){v.pause();v.style.display='none'}
-      if(btn)btn.style.display='none'
       if(f){
-        f.src='https://www.youtube.com/embed/'+it.id+'?autoplay=1&mute=1&controls=0&rel=0&modestbranding=1'
-        f.style.display='block'
+        _ytBaseSrc='https://www.youtube.com/embed/'+it.id+'?autoplay=1&controls=0&rel=0&modestbranding=1'
+        f.src=ytSrc(_ytBaseSrc); f.style.display='block'
         if(_ytTimer)clearTimeout(_ytTimer)
         _ytTimer=setTimeout(()=>{idx=(idx+1)%items.length;show(idx)},60000)
       }
+      showMuteBtn(true)
     }else{
-      if(f){f.src='about:blank';f.style.display='none'}
+      if(f){f.src='about:blank';f.style.display='none';_ytBaseSrc=''}
       if(_ytTimer){clearTimeout(_ytTimer);_ytTimer=null}
-      if(btn)btn.style.display='flex'
       if(v){
         v.style.display='block';v.src=it.url
         v.onended=()=>{idx=(idx+1)%items.length;show(idx)}
         v.play().catch(()=>{})
       }
+      showMuteBtn(true)
     }
   }
   show(0)
@@ -304,10 +308,16 @@ function render(){
 
 function toggleMute(){
   const v=document.getElementById('vidPlayer')
+  const f=document.getElementById('ytFrame')
   const btn=document.getElementById('muteBtn')
-  if(!v||v.style.display==='none')return
-  v.muted=!v.muted
-  if(btn)btn.textContent=v.muted?'🔇':'🔊'
+  _ytMuted=!_ytMuted
+  if(btn)btn.textContent=_ytMuted?'🔇':'🔊'
+  // YouTube: reload iframe without mute param (ต้องการ user interaction ก่อน)
+  if(f&&f.style.display!=='none'&&_ytBaseSrc){
+    f.src=ytSrc(_ytBaseSrc)
+  }
+  // Direct video
+  if(v&&v.style.display!=='none'){v.muted=_ytMuted}
 }
 
 render()
