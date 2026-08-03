@@ -234,28 +234,32 @@ export default function POSPage() {
     wasPaying.current = showPay
   }, [showPay])
 
-  // Printer keepalive — อ่าน config จาก Supabase (persistent) + localStorage (fallback)
+  // Printer keepalive — โหลด per-terminal config จาก Supabase ทุกครั้ง แล้ว sync ลง localStorage
   useEffect(() => {
     async function pingPrinters() {
       let receipt = JSON.parse(localStorage.getItem('printer_receipt') || '{}')
       let barcode = JSON.parse(localStorage.getItem('printer_barcode') || '{}')
-      // ถ้า localStorage ว่าง (เช่น เปลี่ยน http→https) ให้โหลดจาก Supabase (per terminal)
-      if (!receipt.ip || !barcode.ip) {
-        try {
-          const tid = (() => { try { return JSON.parse(localStorage.getItem('device_config') || '{}').terminal_id || 'default' } catch { return 'default' } })()
-          const { data } = await supabase.from('settings').select('key,value')
-            .in('key', [`printer_receipt_${tid}`, `printer_barcode_${tid}`])
-          if (data) {
-            data.forEach(r => {
-              try {
-                const v = JSON.parse(r.value)
-                if (r.key === `printer_receipt_${tid}` && !receipt.ip) receipt = v
-                if (r.key === `printer_barcode_${tid}` && !barcode.ip) barcode = v
-              } catch {}
-            })
-          }
-        } catch {}
-      }
+      try {
+        const tid = (() => { try { return JSON.parse(localStorage.getItem('device_config') || '{}').terminal_id || 'default' } catch { return 'default' } })()
+        const { data } = await supabase.from('settings').select('key,value')
+          .in('key', [`printer_receipt_${tid}`, `printer_barcode_${tid}`])
+        if (data) {
+          data.forEach(r => {
+            try {
+              const v = JSON.parse(r.value)
+              // per-terminal Supabase config มีความสำคัญสูงกว่า localStorage ทั่วไป
+              if (r.key === `printer_receipt_${tid}` && v?.ip) {
+                receipt = v
+                localStorage.setItem('printer_receipt', JSON.stringify(v))
+              }
+              if (r.key === `printer_barcode_${tid}` && v?.ip) {
+                barcode = v
+                localStorage.setItem('printer_barcode', JSON.stringify(v))
+              }
+            } catch {}
+          })
+        }
+      } catch {}
       if (!receipt.ip && !barcode.ip) return
       fetch('/api/printer-keepalive', {
         method: 'POST',
