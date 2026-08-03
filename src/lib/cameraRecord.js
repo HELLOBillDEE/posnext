@@ -91,10 +91,7 @@ export async function recordAndNotify(s, caption, duration = 15) {
 
   try {
     await recordCamera(url, duration, outPath)
-    const buf       = await readFile(outPath)
-    const filename  = `${ts}.mp4`
-    const publicUrl = await uploadToStorage(buf, filename, 'video/mp4').catch(() => null)
-    if (publicUrl) await saveToDrawerLog('video_url', publicUrl)
+    const buf = await readFile(outPath)
     await sendToTelegram(s.telegram_bot_token, s.telegram_chat_id, buf, caption)
   } catch (e) {
     console.error('[camera] recordAndNotify error:', e.message)
@@ -143,10 +140,7 @@ export async function stopShiftRecording(s, sessionId, caption) {
   if (!caption) { await unlink(outPath).catch(() => {}); return }
 
   try {
-    const buf       = await readFile(outPath)
-    const filename  = `${sessionId}.mp4`
-    const publicUrl = await uploadToStorage(buf, filename, 'video/mp4').catch(() => null)
-    if (publicUrl) await saveToDrawerLog('video_url', publicUrl)
+    const buf = await readFile(outPath)
     await sendToTelegram(s.telegram_bot_token, s.telegram_chat_id, buf, caption)
   } catch (e) {
     console.error('[camera] stopShiftRecording error:', e.message)

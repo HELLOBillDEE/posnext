@@ -27,24 +27,24 @@ export async function GET(req) {
       .eq('employee_id', emp.id).eq('type', 'cycle')
       .order('created_at', { ascending: false }).limit(1).maybeSingle()
 
-    // นับวันทำงานทั้งหมดจากประวัติ (ไม่ filter วันที่ เพราะนับต่อเนื่อง)
+    // ดึง attendance เฉพาะตั้งแต่วันหลัง cycle payment ล่าสุด
+    const sinceDate = lastCycle?.created_at
+      ? new Date(lastCycle.created_at).toISOString().slice(0, 10)
+      : '2000-01-01'
     const { data: allAtt } = await supabase.from('attendance')
       .select('date, check_in, check_out')
       .eq('employee_id', emp.id)
+      .gt('date', sinceDate)
       .not('check_in', 'is', null)
       .order('date', { ascending: true })
 
-    // นับวันจริง (full=1, half=0.5)
     const days = (allAtt || []).map(a => ({
       date: a.date,
       count: (a.check_in && a.check_out) ? 1 : 0.5
     }))
 
-    const totalDays = days.reduce((s, d) => s + d.count, 0)
     const lastCycleDayTo = lastCycle?.cycle_day_to || 0
-
-    // วันในรอบปัจจุบัน = total - lastCycleDayTo
-    const daysInCycle = totalDays - lastCycleDayTo
+    const daysInCycle = days.reduce((s, d) => s + d.count, 0)
     const daysUntilPay = Math.max(0, 10 - daysInCycle)
     const isComplete = daysInCycle >= 10
 
@@ -53,9 +53,8 @@ export async function GET(req) {
     if (isComplete) {
       let counted = 0
       for (const d of days) {
-        if (counted <= lastCycleDayTo) { counted += d.count; continue }
         counted += d.count
-        if (counted - lastCycleDayTo >= 10) { completedDate = d.date; break }
+        if (counted >= 10) { completedDate = d.date; break }
       }
     }
 
