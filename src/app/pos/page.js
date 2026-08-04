@@ -3523,19 +3523,17 @@ function DeliverySlipModal({ cart, totals, settings, currentEmp, customer, onClo
       }))
       const grandTotal = totals.total + fee
 
-      // Upload map snapshot to Supabase Storage
+      // Save map snapshot to local PC
       let mapSnapshotUrl = null
       if (mapImageDataUrl) {
         try {
-          const blob = await fetch(mapImageDataUrl).then(r => r.blob())
-          const path = `map-snapshots/${finalDocNo}.jpg`
-          const { error: upErr } = await supabase.storage
-            .from('shop-assets').upload(path, blob, { contentType: 'image/jpeg', upsert: true })
-          if (!upErr) {
-            const { data: { publicUrl } } = supabase.storage.from('shop-assets').getPublicUrl(path)
-            mapSnapshotUrl = publicUrl
-          }
-        } catch (e) { console.warn('Map snapshot upload failed:', e) }
+          const res = await fetch('/api/map-snapshot', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dataUrl: mapImageDataUrl, filename: `${finalDocNo}.jpg` }),
+          })
+          const json = await res.json()
+          if (json.path) mapSnapshotUrl = json.path
+        } catch (e) { console.warn('Map snapshot save failed:', e) }
       }
 
       const empLabel = currentEmp ? (currentEmp.nickname || currentEmp.name) : null
