@@ -314,7 +314,7 @@ export default function POSPage() {
 
 
 
-  async function loadData() {
+  async function loadData(force = false) {
     if (!navigator.onLine) {
       // ออฟไลน์ — โหลดจาก cache
       const prods = cacheGet('products'); if (prods) setProducts(prods)
@@ -323,6 +323,30 @@ export default function POSPage() {
       const emps  = cacheGet('employees'); if (emps) setEmployees(emps)
       return
     }
+
+    const TTL_STATIC = 10 * 60 * 1000 // 10 นาที สำหรับ products/categories/employees
+    const TTL_CFG    = 30 * 60 * 1000 // 30 นาที สำหรับ settings
+
+    if (!force) {
+      const prods = cacheGet('products',   TTL_STATIC)
+      const cats  = cacheGet('categories', TTL_STATIC)
+      const cfg   = cacheGet('settings',   TTL_CFG)
+      const emps  = cacheGet('employees',  TTL_STATIC)
+      if (prods && cats && cfg && emps) {
+        setProducts(prods); setCategories(cats); setSettings(cfg); setEmployees(emps)
+        try { setQrAccounts(JSON.parse(cfg.payment_qr_accounts || '[]')) } catch { setQrAccounts([]) }
+        // shift + quotes ยังดึงใหม่เสมอ (เปลี่ยนบ่อย)
+        const tid = getTerminalId()
+        const shiftQ = supabase.from('shifts').select('*').eq('status','open').order('opened_at',{ascending:false}).limit(1)
+        if (tid) shiftQ.eq('terminal_id', tid)
+        const { data: openShift } = await shiftQ.maybeSingle()
+        setShift(openShift || null)
+        const { data: quotes } = await supabase.from('quotations').select('*').eq('status','pending').order('created_at',{ascending:false})
+        setPendingQuotes(quotes || [])
+        return
+      }
+    }
+
     const [{ data: cats }, { data: cfg }, { data: emps }] = await Promise.all([
       supabase.from('categories').select('*').order('name'),
       supabase.from('settings').select('*'),

@@ -33,10 +33,13 @@ export function queueCount() { return getQueue().length }
 export function cacheSet(key, data) {
   try { localStorage.setItem(CACHE_KEYS[key] || key, JSON.stringify({ data, ts: Date.now() })) } catch {}
 }
-export function cacheGet(key) {
+export function cacheGet(key, ttlMs = 0) {
   try {
     const raw = localStorage.getItem(CACHE_KEYS[key] || key)
-    return raw ? JSON.parse(raw).data : null
+    if (!raw) return null
+    const { data, ts } = JSON.parse(raw)
+    if (ttlMs > 0 && Date.now() - ts > ttlMs) return null
+    return data
   } catch { return null }
 }
 
