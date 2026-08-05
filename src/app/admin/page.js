@@ -602,6 +602,7 @@ export default function AdminPage() {
       const rows = Object.entries(settings).map(([key, value]) => ({ key, value }))
       const { error } = await supabase.from('settings').upsert(rows, { onConflict: 'key' })
       if (error) throw error
+      fetch('/api/pos-data/invalidate?key=settings', { method: 'POST' }).catch(() => {})
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     } catch (e) {

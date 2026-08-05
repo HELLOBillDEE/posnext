@@ -316,7 +316,7 @@ export default function POSPage() {
 
   async function loadData(force = false) {
     if (!navigator.onLine) {
-      // ออฟไลน์ — โหลดจาก cache
+      // ออฟไลน์ — โหลดจาก localStorage cache
       const prods = cacheGet('products'); if (prods) setProducts(prods)
       const cats  = cacheGet('categories'); if (cats) setCategories(cats)
       const cfg   = cacheGet('settings'); if (cfg) setSettings(cfg)
@@ -324,51 +324,22 @@ export default function POSPage() {
       return
     }
 
-    const TTL_STATIC = 10 * 60 * 1000 // 10 นาที สำหรับ products/categories/employees
-    const TTL_CFG    = 30 * 60 * 1000 // 30 นาที สำหรับ settings
-
-    if (!force) {
-      const prods = cacheGet('products',   TTL_STATIC)
-      const cats  = cacheGet('categories', TTL_STATIC)
-      const cfg   = cacheGet('settings',   TTL_CFG)
-      const emps  = cacheGet('employees',  TTL_STATIC)
-      if (prods && cats && cfg && emps) {
-        setProducts(prods); setCategories(cats); setSettings(cfg); setEmployees(emps)
-        try { setQrAccounts(JSON.parse(cfg.payment_qr_accounts || '[]')) } catch { setQrAccounts([]) }
-        // shift + quotes ยังดึงใหม่เสมอ (เปลี่ยนบ่อย)
-        const tid = getTerminalId()
-        const shiftQ = supabase.from('shifts').select('*').eq('status','open').order('opened_at',{ascending:false}).limit(1)
-        if (tid) shiftQ.eq('terminal_id', tid)
-        const { data: openShift } = await shiftQ.maybeSingle()
-        setShift(openShift || null)
-        const { data: quotes } = await supabase.from('quotations').select('id,doc_no,doc_type,created_at,customer_name,customer_phone,customer_id,total,items,delivery_fee,discount,note,repair_order_id,status').eq('status','pending').order('created_at',{ascending:false})
-        setPendingQuotes(quotes || [])
-        return
+    // ดึงข้อมูลหลักจาก server-side cache (API route บน PC)
+    // server cache: products/categories/employees 10 นาที, settings 30 นาที
+    // ถ้า force=true → ส่ง header บอก server ให้ bypass cache
+    const res = await fetch('/api/pos-data' + (force ? '?force=1' : ''), { cache: 'no-store' })
+    if (res.ok) {
+      const { products, categories, settings, employees } = await res.json()
+      setProducts(products || []); cacheSet('products', products || [])
+      setCategories(categories || []); cacheSet('categories', categories || [])
+      setEmployees(employees || []); cacheSet('employees', employees || [])
+      if (settings) {
+        setSettings(settings); cacheSet('settings', settings)
+        try { setQrAccounts(JSON.parse(settings.payment_qr_accounts || '[]')) } catch { setQrAccounts([]) }
       }
     }
 
-    const [{ data: cats }, { data: cfg }, { data: emps }] = await Promise.all([
-      supabase.from('categories').select('*').order('name'),
-      supabase.from('settings').select('*'),
-      supabase.from('employees').select('id,name,nickname').eq('active', true).order('name'),
-    ])
-    setEmployees(emps || []); cacheSet('employees', emps || [])
-    // fetch สินค้าทีละ 1000 จนครบ (Supabase default limit = 1000)
-    let allProds = [], page = 0, done = false
-    while (!done) {
-      const { data, error } = await supabase.from('products').select('*, categories(name)').order('name').range(page * 1000, page * 1000 + 999)
-      if (error) { console.error('products load error:', error); break }
-      allProds = allProds.concat(data || [])
-      if (!data || data.length < 1000) done = true
-      else page++
-    }
-    setProducts(allProds); cacheSet('products', allProds)
-    setCategories(cats || []); cacheSet('categories', cats || [])
-    if (cfg) {
-      const s = Object.fromEntries(cfg.map(r => [r.key, r.value]))
-      setSettings(s); cacheSet('settings', s)
-      try { setQrAccounts(JSON.parse(s.payment_qr_accounts || '[]')) } catch { setQrAccounts([]) }
-    }
+    // shift + quotes ดึงใหม่เสมอ (เปลี่ยนบ่อย ไม่ cache)
     const tid = getTerminalId()
     const shiftQ = supabase.from('shifts').select('*').eq('status','open').order('opened_at',{ascending:false}).limit(1)
     if (tid) shiftQ.eq('terminal_id', tid)
@@ -3848,6 +3819,7 @@ function QuickAddModal({ barcode, categories, onClose, onSaved }) {
     const { error } = await supabase.from('products').update({ alt_barcode: barcode }).eq('id', selected.id)
     setLinking(false)
     if (error) { alert('เกิดข้อผิดพลาด: ' + error.message); return }
+    fetch('/api/pos-data/invalidate?key=products', { method: 'POST' }).catch(() => {})
     setConfirmReplace(false)
     onSaved({ ...selected, alt_barcode: barcode })
   }
@@ -3863,6 +3835,7 @@ function QuickAddModal({ barcode, categories, onClose, onSaved }) {
     }).select('*, categories(name)').single()
     setSaving(false)
     if (error) { alert('บันทึกไม่ได้: ' + error.message); return }
+    fetch('/api/pos-data/invalidate?key=products', { method: 'POST' }).catch(() => {})
     onSaved(data)
   }
 
