@@ -61,7 +61,9 @@ export default function RootLayout({ children }) {
     <html lang="th" className={kanit.variable}>
       <Script id="chunk-guard" strategy="beforeInteractive">{`
         (function(){
-          function hardReload(){var u=new URL(location.href);u.searchParams.set('_r',Date.now());location.replace(u);}
+          if(new URL(location.href).searchParams.has('_r'))return;
+          var fired=false;
+          function hardReload(){if(fired)return;fired=true;var u=new URL(location.href);u.searchParams.set('_r',Date.now());location.replace(u);}
           window.addEventListener('error',function(e){
             if(e.target&&e.target!==window){var s=e.target.src||e.target.href||'';if(s.indexOf('/_next/static/')>-1)hardReload();}
           },true);
