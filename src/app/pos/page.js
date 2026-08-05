@@ -2916,11 +2916,13 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
   const [expWages, setExpWages]       = useState('')
   const [expAdvance, setExpAdvance]   = useState('')
   const [expOther, setExpOther]       = useState([]) // [{label, amount}]
+  const [manualTotal, setManualTotal] = useState('') // กรอกยอดรวมตรง (ถ้าไม่ต้องการแจกแจง)
   // ขอเปิดลิ้นชัก
   const [drawerReq, setDrawerReq]     = useState(null) // null|'sending'|'sent'|'error'
   const [recSessionId, setRecSessionId] = useState(null)
 
-  const totalCash    = DENOMS.reduce((s, d) => s + (parseFloat(qtys[d.v]) || 0) * d.v, 0)
+  const denomSum  = DENOMS.reduce((s, d) => s + (parseFloat(qtys[d.v]) || 0) * d.v, 0)
+  const totalCash = manualTotal !== '' ? (parseFloat(manualTotal) || 0) : denomSum
   const expSafeN     = parseFloat(expSafe)    || 0
   const expWagesN    = parseFloat(expWages)   || 0
   const expAdvanceN  = parseFloat(expAdvance) || 0
@@ -3039,7 +3041,7 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
   }
 
   async function openShift() {
-    if (totalCash === 0) return alert('กรุณากรอกจำนวนธนบัตร/เหรียญ')
+    if (totalCash === 0) return alert('กรุณากรอกยอดรวม หรือกรอกจำนวนธนบัตร/เหรียญ')
     setSaving(true)
     const { data, error } = await supabase.from('shifts')
       .insert({
@@ -3056,7 +3058,7 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
   }
 
   async function closeShift() {
-    if (totalCash === 0) return alert('กรุณากรอกจำนวนธนบัตร/เหรียญ')
+    if (totalCash === 0) return alert('กรุณากรอกยอดรวม หรือกรอกจำนวนธนบัตร/เหรียญ')
     setSaving(true)
     const expected = shiftSummary?.expected || 0
     const { error } = await supabase.from('shifts').update({
@@ -3154,18 +3156,34 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
             </div>
           )}
 
+          {/* ช่องกรอกยอดรวมเร็ว */}
+          <div className="rounded-2xl border-2 border-dashed border-slate-200 p-3 space-y-1.5">
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">กรอกยอดรวม (ไม่ต้องแจกแจง)</p>
+            <div className="flex items-center gap-2">
+              <span className="text-slate-500 font-semibold text-sm">฿</span>
+              <input
+                type="number" inputMode="decimal" min="0"
+                value={manualTotal}
+                onChange={e => { setManualTotal(e.target.value); setQtys(Object.fromEntries(DENOMS.map(d => [d.v, '']))) }}
+                placeholder="เช่น 1500"
+                className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-right text-xl font-bold tabular-nums focus:border-emerald-400 outline-none"
+              />
+            </div>
+            {manualTotal !== '' && <p className="text-xs text-slate-400 text-right">ยอดรวม = ฿{fmt(parseFloat(manualTotal)||0)} · หรือแจกแจงด้านล่างแทน</p>}
+          </div>
+
           {/* Denomination grid */}
           <div>
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">แบงค์</p>
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">แจกแจงธนบัตร/เหรียญ</p>
             <div className="space-y-1.5 mb-3">
               {DENOMS.filter(d => d.type === 'note').map(d => (
-                <DenomRow key={d.v} denom={d} qty={qtys[d.v]} onChange={val => setQtys(p => ({...p, [d.v]: val}))} />
+                <DenomRow key={d.v} denom={d} qty={qtys[d.v]} onChange={val => { setManualTotal(''); setQtys(p => ({...p, [d.v]: val})) }} />
               ))}
             </div>
             <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">เหรียญ</p>
             <div className="space-y-1.5">
               {DENOMS.filter(d => d.type === 'coin').map(d => (
-                <DenomRow key={d.v} denom={d} qty={qtys[d.v]} onChange={val => setQtys(p => ({...p, [d.v]: val}))} />
+                <DenomRow key={d.v} denom={d} qty={qtys[d.v]} onChange={val => { setManualTotal(''); setQtys(p => ({...p, [d.v]: val})) }} />
               ))}
             </div>
           </div>
