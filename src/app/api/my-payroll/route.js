@@ -29,7 +29,7 @@ export async function POST(req) {
     const prevDate   = new Date(year, month - 2, 1)
     const prevPeriod = prevDate.toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 7)
     const nextMonth  = month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, '0')}`
-    const startISO   = `${currentPeriod}-01T00:00:00.000+07:00`
+    const startISO   = `${currentPeriod}-01T00:00:00.000+07:00`   // +07:00 ถูกต้องสำหรับ timezone ไทย
     const endISO     = `${nextMonth}-01T00:00:00.000+07:00`
 
     const displayName = emp.nickname || emp.name
@@ -55,7 +55,7 @@ export async function POST(req) {
       supabase.from('employee_installments').select('*').eq('employee_id', emp.id).eq('active', true),
       supabase.from('payroll_settlements').select('*')
         .eq('employee_id', emp.id).eq('period', currentPeriod).maybeSingle(),
-      supabase.from('payroll_settlements').select('carry_forward_out')
+      supabase.from('payroll_settlements').select('carry_forward_out, carry_pay_out')
         .eq('employee_id', emp.id).eq('period', prevPeriod).maybeSingle(),
       supabase.from('employee_bonus').select('amount, note')
         .eq('employee_id', emp.id).eq('period', currentPeriod),
@@ -107,15 +107,20 @@ export async function POST(req) {
       else if (att.check_in) { daysWorked += 0.5; workDates.push({ date: att.date, factor: 0.5 }) }
     }
 
-    // Streak bonus
+    // Streak bonus — ใช้ algorithm เดียวกับ admin: วันครึ่งไม่ตัด streak แต่ไม่นับเป็นวันเต็ม
     let streakBonus = 0
-    const fullDays = workDates.filter(d => d.factor >= 1).sort((a, b) => a.date.localeCompare(b.date))
-    if (fullDays.length >= 10) {
-      let streak = 1
-      for (let i = 1; i < fullDays.length; i++) {
-        const diff = Math.round((new Date(fullDays[i].date) - new Date(fullDays[i-1].date)) / 86400000)
-        if (diff === 1) { streak++; if (streak % 10 === 0) streakBonus += 200 }
-        else streak = 1
+    const allDaysSorted = workDates.slice().sort((a, b) => a.date.localeCompare(b.date))
+    if (allDaysSorted.filter(d => d.factor >= 1).length >= 10) {
+      let fullCount = allDaysSorted[0]?.factor >= 1 ? 1 : 0
+      for (let i = 1; i < allDaysSorted.length; i++) {
+        const prev = new Date(allDaysSorted[i - 1].date)
+        const curr = new Date(allDaysSorted[i].date)
+        const diff = Math.round((curr - prev) / 86400000)
+        if (diff === 1) {
+          if (allDaysSorted[i].factor >= 1) { fullCount++; if (fullCount % 10 === 0) streakBonus += 200 }
+        } else {
+          fullCount = allDaysSorted[i].factor >= 1 ? 1 : 0
+        }
       }
     }
 
@@ -123,6 +128,7 @@ export async function POST(req) {
     const commission = Math.round(laborTotal * commPct)
 
     const carryForwardIn = prevSettlement ? Number(prevSettlement.carry_forward_out) : 0
+    const carryPayIn     = prevSettlement ? Number(prevSettlement.carry_pay_out || 0) : 0
 
     const installmentDetail = (installments || []).map(inst => {
       const remaining = inst.total_days - inst.paid_days
@@ -143,7 +149,7 @@ export async function POST(req) {
     const manualBonus  = (bonuses || []).reduce((s, b) => s + Number(b.amount), 0)
     const dailyRate    = Number(emp.daily_rate || 0)
     const grossPay     = daysWorked * dailyRate
-    const totalEarned  = grossPay + streakBonus + commission + manualBonus
+    const totalEarned  = grossPay + streakBonus + commission + manualBonus + carryPayIn
     const totalWithdrawn = (advances || []).reduce((s, a) => s + Number(a.amount), 0)
     const netPayDue    = totalEarned - totalWithdrawn - installmentDeduct - carryForwardIn
 

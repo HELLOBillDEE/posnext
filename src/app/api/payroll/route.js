@@ -22,8 +22,9 @@ export async function GET(req) {
     const prevDate  = new Date(year, month - 2, 1)
     const prevPeriod = prevDate.toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 7)
 
-    const startISO = new Date(year, month - 1, 1).toISOString()
-    const endISO   = new Date(year, month, 1).toISOString()
+    const nextMonth = month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, '0')}`
+    const startISO  = `${period}-01T00:00:00.000+07:00`
+    const endISO    = `${nextMonth}-01T00:00:00.000+07:00`
 
     const [
       { data: employees },
