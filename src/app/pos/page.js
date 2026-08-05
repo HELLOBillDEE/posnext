@@ -87,7 +87,7 @@ const PRICE_TIERS = [
 ]
 
 export default function POSPage() {
-  const { empMode } = useAuth() || {}
+  const { user, empMode } = useAuth() || {}
   const [products, setProducts]     = useState([])
   const [categories, setCategories] = useState([])
   const [settings, setSettings]     = useState({})
@@ -1088,6 +1088,13 @@ export default function POSPage() {
       setVisibleCount(n => Math.min(n + 40, filtered.length))
     }
   }
+
+  if (user === undefined) return (
+    <div className="flex flex-col items-center justify-center h-[100dvh] bg-gray-100 gap-3">
+      <div className="w-10 h-10 border-4 border-red-200 border-t-red-600 rounded-full animate-spin" />
+      <p className="text-sm text-slate-400 font-medium">กำลังโหลด...</p>
+    </div>
+  )
 
   return (
     <div className="flex flex-col h-[100dvh] bg-gray-100 overflow-hidden">

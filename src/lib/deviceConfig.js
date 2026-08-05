@@ -22,9 +22,18 @@ export function getDeviceConfig() {
   if (typeof window === 'undefined') return {}
   try {
     const fromLS = JSON.parse(localStorage.getItem(KEY) || '{}')
-    if (fromLS.terminal_id) return fromLS
+    if (fromLS.terminal_id) {
+      // auto-migrate to cookie so PWA can read it next time
+      writeCookie(fromLS)
+      return fromLS
+    }
     // localStorage empty (PWA context) → fall back to cookie
-    return readCookie()
+    const fromCookie = readCookie()
+    if (fromCookie.terminal_id) {
+      // restore to localStorage for this session
+      try { localStorage.setItem(KEY, JSON.stringify(fromCookie)) } catch {}
+    }
+    return fromCookie
   } catch { return readCookie() }
 }
 
