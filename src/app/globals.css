@@ -14,6 +14,9 @@
 @media (min-width: 768px) {
   .nav-main { margin-left: var(--nav-w); transition: margin-left 0.25s ease; }
 }
+@media (max-width: 767px) {
+  .nav-main { width: 100vw !important; }
+}
 
 html { -webkit-text-size-adjust: 100%; }
 

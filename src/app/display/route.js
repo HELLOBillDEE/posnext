@@ -162,7 +162,7 @@ function setupPlaylist(items){
   if(plItem){
     if(v)v.style.display='none'
     if(f){
-      _ytBaseSrc='https://www.youtube.com/embed?listType=playlist&list='+plItem.listId+'&autoplay=1&loop=1&controls=0&rel=0&modestbranding=1'
+      _ytBaseSrc='https://www.youtube.com/embed?listType=playlist&list='+plItem.listId+'&autoplay=1&controls=0&rel=0&modestbranding=1'
       f.src=ytSrc(_ytBaseSrc);f.style.display='block'
     }
     showMuteBtn(true);return
