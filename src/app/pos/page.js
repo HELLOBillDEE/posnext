@@ -341,7 +341,7 @@ export default function POSPage() {
         if (tid) shiftQ.eq('terminal_id', tid)
         const { data: openShift } = await shiftQ.maybeSingle()
         setShift(openShift || null)
-        const { data: quotes } = await supabase.from('quotations').select('*').eq('status','pending').order('created_at',{ascending:false})
+        const { data: quotes } = await supabase.from('quotations').select('id,doc_no,doc_type,created_at,customer_name,customer_phone,customer_id,total,items,delivery_fee,discount,note,repair_order_id,status').eq('status','pending').order('created_at',{ascending:false})
         setPendingQuotes(quotes || [])
         return
       }
@@ -374,7 +374,7 @@ export default function POSPage() {
     if (tid) shiftQ.eq('terminal_id', tid)
     const { data: openShift } = await shiftQ.maybeSingle()
     setShift(openShift || null)
-    const { data: quotes } = await supabase.from('quotations').select('*').eq('status','pending').order('created_at',{ascending:false})
+    const { data: quotes } = await supabase.from('quotations').select('id,doc_no,doc_type,created_at,customer_name,customer_phone,customer_id,total,items,delivery_fee,discount,note,repair_order_id,status').eq('status','pending').order('created_at',{ascending:false})
     setPendingQuotes(quotes || [])
   }
 
