@@ -13,8 +13,9 @@ export async function POST(req) {
     const { employee_id, password, period } = await req.json()
     if (!employee_id || !password) return Response.json({ error: 'ข้อมูลไม่ครบ' }, { status: 400 })
 
+    // ตรวจสอบรหัสผ่าน
     const { data: emp } = await supabase.from('employees')
-      .select('id, name, nickname, position, daily_rate, repair_commission_pct')
+      .select('id, name, nickname, position')
       .eq('id', employee_id).eq('active', true).eq('password', password.trim())
       .maybeSingle()
 
@@ -22,158 +23,38 @@ export async function POST(req) {
 
     const currentPeriod = period || new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 7)
     const [year, month] = currentPeriod.split('-').map(Number)
-    const dateFrom = `${currentPeriod}-01`
-    const lastDay  = new Date(year, month, 0).getDate()
-    const dateTo   = `${currentPeriod}-${String(lastDay).padStart(2, '0')}`
 
-    const prevDate   = new Date(year, month - 2, 1)
-    const prevPeriod = prevDate.toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 7)
-    const nextMonth  = month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, '0')}`
-    const startISO   = `${currentPeriod}-01T00:00:00.000+07:00`   // +07:00 ถูกต้องสำหรับ timezone ไทย
-    const endISO     = `${nextMonth}-01T00:00:00.000+07:00`
+    // ใช้ /api/payroll เดิม — รับประกันสูตรเดียวกันกับ admin
+    const { origin } = new URL(req.url)
+    const payrollRes = await fetch(`${origin}/api/payroll?period=${currentPeriod}`)
+    if (!payrollRes.ok) throw new Error('payroll API error')
+    const payrollData = await payrollRes.json()
 
-    const displayName = emp.nickname || emp.name
-
-    const [
-      { data: attendance },
-      { data: leaves },
-      { data: advances },
-      { data: installments },
-      { data: settlement },
-      { data: prevSettlement },
-      { data: bonuses },
-      { data: salesInPeriod },
-    ] = await Promise.all([
-      supabase.from('attendance').select('date, check_in, check_out')
-        .eq('employee_id', emp.id).gte('date', dateFrom).lte('date', dateTo),
-      supabase.from('leave_requests').select('date_from, date_to, leave_period, status')
-        .eq('employee_id', emp.id).in('status', ['approved'])
-        .lte('date_from', dateTo).gte('date_to', dateFrom),
-      supabase.from('salary_advances').select('amount, status, requested_at, note')
-        .eq('employee_id', emp.id).in('status', ['approved'])
-        .gte('requested_at', dateFrom + 'T00:00:00').lte('requested_at', dateTo + 'T23:59:59'),
-      supabase.from('employee_installments').select('*').eq('employee_id', emp.id).eq('active', true),
-      supabase.from('payroll_settlements').select('*')
-        .eq('employee_id', emp.id).eq('period', currentPeriod).maybeSingle(),
-      supabase.from('payroll_settlements').select('carry_forward_out, carry_pay_out')
-        .eq('employee_id', emp.id).eq('period', prevPeriod).maybeSingle(),
-      supabase.from('employee_bonus').select('amount, note')
-        .eq('employee_id', emp.id).eq('period', currentPeriod),
-      supabase.from('sales').select('id')
-        .gte('created_at', startISO).lt('created_at', endISO).neq('status', 'voided'),
-    ])
-
-    // ดึงค่าคอมซ่อม: repair_orders→quotations (labor items) + sale_items ค่าซ่อม
-    let laborTotal = 0
-    const saleIds = (salesInPeriod || []).map(s => s.id)
-    if (saleIds.length) {
-      const [{ data: repairOrders }, { data: posRepairItems }] = await Promise.all([
-        supabase.from('repair_orders').select('id, sale_id').in('sale_id', saleIds),
-        supabase.from('sale_items').select('price, qty, technician_names')
-          .in('sale_id', saleIds).ilike('product_name', '%ค่าซ่อม%')
-          .or(`technician_name.eq.${displayName},technician_names.cs.["${displayName}"]`)
-          .not('technician_name', 'is', null),
-      ])
-      // quotations labor items ที่ tag empId
-      const repairIds = (repairOrders || []).map(r => r.id)
-      if (repairIds.length) {
-        const { data: quotations } = await supabase.from('quotations')
-          .select('repair_order_id, items').in('repair_order_id', repairIds)
-        ;(quotations || []).forEach(q => {
-          ;(Array.isArray(q.items) ? q.items : []).forEach(item => {
-            if (!item.is_labor || item.tech_id !== emp.id) return
-            laborTotal += (parseFloat(item.price) || 0) * (parseFloat(item.qty) || 1)
-          })
-        })
-      }
-      // sale_items ค่าซ่อม — หารตามจำนวนช่างที่ tag
-      ;(posRepairItems || []).forEach(si => {
-        const names = Array.isArray(si.technician_names) && si.technician_names.length
-          ? si.technician_names : [displayName]
-        const share = ((parseFloat(si.price) || 0) * (parseFloat(si.qty) || 1)) / names.length
-        laborTotal += share
-      })
-    }
-
-    // คำนวณวันทำงาน
-    let daysWorked = 0
-    const workDates = []
-    for (const att of (attendance || [])) {
-      const full = (leaves || []).find(l => l.date_from <= att.date && l.date_to >= att.date && l.leave_period === 'full')
-      const half = (leaves || []).find(l => l.date_from <= att.date && l.date_to >= att.date && (l.leave_period === 'morning' || l.leave_period === 'afternoon'))
-      if (full) continue
-      if (half) { daysWorked += 0.5; workDates.push({ date: att.date, factor: 0.5 }) }
-      else if (att.check_in && att.check_out) { daysWorked += 1; workDates.push({ date: att.date, factor: 1 }) }
-      else if (att.check_in) { daysWorked += 0.5; workDates.push({ date: att.date, factor: 0.5 }) }
-    }
-
-    // Streak bonus — ใช้ algorithm เดียวกับ admin: วันครึ่งไม่ตัด streak แต่ไม่นับเป็นวันเต็ม
-    let streakBonus = 0
-    const allDaysSorted = workDates.slice().sort((a, b) => a.date.localeCompare(b.date))
-    if (allDaysSorted.filter(d => d.factor >= 1).length >= 10) {
-      let fullCount = allDaysSorted[0]?.factor >= 1 ? 1 : 0
-      for (let i = 1; i < allDaysSorted.length; i++) {
-        const prev = new Date(allDaysSorted[i - 1].date)
-        const curr = new Date(allDaysSorted[i].date)
-        const diff = Math.round((curr - prev) / 86400000)
-        if (diff === 1) {
-          if (allDaysSorted[i].factor >= 1) { fullCount++; if (fullCount % 10 === 0) streakBonus += 200 }
-        } else {
-          fullCount = allDaysSorted[i].factor >= 1 ? 1 : 0
-        }
-      }
-    }
-
-    const commPct    = Number(emp.repair_commission_pct || 0) / 100
-    const commission = Math.round(laborTotal * commPct)
-
-    const carryForwardIn = prevSettlement ? Number(prevSettlement.carry_forward_out) : 0
-    const carryPayIn     = prevSettlement ? Number(prevSettlement.carry_pay_out || 0) : 0
-
-    const installmentDetail = (installments || []).map(inst => {
-      const remaining = inst.total_days - inst.paid_days
-      if (remaining <= 0) return { ...inst, thisMonth: 0, remaining: 0, deductAmount: 0 }
-      // ยังไม่ถึงเดือนที่กำหนดเริ่มผ่อน
-      if (inst.start_date && inst.start_date.slice(0, 7) > currentPeriod)
-        return { ...inst, thisMonth: 0, deductAmount: 0, remaining, notStarted: true }
-      // ถ้า start_date อยู่ในเดือนนี้ นับเฉพาะวันทำงานตั้งแต่ start_date
-      let eligibleDays = daysWorked
-      if (inst.start_date && inst.start_date.slice(0, 7) === currentPeriod) {
-        eligibleDays = workDates.filter(d => d.date >= inst.start_date && d.factor >= 1).length
-      }
-      const daysToDeduct = Math.min(Math.floor(eligibleDays), remaining)
-      return { ...inst, thisMonth: daysToDeduct, deductAmount: daysToDeduct * Number(inst.amount_per_day), remaining }
-    })
-    const installmentDeduct = installmentDetail.reduce((s, i) => s + (i.deductAmount || 0), 0)
-
-    const manualBonus  = (bonuses || []).reduce((s, b) => s + Number(b.amount), 0)
-    const dailyRate    = Number(emp.daily_rate || 0)
-    const grossPay     = daysWorked * dailyRate
-    const totalEarned  = grossPay + streakBonus + commission + manualBonus + carryPayIn
-    const totalWithdrawn = (advances || []).reduce((s, a) => s + Number(a.amount), 0)
-    const netPayDue    = totalEarned - totalWithdrawn - installmentDeduct - carryForwardIn
+    const empData = (payrollData.employees || []).find(e => e.id === employee_id)
+    if (!empData) return Response.json({ error: 'ไม่พบข้อมูลพนักงาน' }, { status: 404 })
 
     return Response.json({
       period: currentPeriod,
       monthLabel: `${MONTH_TH[month - 1]} ${year + 543}`,
-      employee: emp,
-      daysWorked,
-      daily_rate: dailyRate,
-      grossPay,
-      streakBonus,
-      commission,
-      manualBonus,
-      bonusDetail: bonuses || [],
-      carryPayIn,
-      totalEarned,
-      totalWithdrawn,
-      installmentDeduct,
-      installmentDetail,
-      carryForwardIn,
-      netPayDue,
-      advances: advances || [],
-      laborTotal,
-      settled: settlement || null,
+      employee: { id: emp.id, name: emp.name, nickname: emp.nickname, position: emp.position,
+                  daily_rate: empData.daily_rate, repair_commission_pct: empData.repair_commission_pct },
+      daysWorked:       empData.daysWorked,
+      daily_rate:       empData.daily_rate,
+      grossPay:         empData.grossPay,
+      streakBonus:      empData.streakBonus,
+      commission:       empData.commission,
+      manualBonus:      empData.manualBonus,
+      bonusDetail:      empData.bonusDetail || [],
+      carryPayIn:       empData.carryPayIn || 0,
+      totalEarned:      empData.totalEarned,
+      totalWithdrawn:   empData.totalWithdrawn,
+      installmentDeduct: empData.installmentDeduct,
+      installmentDetail: empData.installmentDetail || [],
+      carryForwardIn:   empData.carryForwardIn,
+      netPayDue:        empData.netPayDue,
+      advances:         empData.advances || [],
+      laborTotal:       empData.laborTotal || 0,
+      settled:          empData.settled || null,
     })
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 })
