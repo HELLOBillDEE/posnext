@@ -61,6 +61,7 @@ export default function RootLayout({ children }) {
     <html lang="th" className={kanit.variable}>
       <Script id="chunk-guard" strategy="beforeInteractive">{`
         (function(){
+          if(window.navigator.standalone||window.matchMedia('(display-mode:standalone)').matches)return;
           if(new URL(location.href).searchParams.has('_r'))return;
           var fired=false;
           function hardReload(){if(fired)return;fired=true;var u=new URL(location.href);u.searchParams.set('_r',Date.now());location.replace(u);}
