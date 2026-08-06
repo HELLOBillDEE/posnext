@@ -62,19 +62,25 @@ export default function AuthProvider({ children }) {
       })
       .catch(() => { clearTimeout(timeout); setUser(null) })
 
-    // debounce null state 2 วิ — ป้องกัน redirect วนตอน token refresh ชั่วคราว
-    let nullTimer = null
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
-        clearTimeout(nullTimer)
         setUser(session.user)
         setAuthCookie(session.access_token)
-      } else {
-        clearAuthCookie()
-        nullTimer = setTimeout(() => setUser(null), isPWA ? 2000 : 0)
+      } else if (event === 'SIGNED_OUT') {
+        // SIGNED_OUT = user กด logout จริงๆ หรือ refresh token หมดอายุจริง
+        // ใน PWA ให้ recheck session ก่อน ป้องกัน transient null ระหว่าง token refresh
+        if (isPWA) {
+          supabase.auth.getSession().then(({ data: { session: s } }) => {
+            if (s?.user) { setUser(s.user); setAuthCookie(s.access_token) }
+            else { clearAuthCookie(); setUser(null) }
+          }).catch(() => { clearAuthCookie(); setUser(null) })
+        } else {
+          clearAuthCookie(); setUser(null)
+        }
       }
+      // null events ที่ไม่ใช่ SIGNED_OUT (เช่น token refresh intermediate) → ไม่ทำอะไร
     })
-    return () => { subscription.unsubscribe(); clearTimeout(nullTimer) }
+    return () => subscription.unsubscribe()
   }, [])
 
   // Load employee session from localStorage and sync cookie
