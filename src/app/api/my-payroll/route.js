@@ -164,6 +164,7 @@ export async function POST(req) {
       commission,
       manualBonus,
       bonusDetail: bonuses || [],
+      carryPayIn,
       totalEarned,
       totalWithdrawn,
       installmentDeduct,

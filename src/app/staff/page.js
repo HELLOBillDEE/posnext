@@ -511,6 +511,7 @@ export default function StaffPage() {
 ${sd.streakBonus > 0 ? `<div class="row"><span>โบนัส 10 วันติด</span><span class="earn">+฿${fmtN(sd.streakBonus)}</span></div>` : ''}
 ${(sd.bonusDetail || []).map(b => `<div class="row"><span>${b.note || 'โบนัสพิเศษ'}</span><span class="earn">+฿${fmtN(b.amount)}</span></div>`).join('')}
 ${sd.commission > 0 ? `<div class="row"><span>ค่าคอม</span><span class="earn">+฿${fmtN(sd.commission)}</span></div>` : ''}
+${(sd.carryPayIn || 0) > 0 ? `<div class="row"><span>ค้างจ่ายจากเดือนก่อน</span><span class="earn">+฿${fmtN(sd.carryPayIn)}</span></div>` : ''}
 <div class="row"><span>รวมรายได้</span><span class="earn">฿${fmtN(sd.totalEarned)}</span></div>
 <div style="height:6px"></div>
 ${sd.totalWithdrawn > 0 ? `<div class="row"><span>เบิกไปแล้ว</span><span class="deduct">-฿${fmtN(sd.totalWithdrawn)}</span></div>` : ''}
@@ -1030,6 +1031,12 @@ ${sd.carryForwardIn > 0 ? `<div class="row"><span>ทบจากเดือน
                     <div className="flex justify-between text-slate-600">
                       <span>ค่าคอม</span>
                       <span className="text-emerald-600">+฿{fmtMoney(salaryData.commission)}</span>
+                    </div>
+                  )}
+                  {(salaryData.carryPayIn || 0) > 0 && (
+                    <div className="flex justify-between text-slate-600">
+                      <span>ค้างจ่ายจากเดือนก่อน</span>
+                      <span className="text-emerald-600">+฿{fmtMoney(salaryData.carryPayIn)}</span>
                     </div>
                   )}
                   <div className="flex justify-between font-semibold text-slate-700 border-t border-dashed pt-2">
