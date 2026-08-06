@@ -7,6 +7,8 @@ function isChunkError(msg) {
 }
 
 function hardReload() {
+  // ถ้า reload ไปแล้วครั้งหนึ่ง (_r มีอยู่แล้ว) → หยุด ไม่วนซ้ำ
+  if (new URL(window.location.href).searchParams.has('_r')) return
   const url = new URL(window.location.href)
   url.searchParams.set('_r', Date.now())
   window.location.replace(url.toString())
@@ -14,11 +16,12 @@ function hardReload() {
 
 export default function ChunkErrorHandler() {
   useEffect(() => {
+    let fired = false
     function onError(e) {
-      if (isChunkError(e?.message)) hardReload()
+      if (!fired && isChunkError(e?.message)) { fired = true; hardReload() }
     }
     function onUnhandled(e) {
-      if (isChunkError(e?.reason?.message)) hardReload()
+      if (!fired && isChunkError(e?.reason?.message)) { fired = true; hardReload() }
     }
     window.addEventListener('error', onError)
     window.addEventListener('unhandledrejection', onUnhandled)
