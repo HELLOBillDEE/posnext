@@ -3,7 +3,8 @@ import { useEffect } from 'react'
 
 function isChunkError(msg) {
   if (!msg) return false
-  return msg.includes('Loading chunk') || msg.includes('ChunkLoadError') || msg.includes('Load failed')
+  // "Load failed" เจตนาเอาไว้จับ chunk fail แต่บน iOS มัน match ทุก network error → เอาออก
+  return msg.includes('Loading chunk') || msg.includes('ChunkLoadError')
 }
 
 function hardReload() {
