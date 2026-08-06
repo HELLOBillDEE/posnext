@@ -44,11 +44,15 @@ export default function AuthProvider({ children }) {
 
   // Load Supabase auth
   useEffect(() => {
+    const isPWA = typeof window !== 'undefined' &&
+      (window.navigator.standalone || window.matchMedia('(display-mode:standalone)').matches)
+
     // อ่าน session จาก localStorage ทันที (ไม่รอ network)
     const cached = getStoredUser()
     if (cached !== undefined) setUser(cached)
 
-    const timeout = setTimeout(() => setUser(u => u === undefined ? null : u), 5000)
+    // PWA ใช้เวลา network นานกว่า — ให้ 15 วิก่อน fallback null
+    const timeout = setTimeout(() => setUser(u => u === undefined ? null : u), isPWA ? 15000 : 5000)
 
     supabase.auth.getSession()
       .then(({ data: { session } }) => {
@@ -58,12 +62,19 @@ export default function AuthProvider({ children }) {
       })
       .catch(() => { clearTimeout(timeout); setUser(null) })
 
+    // debounce null state 2 วิ — ป้องกัน redirect วนตอน token refresh ชั่วคราว
+    let nullTimer = null
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
-      setUser(session?.user ?? null)
-      if (session?.access_token) setAuthCookie(session.access_token)
-      else clearAuthCookie()
+      if (session?.user) {
+        clearTimeout(nullTimer)
+        setUser(session.user)
+        setAuthCookie(session.access_token)
+      } else {
+        clearAuthCookie()
+        nullTimer = setTimeout(() => setUser(null), isPWA ? 2000 : 0)
+      }
     })
-    return () => subscription.unsubscribe()
+    return () => { subscription.unsubscribe(); clearTimeout(nullTimer) }
   }, [])
 
   // Load employee session from localStorage and sync cookie

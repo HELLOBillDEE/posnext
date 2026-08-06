@@ -143,9 +143,11 @@ export default function POSPage() {
   const [hidDevice, setHidDevice]   = useState(null)
   const [hidError, setHidError]     = useState('')
   const [quickAdd, setQuickAdd]     = useState(null) // scanned barcode string | null
-  const inputRef      = useRef(null)
-  const scannerRef    = useRef(null)
-  const textSearchRef = useRef(null)
+  const inputRef        = useRef(null)
+  const scannerRef      = useRef(null)
+  const textSearchRef   = useRef(null)
+  const deviceInputRef  = useRef(null)
+  const showSetupRef    = useRef(false)
   const hidBuffer  = useRef('')
   const hidTimer   = useRef(null)
   const physBuf    = useRef({ chars: '', t0: 0 })
@@ -157,6 +159,10 @@ export default function POSPage() {
   const paidUntilRef = useRef(0) // suppress auto-broadcast during paid screen
   useEffect(() => { productsRef.current = products }, [products])
   useEffect(() => { showPayRef.current  = showPay  }, [showPay])
+  useEffect(() => {
+    showSetupRef.current = showDeviceSetup
+    if (showDeviceSetup) setTimeout(() => deviceInputRef.current?.focus(), 300)
+  }, [showDeviceSetup])
 
   useEffect(() => { loadData() }, [])
 
@@ -1123,6 +1129,7 @@ export default function POSPage() {
           value={search}
           onChange={e => setSearch(e.target.value)}
           onBlur={() => setTimeout(() => {
+            if (showSetupRef.current) return
             const a = document.activeElement
             if (!a || a === document.body || a === document.documentElement) scannerRef.current?.focus()
           }, 500)}
@@ -1963,7 +1970,7 @@ export default function POSPage() {
               <p className="text-sm text-slate-500 mt-1">กำหนดชื่อ/รหัสเครื่อง POS เพื่อแยกกะและยอดการเงิน</p>
             </div>
             <input
-              autoFocus
+              ref={deviceInputRef}
               value={deviceNameInput}
               onChange={e => setDeviceNameInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') saveDeviceName() }}
