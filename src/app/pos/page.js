@@ -169,7 +169,13 @@ export default function POSPage() {
   useEffect(() => {
     const tid  = getTerminalId()
     const tnam = getTerminalName()
-    if (!tid) { setShowDeviceSetup(true); return }
+    if (!tid) {
+      // pre-fill ด้วย default ตาม device — ผู้ใช้แค่กด "บันทึก" ได้เลย ไม่ต้องพิมพ์
+      const isMobile = /iPad|iPhone|Android/i.test(navigator.userAgent)
+      setDeviceNameInput(isMobile ? 'iPad' : 'POS1')
+      setShowDeviceSetup(true)
+      return
+    }
     setTerminalId(tid); setTerminalName(tnam)
   }, [])
 
