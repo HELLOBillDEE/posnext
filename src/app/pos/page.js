@@ -170,9 +170,12 @@ export default function POSPage() {
     const tid  = getTerminalId()
     const tnam = getTerminalName()
     if (!tid) {
-      // pre-fill ด้วย default ตาม device — ผู้ใช้แค่กด "บันทึก" ได้เลย ไม่ต้องพิมพ์
+      // auto-save ทันที ก่อน show modal — ถ้า page reload ซ้ำก็ไม่ติดลูป
       const isMobile = /iPad|iPhone|Android/i.test(navigator.userAgent)
-      setDeviceNameInput(isMobile ? 'iPad' : 'POS1')
+      const defaultName = isMobile ? 'iPad' : 'POS1'
+      setDeviceConfig({ terminal_id: defaultName, terminal_name: defaultName })
+      setTerminalId(defaultName); setTerminalName(defaultName)
+      setDeviceNameInput(defaultName)
       setShowDeviceSetup(true)
       return
     }
