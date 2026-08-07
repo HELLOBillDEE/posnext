@@ -21,6 +21,9 @@ export async function GET(req) {
     // Previous period for carry-forward
     const prevDate  = new Date(year, month - 2, 1)
     const prevPeriod = prevDate.toLocaleDateString('sv-SE', { timeZone: 'Asia/Bangkok' }).slice(0, 7)
+    const lastDayPrev = new Date(prevDate.getFullYear(), prevDate.getMonth() + 1, 0).getDate()
+    const prevDateFrom = `${prevPeriod}-01`
+    const prevDateTo   = `${prevPeriod}-${String(lastDayPrev).padStart(2, '0')}`
 
     const nextMonth = month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, '0')}`
     const startISO  = `${period}-01T00:00:00.000+07:00`
@@ -29,6 +32,7 @@ export async function GET(req) {
     const [
       { data: employees },
       { data: attendance },
+      { data: prevAttendance },
       { data: leaves },
       { data: advances },
       { data: installments },
@@ -39,6 +43,7 @@ export async function GET(req) {
     ] = await Promise.all([
       supabase.from('employees').select('id, name, nickname, position, daily_rate, repair_commission_pct').eq('active', true).order('name'),
       supabase.from('attendance').select('employee_id, date, check_in, check_out').gte('date', dateFrom).lte('date', dateTo),
+      supabase.from('attendance').select('employee_id, date, check_in, check_out').gte('date', prevDateFrom).lte('date', prevDateTo),
       supabase.from('leave_requests').select('employee_id, date_from, date_to, leave_period, status').in('status', ['approved']).lte('date_from', dateTo).gte('date_to', dateFrom),
       supabase.from('salary_advances').select('employee_id, amount, status, requested_at').in('status', ['approved']).gte('requested_at', dateFrom + 'T00:00:00').lte('requested_at', dateTo + 'T23:59:59'),
       supabase.from('employee_installments').select('*').eq('active', true),
@@ -98,7 +103,8 @@ export async function GET(req) {
     })
 
     const result = (employees || []).map(emp => {
-      const empAtt   = (attendance || []).filter(a => a.employee_id === emp.id)
+      const empAtt     = (attendance || []).filter(a => a.employee_id === emp.id)
+      const empPrevAtt = (prevAttendance || []).filter(a => a.employee_id === emp.id)
       const empLeave = (leaves || []).filter(l => l.employee_id === emp.id)
       const empAdv   = (advances || []).filter(a => a.employee_id === emp.id)
       const empInst  = (installments || []).filter(i => i.employee_id === emp.id)
@@ -133,11 +139,15 @@ export async function GET(req) {
         }
       }
 
-      // Streak bonus 200 บาท ต่อทุก 10 วันเต็มติดต่อกัน
+      // Streak bonus 200 บาท ต่อทุก 10 วันเต็มติดต่อกัน (ข้ามเดือนได้)
       // วันลาครึ่งวัน (factor 0.5) ไม่ตัด streak แต่ไม่นับเป็นวันเต็ม
+      // จ่ายโบนัสเฉพาะ trigger ที่เกิดในเดือนนี้ (date >= dateFrom)
       let streakBonus = 0
-      const allDaysSorted = workDates.slice().sort((a, b) => a.date.localeCompare(b.date))
-      if (allDaysSorted.filter(d => d.factor >= 1).length >= 10) {
+      const prevWorkDates = empPrevAtt
+        .filter(a => a.check_in)
+        .map(a => ({ date: a.date, factor: a.check_in && a.check_out ? 1 : 0.5 }))
+      const allDaysSorted = [...prevWorkDates, ...workDates].sort((a, b) => a.date.localeCompare(b.date))
+      if (allDaysSorted.length > 0) {
         let fullCount = allDaysSorted[0]?.factor >= 1 ? 1 : 0
         for (let i = 1; i < allDaysSorted.length; i++) {
           const prev = new Date(allDaysSorted[i - 1].date)
@@ -146,7 +156,9 @@ export async function GET(req) {
           if (diff === 1) {
             if (allDaysSorted[i].factor >= 1) {
               fullCount++
-              if (fullCount % 10 === 0) streakBonus += 200
+              if (fullCount % 10 === 0 && allDaysSorted[i].date >= dateFrom) {
+                streakBonus += 200
+              }
             }
           } else {
             fullCount = allDaysSorted[i].factor >= 1 ? 1 : 0

@@ -1139,6 +1139,7 @@ export default function POSPage() {
           onChange={e => setSearch(e.target.value)}
           onBlur={() => setTimeout(() => {
             if (showSetupRef.current) return
+            if (window.navigator.standalone || window.matchMedia('(display-mode:standalone)').matches) return
             const a = document.activeElement
             if (!a || a === document.body || a === document.documentElement) scannerRef.current?.focus()
           }, 500)}
@@ -1252,6 +1253,7 @@ export default function POSPage() {
                 onChange={e => setSearch(e.target.value)}
                 onBlur={() => setTimeout(() => {
                   if (showSetupRef.current) return
+                  if (window.navigator.standalone || window.matchMedia('(display-mode:standalone)').matches) return
                   const a = document.activeElement
                   if (!a || a === document.body || a === document.documentElement) scannerRef.current?.focus()
                 }, 500)}
