@@ -1345,7 +1345,7 @@ export default function POSPage() {
               {pendingQuotes.length > 0 && (
                 <button onClick={() => setShowPendingQuotes(true)}
                   className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1.5 rounded-lg hover:bg-emerald-100 font-semibold transition-colors shrink-0">
-                  💳 {pendingQuotes.length}
+                  💳 รอชำระ {pendingQuotes.length}
                 </button>
               )}
               {queuedOrders.length > 0 && (
