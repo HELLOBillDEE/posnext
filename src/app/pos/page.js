@@ -472,9 +472,9 @@ export default function POSPage() {
       if (physChar) {
         const now = Date.now()
         physBuf.current = { chars: physBuf.current.chars + physChar, t0: physBuf.current.t0 || now }
-      } else if (e.code === 'Unidentified' && e.key && e.key.length === 1) {
-        // fallback สำหรับ Bluetooth scanner บน iOS ที่ e.code = 'Unidentified'
-        // ใช้ e.key แล้วแปลงภาษาไทย→อังกฤษ ด้วย convertThaiBarcode
+      } else if (e.key && e.key.length === 1) {
+        // fallback: iOS (e.code='Unidentified') + PC ภาษาไทย (e.code ไม่อยู่ใน PHYS)
+        // convertThaiBarcode แปลงตัวอักษรไทย→อังกฤษ ถ้าเป็น ASCII อยู่แล้วก็ผ่านตรง
         const now = Date.now()
         const ch = convertThaiBarcode(e.key)
         physBuf.current = { chars: physBuf.current.chars + ch, t0: physBuf.current.t0 || now }
@@ -1137,6 +1137,7 @@ export default function POSPage() {
         <input
           ref={inputRef}
           value={search}
+          lang="en"
           onChange={e => setSearch(e.target.value)}
           onBlur={() => setTimeout(() => {
             if (showSetupRef.current) return
