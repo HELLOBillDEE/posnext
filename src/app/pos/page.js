@@ -1988,7 +1988,7 @@ export default function POSPage() {
           onClick={e => e.target === e.currentTarget && setShowHeldModal(false)}>
           <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden fade-in">
             <div className="bg-[#0f1b14] text-white px-4 py-3.5 flex justify-between items-center">
-              <h2 className="font-heading font-bold text-base">📋 บิลที่พักไว้ ({heldSales.length})</h2>
+              <h2 className="font-heading font-bold text-base">📋 บิลที่พักไว้ ({heldSales.length}/{MAX_HELD})</h2>
               <button onClick={() => setShowHeldModal(false)} className="text-2xl leading-none opacity-70">×</button>
             </div>
             <div className="divide-y divide-slate-100 max-h-[70vh] overflow-y-auto">
