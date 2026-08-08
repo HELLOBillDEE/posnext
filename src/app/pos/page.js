@@ -1372,6 +1372,27 @@ export default function POSPage() {
               </>)}
             </div>
           </div>
+          {/* Held bill slots */}
+          {heldSales.length > 0 && (
+            <div className="flex gap-1.5 px-2 py-1.5 bg-amber-50 border-b border-amber-100 overflow-x-auto">
+              {heldSales.map((h, i) => {
+                const items = h.cart || h.items || []
+                const total = items.reduce((s, it) => s + it.price * it.qty - (it.disc || 0), 0)
+                return (
+                  <div key={h.id} className="relative flex-shrink-0">
+                    <button onClick={() => restoreHeld(h.id)}
+                      className="flex flex-col items-center bg-white border border-amber-300 rounded-xl px-2.5 py-1.5 hover:bg-amber-100 active:scale-95 transition-all text-left min-w-[52px]">
+                      <span className="text-[10px] font-bold text-amber-700">บิล {i + 1}</span>
+                      <span className="text-[9px] text-slate-500">{items.length} รายการ</span>
+                      <span className="text-[9px] font-semibold text-brand">฿{fmt(total)}</span>
+                    </button>
+                    <button onClick={() => { if (confirm('ลบบิลพักนี้?')) deleteHeld(h.id) }}
+                      className="absolute -top-1 -right-1 w-4 h-4 bg-red-400 text-white rounded-full text-[9px] leading-none flex items-center justify-center hover:bg-red-500">×</button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
           {/* Customer row */}
           <button onClick={() => setShowCustModal(true)}
             className="w-full px-4 py-2.5 flex items-center gap-2 bg-brand-50/60 border-b border-brand/10 hover:bg-brand-50 transition-colors text-left">
