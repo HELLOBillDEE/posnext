@@ -989,8 +989,14 @@ export default function POSPage() {
     } finally { setSaving(false) }
   }
 
+  const MAX_HELD = 5
+
   function holdSale() {
     if (cart.length === 0) return
+    if (heldSales.length >= MAX_HELD) {
+      alert(`พักบิลได้สูงสุด ${MAX_HELD} บิล\nกรุณาดึงบิลพักขึ้นมาก่อน`)
+      return
+    }
     const entry = {
       id: Date.now(),
       savedAt: new Date().toISOString(),
@@ -1337,8 +1343,8 @@ export default function POSPage() {
               )}
               {cart.length > 0 && (<>
                 <button onClick={holdSale}
-                  className="text-xs text-indigo-600 bg-indigo-50 border border-indigo-200 px-2.5 py-1.5 rounded-lg hover:bg-indigo-100 font-semibold transition-colors shrink-0">
-                  📌 พักบิล
+                  className={`text-xs px-2.5 py-1.5 rounded-lg font-semibold transition-colors shrink-0 border ${heldSales.length >= MAX_HELD ? 'text-slate-400 bg-slate-50 border-slate-200 cursor-not-allowed' : 'text-indigo-600 bg-indigo-50 border-indigo-200 hover:bg-indigo-100'}`}>
+                  📌 พักบิล{heldSales.length > 0 ? ` (${heldSales.length}/${MAX_HELD})` : ''}
                 </button>
                 <button onClick={() => { if (confirm('ล้างรายการทั้งหมด?')) setCart([]) }}
                   className="text-xs text-red-400 px-2.5 py-1.5 rounded-lg hover:bg-red-50 font-medium transition-colors shrink-0">ล้าง</button>
