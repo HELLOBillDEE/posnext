@@ -1012,16 +1012,37 @@ export default function POSPage() {
   function restoreHeld(id) {
     const entry = heldSales.find(h => h.id === id)
     if (!entry) return
-    if (cart.length > 0 && !confirm('รายการปัจจุบันจะถูกล้าง — ต้องการดึงบิลพักนี้ขึ้นมาใช่ไหม?')) return
+    const remaining = heldSales.filter(h => h.id !== id)
+
+    if (cart.length > 0) {
+      if (remaining.length >= MAX_HELD) {
+        // บิลพักเต็ม ถามก่อนล้าง
+        if (!confirm('บิลพักเต็มแล้ว — ต้องการล้างรายการปัจจุบันและดึงบิลนี้ขึ้นมาใช่ไหม?')) return
+        setHeldSales(remaining)
+        localStorage.setItem('held_sales', JSON.stringify(remaining))
+      } else {
+        // มีที่ว่าง → พักบิลปัจจุบันอัตโนมัติ แล้วดึงบิลที่เลือกขึ้นมา
+        const currentEntry = {
+          id: Date.now(),
+          savedAt: new Date().toISOString(),
+          cart, customer, billDiscount, billDiscMode, note, priceTier,
+        }
+        const updated = [...remaining, currentEntry]
+        setHeldSales(updated)
+        localStorage.setItem('held_sales', JSON.stringify(updated))
+      }
+    } else {
+      setHeldSales(remaining)
+      localStorage.setItem('held_sales', JSON.stringify(remaining))
+    }
+
     setCart(entry.cart || entry.items || [])
     setCustomer(entry.customer || null)
     setBillDiscount(entry.billDiscount || '')
     setBillDiscMode(entry.billDiscMode || 'baht')
     setNote(entry.note || '')
     setPriceTier(entry.priceTier || null)
-    const updated = heldSales.filter(h => h.id !== id)
-    setHeldSales(updated)
-    localStorage.setItem('held_sales', JSON.stringify(updated))
+    setPayAmount(''); setPayMode('single'); setPayMethod('cash'); setMixAmounts({ cash:'', transfer:'', credit:'' })
     setShowHeldModal(false)
   }
 
