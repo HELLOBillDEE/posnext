@@ -120,11 +120,12 @@ export default function POSPage() {
   const [pendingQuotes, setPendingQuotes]   = useState([])
   const [showPendingQuotes, setShowPendingQuotes] = useState(false)
   const [currentQuoteId, setCurrentQuoteId]     = useState(null)
-  const [heldSales, setHeldSales]       = useState(() => {
-    if (typeof window === 'undefined') return []
-    try { return JSON.parse(localStorage.getItem('held_sales') || '[]') } catch { return [] }
+  const BILL_SLOTS = 5
+  const [billSlots, setBillSlots] = useState(() => {
+    if (typeof window === 'undefined') return Array(5).fill(null)
+    try { return JSON.parse(localStorage.getItem('bill_slots') || 'null') || Array(5).fill(null) } catch { return Array(5).fill(null) }
   })
-  const [showHeldModal, setShowHeldModal] = useState(false)
+  const [activeSlot, setActiveSlot] = useState(0)
   const [queuedOrders, setQueuedOrders]   = useState([])
   const [showQueueModal, setShowQueueModal] = useState(false)
   const [shift, setShift]           = useState(null)   // current open shift
@@ -226,19 +227,22 @@ export default function POSPage() {
   }, [])
 
   async function takeQueuedOrder(order) {
-    const entry = {
-      id: Date.now(),
-      savedAt: new Date().toISOString(),
-      cart: (order.items || []).map(i => ({ ...i, disc: i.disc || 0, note: i.note || '' })),
-      note: order.note || '',
-      customer: null,
-      billDiscount: '',
-      priceTier: null,
-      fromEmp: order.created_by || '',
+    const newCart = (order.items || []).map(i => ({ ...i, disc: i.disc || 0, note: i.note || '' }))
+    const newSlots = [...billSlots]
+    // บันทึก slot ปัจจุบันถ้ามีของ
+    if (cart.length > 0 || customer || note) {
+      newSlots[activeSlot] = { cart, customer, billDiscount, billDiscMode, note, priceTier }
     }
-    const updated = [...heldSales, entry]
-    setHeldSales(updated)
-    localStorage.setItem('held_sales', JSON.stringify(updated))
+    // หา slot ว่างแรก (ไม่ใช่ active)
+    let target = newSlots.findIndex((s, i) => i !== activeSlot && !s)
+    if (target === -1) target = (activeSlot + 1) % BILL_SLOTS
+    setBillSlots(newSlots)
+    localStorage.setItem('bill_slots', JSON.stringify(newSlots))
+    setActiveSlot(target)
+    setCart(newCart)
+    setNote(order.note || '')
+    setCustomer(null); setBillDiscount(''); setBillDiscMode('baht'); setPriceTier(null)
+    setPayAmount(''); setPayMode('single'); setPayMethod('cash'); setMixAmounts({ cash:'', transfer:'', credit:'' })
     await supabase.from('pos_queued_orders').update({ status: 'taken', taken_at: new Date().toISOString() }).eq('id', order.id)
     setQueuedOrders(prev => prev.filter(o => o.id !== order.id))
   }
@@ -989,67 +993,36 @@ export default function POSPage() {
     } finally { setSaving(false) }
   }
 
-  const MAX_HELD = 5
-
-  function holdSale() {
-    if (cart.length === 0) return
-    if (heldSales.length >= MAX_HELD) {
-      alert(`พักบิลได้สูงสุด ${MAX_HELD} บิล\nกรุณาดึงบิลพักขึ้นมาก่อน`)
-      return
-    }
-    const entry = {
-      id: Date.now(),
-      savedAt: new Date().toISOString(),
-      cart, customer, billDiscount, billDiscMode, note, priceTier,
-    }
-    const updated = [...heldSales, entry]
-    setHeldSales(updated)
-    localStorage.setItem('held_sales', JSON.stringify(updated))
-    setCart([]); setCustomer(null); setBillDiscount(''); setNote(''); setPriceTier(null)
+  function switchBillTab(idx) {
+    if (idx === activeSlot) return
+    const newSlots = [...billSlots]
+    newSlots[activeSlot] = (cart.length > 0 || customer || billDiscount || note)
+      ? { cart, customer, billDiscount, billDiscMode, note, priceTier }
+      : null
+    const target = newSlots[idx] || {}
+    setBillSlots(newSlots)
+    localStorage.setItem('bill_slots', JSON.stringify(newSlots))
+    setActiveSlot(idx)
+    setCart(target.cart || [])
+    setCustomer(target.customer || null)
+    setBillDiscount(target.billDiscount || '')
+    setBillDiscMode(target.billDiscMode || 'baht')
+    setNote(target.note || '')
+    setPriceTier(target.priceTier || null)
     setPayAmount(''); setPayMode('single'); setPayMethod('cash'); setMixAmounts({ cash:'', transfer:'', credit:'' })
   }
 
-  function restoreHeld(id) {
-    const entry = heldSales.find(h => h.id === id)
-    if (!entry) return
-    const remaining = heldSales.filter(h => h.id !== id)
-
-    if (cart.length > 0) {
-      if (remaining.length >= MAX_HELD) {
-        // บิลพักเต็ม ถามก่อนล้าง
-        if (!confirm('บิลพักเต็มแล้ว — ต้องการล้างรายการปัจจุบันและดึงบิลนี้ขึ้นมาใช่ไหม?')) return
-        setHeldSales(remaining)
-        localStorage.setItem('held_sales', JSON.stringify(remaining))
-      } else {
-        // มีที่ว่าง → พักบิลปัจจุบันอัตโนมัติ แล้วดึงบิลที่เลือกขึ้นมา
-        const currentEntry = {
-          id: Date.now(),
-          savedAt: new Date().toISOString(),
-          cart, customer, billDiscount, billDiscMode, note, priceTier,
-        }
-        const updated = [...remaining, currentEntry]
-        setHeldSales(updated)
-        localStorage.setItem('held_sales', JSON.stringify(updated))
-      }
-    } else {
-      setHeldSales(remaining)
-      localStorage.setItem('held_sales', JSON.stringify(remaining))
+  function clearBillTab(idx) {
+    if (!confirm(`ล้างบิล ${idx + 1}?`)) return
+    const newSlots = [...billSlots]
+    newSlots[idx] = null
+    setBillSlots(newSlots)
+    localStorage.setItem('bill_slots', JSON.stringify(newSlots))
+    if (idx === activeSlot) {
+      setCart([]); setCustomer(null); setBillDiscount(''); setBillDiscMode('baht')
+      setNote(''); setPriceTier(null)
+      setPayAmount(''); setPayMode('single'); setPayMethod('cash'); setMixAmounts({ cash:'', transfer:'', credit:'' })
     }
-
-    setCart(entry.cart || entry.items || [])
-    setCustomer(entry.customer || null)
-    setBillDiscount(entry.billDiscount || '')
-    setBillDiscMode(entry.billDiscMode || 'baht')
-    setNote(entry.note || '')
-    setPriceTier(entry.priceTier || null)
-    setPayAmount(''); setPayMode('single'); setPayMethod('cash'); setMixAmounts({ cash:'', transfer:'', credit:'' })
-    setShowHeldModal(false)
-  }
-
-  function deleteHeld(id) {
-    const updated = heldSales.filter(h => h.id !== id)
-    setHeldSales(updated)
-    localStorage.setItem('held_sales', JSON.stringify(updated))
   }
 
   function loadQuote(q) {
@@ -1336,72 +1309,58 @@ export default function POSPage() {
 
         {/* ── Cart panel ── */}
         <div className="w-[220px] md:w-[260px] flex flex-col bg-white border-l border-gray-200 flex-shrink-0 shadow-xl">
+          {/* Bill tabs */}
+          <div className="flex border-b border-gray-200 bg-gray-50">
+            {Array.from({ length: BILL_SLOTS }, (_, i) => {
+              const isActive = i === activeSlot
+              const slotCart = isActive ? cart : (billSlots[i]?.cart || [])
+              const count = slotCart.length
+              const total = slotCart.reduce((s, it) => s + it.price * it.qty - (it.disc || 0), 0)
+              return (
+                <div key={i} className="relative flex-1">
+                  <button onClick={() => switchBillTab(i)}
+                    className={`w-full py-1.5 text-center transition-colors ${isActive ? 'bg-white border-b-2 border-brand' : 'hover:bg-gray-100 border-b-2 border-transparent'}`}>
+                    <div className={`text-[10px] font-bold leading-tight ${isActive ? 'text-brand' : count > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
+                      บิล {i + 1}
+                    </div>
+                    <div className={`text-[9px] leading-tight ${isActive ? 'text-slate-500' : 'text-amber-500'}`}>
+                      {count > 0 ? `฿${fmt(total)}` : '—'}
+                    </div>
+                  </button>
+                  {count > 0 && !isActive && (
+                    <button onClick={e => { e.stopPropagation(); clearBillTab(i) }}
+                      className="absolute top-0 right-0 w-3.5 h-3.5 bg-red-400 text-white rounded-full text-[8px] leading-none flex items-center justify-center hover:bg-red-500 z-10">×</button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
           {/* Cart header */}
-          <div className="px-4 py-3 border-b border-gray-100 flex justify-between items-center bg-gray-50 gap-2">
-            <span className="font-bold text-base text-slate-700 shrink-0">
+          <div className="px-3 py-2 border-b border-gray-100 flex justify-between items-center bg-gray-50 gap-1.5">
+            <span className="font-bold text-sm text-slate-700 shrink-0">
               รายการสั่ง
-              {cart.length > 0 && <span className="ml-2 bg-brand text-white text-xs font-bold px-2 py-0.5 rounded-full">{cart.length}</span>}
+              {cart.length > 0 && <span className="ml-1.5 bg-brand text-white text-xs font-bold px-1.5 py-0.5 rounded-full">{cart.length}</span>}
             </span>
             <div className="flex items-center gap-1.5">
               {pendingQuotes.length > 0 && (
                 <button onClick={() => setShowPendingQuotes(true)}
-                  className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1.5 rounded-lg hover:bg-emerald-100 font-semibold transition-colors shrink-0">
-                  💳 รอชำระ {pendingQuotes.length}
+                  className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1.5 rounded-lg hover:bg-emerald-100 font-semibold transition-colors shrink-0">
+                  💳 {pendingQuotes.length}
                 </button>
               )}
               {queuedOrders.length > 0 && (
                 <button onClick={() => setShowQueueModal(true)}
-                  className="text-xs text-purple-600 bg-purple-50 border border-purple-200 px-2.5 py-1.5 rounded-lg hover:bg-purple-100 font-semibold transition-colors shrink-0 relative">
+                  className="text-xs text-purple-600 bg-purple-50 border border-purple-200 px-2 py-1.5 rounded-lg hover:bg-purple-100 font-semibold transition-colors shrink-0 relative">
                   📲 {queuedOrders.length}
                   <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse" />
                 </button>
               )}
-            {heldSales.length > 0 && (
-                <button onClick={() => setShowHeldModal(true)}
-                  className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-2.5 py-1.5 rounded-lg hover:bg-amber-100 font-semibold transition-colors shrink-0">
-                  📋 พัก {heldSales.length}
-                </button>
+              {cart.length > 0 && (
+                <button onClick={() => { if (confirm('ล้างรายการทั้งหมด?')) clearBillTab(activeSlot) }}
+                  className="text-xs text-red-400 px-2 py-1.5 rounded-lg hover:bg-red-50 font-medium transition-colors shrink-0">ล้าง</button>
               )}
-              {cart.length > 0 && (<>
-                <button onClick={holdSale}
-                  className={`text-xs px-2.5 py-1.5 rounded-lg font-semibold transition-colors shrink-0 border ${heldSales.length >= MAX_HELD ? 'text-slate-400 bg-slate-50 border-slate-200 cursor-not-allowed' : 'text-indigo-600 bg-indigo-50 border-indigo-200 hover:bg-indigo-100'}`}>
-                  📌 พักบิล{heldSales.length > 0 ? ` (${heldSales.length}/${MAX_HELD})` : ''}
-                </button>
-                <button onClick={() => { if (confirm('ล้างรายการทั้งหมด?')) setCart([]) }}
-                  className="text-xs text-red-400 px-2.5 py-1.5 rounded-lg hover:bg-red-50 font-medium transition-colors shrink-0">ล้าง</button>
-              </>)}
             </div>
           </div>
-          {/* Held bill slots */}
-          {heldSales.length > 0 && (
-            <div className="bg-amber-50 border-b border-amber-100">
-              <div className="flex gap-1.5 px-2 pt-1.5 pb-1 overflow-x-auto">
-                {heldSales.map((h, i) => {
-                  const items = h.cart || h.items || []
-                  const total = items.reduce((s, it) => s + it.price * it.qty - (it.disc || 0), 0)
-                  return (
-                    <div key={h.id} className="relative flex-shrink-0">
-                      <button onClick={() => restoreHeld(h.id)}
-                        className="flex flex-col items-center bg-white border border-amber-300 rounded-xl px-2.5 py-1.5 hover:bg-amber-100 active:scale-95 transition-all text-left min-w-[52px]">
-                        <span className="text-[10px] font-bold text-amber-700">บิล {i + 1}</span>
-                        <span className="text-[9px] text-slate-500">{items.length} รายการ</span>
-                        <span className="text-[9px] font-semibold text-brand">฿{fmt(total)}</span>
-                      </button>
-                      <button onClick={() => { if (confirm('ลบบิลพักนี้?')) deleteHeld(h.id) }}
-                        className="absolute -top-1 -right-1 w-4 h-4 bg-red-400 text-white rounded-full text-[9px] leading-none flex items-center justify-center hover:bg-red-500">×</button>
-                    </div>
-                  )
-                })}
-              </div>
-              {heldSales.length > 1 && (
-                <button
-                  onClick={() => { if (confirm(`ลบบิลพักทั้งหมด ${heldSales.length} บิล?`)) { setHeldSales([]); localStorage.setItem('held_sales', '[]') } }}
-                  className="w-full text-[10px] text-red-400 hover:text-red-600 py-1 text-center">
-                  ล้างบิลพักทั้งหมด ({heldSales.length})
-                </button>
-              )}
-            </div>
-          )}
           {/* Customer row */}
           <button onClick={() => setShowCustModal(true)}
             className="w-full px-4 py-2.5 flex items-center gap-2 bg-brand-50/60 border-b border-brand/10 hover:bg-brand-50 transition-colors text-left">
@@ -1982,53 +1941,6 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* ── Held Sales Modal ── */}
-      {showHeldModal && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-end md:items-center justify-center p-3"
-          onClick={e => e.target === e.currentTarget && setShowHeldModal(false)}>
-          <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden fade-in">
-            <div className="bg-[#0f1b14] text-white px-4 py-3.5 flex justify-between items-center">
-              <h2 className="font-heading font-bold text-base">📋 บิลที่พักไว้ ({heldSales.length}/{MAX_HELD})</h2>
-              <button onClick={() => setShowHeldModal(false)} className="text-2xl leading-none opacity-70">×</button>
-            </div>
-            <div className="divide-y divide-slate-100 max-h-[70vh] overflow-y-auto">
-              {heldSales.length === 0 ? (
-                <p className="text-center text-slate-400 py-10 text-sm">ไม่มีบิลพักไว้</p>
-              ) : heldSales.map(h => {
-                const items = h.cart || h.items || []
-                const t = items.reduce((s, i) => s + i.price * i.qty - (i.disc || 0), 0)
-                const timeStr = new Date(h.savedAt || h.at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
-                return (
-                  <div key={h.id} className="px-4 py-3 flex items-start gap-3">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-slate-400 mb-0.5">
-                        ⏱ {timeStr}{h.fromEmp ? ` · 📲 ${h.fromEmp}` : ''}
-                      </p>
-                      <p className="text-sm font-semibold text-slate-700 truncate">
-                        {h.customer ? `👤 ${h.customer.name} · ` : ''}{items.length} รายการ
-                      </p>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        {items.slice(0, 2).map(i => i.name).join(', ')}{items.length > 2 ? ` +${items.length - 2} รายการ` : ''}
-                      </p>
-                      <p className="text-brand font-bold text-sm mt-1">฿{fmt(t)}</p>
-                    </div>
-                    <div className="flex flex-col gap-1.5 shrink-0">
-                      <button onClick={() => restoreHeld(h.id)}
-                        className="bg-brand text-white text-xs font-bold px-3 py-1.5 rounded-xl active:scale-95 transition-transform">
-                        ดึงขึ้น
-                      </button>
-                      <button onClick={() => { if (confirm('ลบบิลพักนี้?')) deleteHeld(h.id) }}
-                        className="text-xs text-red-400 border border-red-100 px-3 py-1.5 rounded-xl hover:bg-red-50 transition-colors">
-                        ลบ
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── Device Setup Modal ── */}
       {showDeviceSetup && (
