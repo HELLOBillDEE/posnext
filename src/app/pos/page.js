@@ -458,8 +458,9 @@ export default function POSPage() {
         if (e.target === inputRef.current) {
           const raw = (e.target.value || '').trim()
           if (raw) { scannerHit(raw); setSearch('') }
-          e.preventDefault()
         }
+        // ป้องกัน Enter ว่างจาก scanner กด button ที่มี focus (numpad เด้งเอง)
+        e.preventDefault()
         return
       }
 
