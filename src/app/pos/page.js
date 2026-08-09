@@ -105,7 +105,7 @@ export default function POSPage() {
   const [qrAccounts, setQrAccounts] = useState([])       // [{id,name,promptpay_id,bank}]
   const [selectedQrAcct, setSelectedQrAcct] = useState(null)
   const [generatedQr, setGeneratedQr]       = useState(null) // data URL
-  const [mixAmounts, setMixAmounts] = useState({ cash: '', transfer: '', credit: '' })
+  const [mixAmounts, setMixAmounts] = useState({ cash: '', transfer: '', credit: '', govt: '' })
   const [billDiscount, setBillDiscount] = useState('')
   const [billDiscMode, setBillDiscMode] = useState('baht') // 'baht' | 'pct'
   const [note, setNote]             = useState('')
@@ -242,7 +242,7 @@ export default function POSPage() {
     setCart(newCart)
     setNote(order.note || '')
     setCustomer(null); setBillDiscount(''); setBillDiscMode('baht'); setPriceTier(null)
-    setPayAmount(''); setPayMode('single'); setPayMethod('cash'); setMixAmounts({ cash:'', transfer:'', credit:'' })
+    setPayAmount(''); setPayMode('single'); setPayMethod('cash'); setMixAmounts({ cash:'', transfer:'', credit:'', govt:'' })
     await supabase.from('pos_queued_orders').update({ status: 'taken', taken_at: new Date().toISOString() }).eq('id', order.id)
     setQueuedOrders(prev => prev.filter(o => o.id !== order.id))
   }
@@ -592,8 +592,10 @@ export default function POSPage() {
   const mixCash     = parseFloat(mixAmounts.cash)     || 0
   const mixTransfer = parseFloat(mixAmounts.transfer) || 0
   const mixCredit   = parseFloat(mixAmounts.credit)   || 0
-  const mixTotal    = mixCash + mixTransfer + mixCredit
+  const mixGovt     = parseFloat(mixAmounts.govt)     || 0
+  const mixTotal    = mixCash + mixTransfer + mixCredit + mixGovt
   const mixRemain   = total - mixTotal
+  const mixChange   = mixRemain < -0.01 ? Math.abs(mixRemain) : 0
 
   // Broadcast cart state to customer display tablet
   useEffect(() => {
@@ -624,13 +626,15 @@ export default function POSPage() {
     }
     // PromptPay dynamic QR — generate ล็อคยอด (เฉพาะกรณีไม่มีรูป)
     if (selectedQrAcct.promptpay_id) {
+      const qrAmount = payMode === 'mixed' ? mixTransfer : total
+      if (qrAmount <= 0) return
       setGeneratedQr(null)
-      fetch(`/api/qr-promptpay?id=${encodeURIComponent(selectedQrAcct.promptpay_id)}&amount=${total}`)
+      fetch(`/api/qr-promptpay?id=${encodeURIComponent(selectedQrAcct.promptpay_id)}&amount=${qrAmount}`)
         .then(r => r.json())
         .then(d => { if (d.dataUrl) setGeneratedQr(d.dataUrl) })
         .catch(() => {})
     }
-  }, [selectedQrAcct, total])
+  }, [selectedQrAcct, total, payMode, mixTransfer])
 
   async function printQRSlip(amount, qrOverride) {
     const qrSrc = qrOverride || settings.payment_qr
@@ -703,7 +707,7 @@ export default function POSPage() {
       if (payMethod === 'cash' && parseFloat(payAmount || 0) < total) return alert('จำนวนเงินที่รับไม่เพียงพอ')
       if (payMethod === 'credit' && !customer) return alert('กรุณาเลือกลูกค้าสำหรับการขายเชื่อ')
     } else {
-      if (Math.abs(mixRemain) > 0.01) return alert(`ยอดรวมไม่ครบ — ยังขาด ฿${fmt(Math.abs(mixRemain))}`)
+      if (mixRemain > 0.01) return alert(`ยอดรวมไม่ครบ — ยังขาด ฿${fmt(mixRemain)}`)
       if (mixCredit > 0 && !customer) return alert('กรุณาเลือกลูกค้าสำหรับยอดเชื่อ')
     }
 
@@ -723,11 +727,12 @@ export default function POSPage() {
         const parts = []
         if (mixCash > 0)     parts.push(`สด ฿${fmt(mixCash)}`)
         if (mixTransfer > 0) parts.push(`โอน ฿${fmt(mixTransfer)}`)
+        if (mixGovt > 0)     parts.push(`โครงการรัฐ ฿${fmt(mixGovt)}`)
         if (mixCredit > 0)   parts.push(`เชื่อ ฿${fmt(mixCredit)}`)
         saveMethod = 'mixed'
         saveAmount = total
-        saveChange = 0
-        saveNote = `[ผสม: ${parts.join(' + ')}]${note ? ' ' + note : ''}`
+        saveChange = mixChange
+        saveNote = `[ผสม: ${parts.join(' + ')}${mixChange > 0 ? ` ทอน ฿${fmt(mixChange)}` : ''}]${note ? ' ' + note : ''}`
       } else {
         saveMethod = payMethod
         saveAmount = payMethod === 'cash' ? parseFloat(payAmount) : total
@@ -926,7 +931,7 @@ export default function POSPage() {
       paidUntilRef.current = Date.now() + 7000
       dispChRef.current?.send({ type: 'broadcast', event: 'pos', payload: { status: 'paid', total } }).catch(() => {})
       setCart([]); setBillDiscount(''); setPayAmount(''); setNote(''); setCustomer(null); setPriceTier(null)
-      setPayMode('single'); setPayMethod('cash'); setMixAmounts({ cash:'', transfer:'', credit:'' })
+      setPayMode('single'); setPayMethod('cash'); setMixAmounts({ cash:'', transfer:'', credit:'', govt:'' })
       setSelectedQrAcct(null); setGeneratedQr(null)
       setShowPay(false)
       // แสดงหน้าเงินทอน (เฉพาะจ่ายเงินสด)
@@ -986,7 +991,7 @@ export default function POSPage() {
       setCart([]); setBillDiscount(''); setPayAmount(''); setNote('')
       setCustomer(null); setPriceTier(null)
       setPayMode('single'); setPayMethod('cash')
-      setMixAmounts({ cash:'', transfer:'', credit:'' })
+      setMixAmounts({ cash:'', transfer:'', credit:'', govt:'' })
       setShowPay(false)
     } catch (e) {
       alert('เกิดข้อผิดพลาด: ' + (e?.message || String(e)))
@@ -1009,7 +1014,7 @@ export default function POSPage() {
     setBillDiscMode(target.billDiscMode || 'baht')
     setNote(target.note || '')
     setPriceTier(target.priceTier || null)
-    setPayAmount(''); setPayMode('single'); setPayMethod('cash'); setMixAmounts({ cash:'', transfer:'', credit:'' })
+    setPayAmount(''); setPayMode('single'); setPayMethod('cash'); setMixAmounts({ cash:'', transfer:'', credit:'', govt:'' })
   }
 
   function clearBillTab(idx) {
@@ -1021,7 +1026,7 @@ export default function POSPage() {
     if (idx === activeSlot) {
       setCart([]); setCustomer(null); setBillDiscount(''); setBillDiscMode('baht')
       setNote(''); setPriceTier(null)
-      setPayAmount(''); setPayMode('single'); setPayMethod('cash'); setMixAmounts({ cash:'', transfer:'', credit:'' })
+      setPayAmount(''); setPayMode('single'); setPayMethod('cash'); setMixAmounts({ cash:'', transfer:'', credit:'', govt:'' })
     }
   }
 
@@ -1639,12 +1644,13 @@ export default function POSPage() {
                 {/* Mixed payment */}
                 <div className="space-y-2">
                   {[
-                    { key:'cash',     label:'💵 เงินสด',  },
-                    { key:'transfer', label:'📱 โอน/QR',  },
-                    { key:'credit',   label:'📝 เชื่อ',   },
+                    { key:'cash',     label:'💵 เงินสด'          },
+                    { key:'transfer', label:'📱 โอน/QR'          },
+                    { key:'govt',     label:'🏛 โครงการรัฐ'      },
+                    { key:'credit',   label:'📝 เชื่อ'            },
                   ].map(({ key, label }) => (
                     <div key={key} className="flex items-center gap-2">
-                      <span className="text-xs font-semibold text-slate-500 w-20 shrink-0">{label}</span>
+                      <span className="text-xs font-semibold text-slate-500 w-24 shrink-0">{label}</span>
                       <input type="number" min="0" placeholder="0"
                         value={mixAmounts[key]}
                         onChange={e => setMixAmounts(p => ({ ...p, [key]: e.target.value }))}
@@ -1653,17 +1659,58 @@ export default function POSPage() {
                   ))}
                 </div>
 
-                {/* Remaining indicator */}
+                {/* Transfer account selector in mixed */}
+                {mixTransfer > 0 && qrAccounts.length > 0 && (
+                  <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${Math.min(qrAccounts.length, 2)}, 1fr)` }}>
+                    {qrAccounts.map(a => (
+                      <button key={a.id} onClick={() => setSelectedQrAcct(selectedQrAcct?.id === a.id ? null : a)}
+                        className={`py-2 px-3 rounded-xl border-2 text-left transition-all
+                          ${selectedQrAcct?.id === a.id ? 'border-brand bg-brand/5' : 'border-slate-200 bg-white active:bg-slate-50'}`}>
+                        <p className={`text-xs font-bold leading-tight ${selectedQrAcct?.id === a.id ? 'text-brand' : 'text-slate-700'}`}>📱 {a.name}</p>
+                        {a.bank && <p className="text-[10px] text-slate-400 mt-0.5">{a.bank}</p>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* QR code in mixed */}
+                {mixTransfer > 0 && (selectedQrAcct ? (
+                  selectedQrAcct.promptpay_id && generatedQr ? (
+                    <div className="flex flex-col items-center gap-1">
+                      <button onClick={() => printQRSlip(mixTransfer, generatedQr)} className="relative group">
+                        <img src={generatedQr} alt="QR"
+                          className="w-40 h-40 rounded-xl border-2 border-slate-200 object-contain bg-white hover:border-brand cursor-pointer transition-colors" />
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/10 rounded-xl transition-all">
+                          <span className="opacity-0 group-hover:opacity-100 text-white font-bold text-sm bg-black/60 px-3 py-1 rounded-lg transition-all">🖨️ พิมพ์</span>
+                        </div>
+                      </button>
+                      <p className="text-xs text-slate-500">โอน ฿{fmt(mixTransfer)} · {selectedQrAcct.name}</p>
+                    </div>
+                  ) : null
+                ) : settings.payment_qr ? (
+                  <div className="flex flex-col items-center gap-1">
+                    <button onClick={() => printQRSlip(mixTransfer)} className="relative group">
+                      <img src={settings.payment_qr} alt="QR"
+                        className="w-40 h-40 rounded-xl border-2 border-slate-200 object-contain bg-white hover:border-brand cursor-pointer transition-colors" />
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/10 rounded-xl transition-all">
+                        <span className="opacity-0 group-hover:opacity-100 text-white font-bold text-sm bg-black/60 px-3 py-1 rounded-lg transition-all">🖨️ พิมพ์</span>
+                      </div>
+                    </button>
+                    <p className="text-xs text-slate-500">โอน ฿{fmt(mixTransfer)} · กดพิมพ์</p>
+                  </div>
+                ) : null)}
+
+                {/* Remaining / change indicator */}
                 <div className={`flex justify-between items-center rounded-2xl p-3 font-bold text-base
-                  ${Math.abs(mixRemain) < 0.01 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-500'}`}>
-                  <span>{mixRemain > 0.01 ? 'ยังขาด' : mixRemain < -0.01 ? 'เกิน' : '✓ ครบแล้ว'}</span>
+                  ${mixRemain < -0.01 ? 'bg-amber-50 text-amber-700' : Math.abs(mixRemain) < 0.01 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-500'}`}>
+                  <span>{mixRemain > 0.01 ? 'ยังขาด' : mixRemain < -0.01 ? '💰 เงินทอน' : '✓ ครบแล้ว'}</span>
                   <span>{Math.abs(mixRemain) > 0.01 ? `฿${fmt(Math.abs(mixRemain))}` : ''}</span>
                 </div>
 
                 {/* Quick fill remaining */}
                 {mixRemain > 0.01 && (
                   <div className="flex gap-2">
-                    {[['cash','💵'],['transfer','📱'],['credit','📝']].map(([k,ic]) => (
+                    {[['cash','💵'],['transfer','📱'],['govt','🏛'],['credit','📝']].map(([k,ic]) => (
                       <button key={k} onClick={() => setMixAmounts(p => ({ ...p, [k]: String(((parseFloat(p[k])||0) + mixRemain).toFixed(2)) }))}
                         className="flex-1 bg-slate-100 text-slate-600 rounded-xl py-1.5 text-[10px] font-semibold active:bg-slate-200">
                         {ic} +{fmt(mixRemain)}
@@ -1678,20 +1725,6 @@ export default function POSPage() {
                     className="w-full border-2 border-dashed border-amber-300 bg-amber-50 text-amber-700 rounded-2xl py-3 text-sm font-semibold">
                     ⚠️ มียอดเชื่อ — กรุณาเลือกลูกค้า
                   </button>
-                )}
-
-                {/* QR in mixed */}
-                {mixTransfer > 0 && settings.payment_qr && (
-                  <div className="flex flex-col items-center gap-1">
-                    <button onClick={() => printQRSlip(mixTransfer)} className="relative group">
-                      <img src={settings.payment_qr} alt="QR"
-                        className="w-40 h-40 rounded-xl border-2 border-slate-200 object-contain bg-white hover:border-brand cursor-pointer transition-colors" />
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/10 rounded-xl transition-all">
-                        <span className="opacity-0 group-hover:opacity-100 text-white font-bold text-sm bg-black/60 px-3 py-1 rounded-lg transition-all">🖨️ พิมพ์</span>
-                      </div>
-                    </button>
-                    <p className="text-xs text-slate-500">โอน ฿{fmt(mixTransfer)} · กดพิมพ์</p>
-                  </div>
                 )}
               </>)}
 
@@ -2091,7 +2124,7 @@ function SalesHistoryPanel({ settings, currentEmp, empMode, terminalId, terminal
     onEditBill(cartItems, cust, selected.discount || 0)
   }
 
-  const payLabel = m => m === 'cash' ? 'เงินสด' : m === 'transfer' ? 'โอน/QR' : m === 'credit' ? 'เชื่อ' : m || '—'
+  const payLabel = m => m === 'cash' ? 'เงินสด' : m === 'transfer' ? 'โอน/QR' : m === 'credit' ? 'เชื่อ' : m === 'govt' ? 'โครงการรัฐ' : m || '—'
 
   return (
     <div className="fixed inset-0 z-50 flex">
@@ -3262,7 +3295,7 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
 }
 
 function buildReceiptHTML(r) {
-  const PAY = { cash: 'เงินสด', transfer: 'โอน/QR', credit: 'เชื่อ', mixed: 'ผสม' }
+  const PAY = { cash: 'เงินสด', transfer: 'โอน/QR', credit: 'เชื่อ', govt: 'โครงการรัฐ', mixed: 'ผสม' }
   const rows = (r.items || []).map(i => `
     <tr>
       <td style="padding:4px 0;font-size:17px;word-break:break-word">${i.name}${i.note?`<br><span style="font-size:14px;color:#555">${i.note}</span>`:''}</td>

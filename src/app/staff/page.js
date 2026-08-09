@@ -486,7 +486,7 @@ export default function StaffPage() {
 
   function openSalaryTab() {
     setTab('salary')
-    if (!salaryData || salaryData.period !== salaryPeriod) loadSalary(salaryPeriod)
+    loadSalary(salaryPeriod)
   }
 
   function printSlip(sd) {
@@ -971,6 +971,10 @@ ${sd.carryForwardIn > 0 ? `<div class="row"><span>ทบจากเดือน
               <button onClick={() => changeSalaryMonth(-1)} className="w-9 h-9 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-500 text-lg active:scale-95">‹</button>
               <p className="font-bold text-slate-700 w-28 text-center">{salaryData?.monthLabel || salaryPeriod}</p>
               <button onClick={() => changeSalaryMonth(1)} className="w-9 h-9 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-500 text-lg active:scale-95">›</button>
+              <button onClick={() => loadSalary(salaryPeriod)} disabled={salaryLoad}
+                className="w-9 h-9 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-400 text-base active:scale-95 disabled:opacity-40">
+                🔄
+              </button>
             </div>
 
             {salaryLoad && (
