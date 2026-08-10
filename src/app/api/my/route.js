@@ -31,11 +31,24 @@ export async function POST(req) {
         .eq('employee_id', emp.id).order('requested_at', { ascending: false }).limit(20),
       supabase.from('salary_advances').select('id, amount, note, status, requested_at')
         .eq('employee_id', emp.id).order('requested_at', { ascending: false }).limit(10),
-      supabase.from('employee_installments').select('name, amount_per_day')
+      supabase.from('employee_installments').select('name, amount_per_day, paid_days, total_days, start_date')
         .eq('employee_id', emp.id).eq('active', true),
     ])
 
-    const installPerDay = (installments || []).reduce((s, i) => s + Number(i.amount_per_day), 0)
+    const period = today.slice(0, 7)
+    const fullDaysThisMonth = (recentAtt || []).filter(a => {
+      if (!a.check_in || !a.check_out) return false
+      return (new Date(a.check_out) - new Date(a.check_in)) / 3600000 >= 6
+    })
+    const installPerDay = (installments || []).reduce((s, i) => {
+      const remaining = Number(i.total_days) - Number(i.paid_days)
+      if (remaining <= 0) return s
+      const eligible = i.start_date && i.start_date.slice(0, 7) === period
+        ? fullDaysThisMonth.filter(a => a.date >= i.start_date).length
+        : fullDaysThisMonth.length
+      if (eligible >= remaining) return s  // หมดแล้วเดือนนี้
+      return s + Number(i.amount_per_day)
+    }, 0)
     const netDaily      = Math.max(0, Number(emp.daily_rate || 0) - installPerDay)
 
     return Response.json({
