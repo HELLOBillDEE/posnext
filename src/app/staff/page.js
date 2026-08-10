@@ -1076,7 +1076,8 @@ ${sd.carryForwardIn > 0 ? `<div class="row"><span>ทบจากเดือน
                   <div className="bg-white rounded-2xl border border-slate-100 p-4 space-y-3">
                     <p className="text-xs font-bold text-slate-500">รายการผ่อน</p>
                     {salaryData.installmentDetail.filter(i => i.total_days > 0).map((inst, i) => {
-                      const pct = Math.min(100, Math.round((inst.paid_days / inst.total_days) * 100))
+                      const afterDeduct = salaryData.settled ? inst.remaining : inst.remaining - inst.thisMonth
+                      const pct = Math.min(100, Math.round(((inst.total_days - afterDeduct) / inst.total_days) * 100))
                       return (
                         <div key={i}>
                           <div className="flex justify-between text-sm mb-1">
@@ -1087,7 +1088,7 @@ ${sd.carryForwardIn > 0 ? `<div class="row"><span>ทบจากเดือน
                             <div className="bg-violet-400 h-2 rounded-full" style={{ width: `${pct}%` }} />
                           </div>
                           <p className="text-xs text-slate-400 mt-0.5">
-                            หักวันละ ฿{fmtMoney(inst.amount_per_day)} · เหลือ {inst.remaining - inst.thisMonth} วัน
+                            หักวันละ ฿{fmtMoney(inst.amount_per_day)} · เหลือ {afterDeduct} วัน
                           </p>
                         </div>
                       )
