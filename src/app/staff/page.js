@@ -1082,7 +1082,7 @@ ${sd.carryForwardIn > 0 ? `<div class="row"><span>ทบจากเดือน
                         <div key={i}>
                           <div className="flex justify-between text-sm mb-1">
                             <span className="text-slate-700 font-medium">{inst.name}</span>
-                            <span className="text-slate-400 text-xs">{inst.paid_days}/{inst.total_days} วัน</span>
+                            <span className="text-slate-400 text-xs">{inst.total_days - afterDeduct}/{inst.total_days} วัน</span>
                           </div>
                           <div className="w-full bg-slate-100 rounded-full h-2">
                             <div className="bg-violet-400 h-2 rounded-full" style={{ width: `${pct}%` }} />
