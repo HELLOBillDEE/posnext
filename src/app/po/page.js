@@ -427,7 +427,7 @@ export default function POPage() {
     const size = LABEL_SIZES.find(s => s.id === labelSize) || LABEL_SIZES[0]
     const printItems = items.flatMap(i => Array(Math.max(1, parseInt(i.qty) || 3)).fill({ name: i.name, barcode: i.barcode, price: i.price }))
     const saved = JSON.parse(localStorage.getItem('printer_barcode') || '{}')
-    const cfg = { ip: '192.168.2.49', port: 9100, paper_width: 100, lang: 'tspl', bridge_url: window.location.origin, ...saved }
+    const cfg = { ip: '192.168.2.49', port: 9100, paper_width: 100, lang: 'tspl', ...saved, bridge_url: window.location.origin }
     if (!cfg.ip) return alert('ไม่พบการตั้งค่าเครื่องพิมพ์บาร์โค้ด กรุณาตั้งค่าที่หน้าตั้งค่า')
     try {
       const { buildLabelTSPL, buildLabelESCPOS, printViaBridge } = await import('@/lib/printBridge')
