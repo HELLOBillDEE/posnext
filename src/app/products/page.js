@@ -15,6 +15,8 @@ const LABEL_SIZES = [
 
 const EMPTY_PROD = { barcode:'', name:'', category_id:'', unit:'ชิ้น', cost:'', price:'', stock:'', min_stock:'5', search_tags:'', active:true }
 
+const invalidatePosCache = () => fetch('/api/pos-data/invalidate?key=products', { method: 'POST' }).catch(() => {})
+
 function genCKBarcode() {
   return 'CK' + Math.floor(Math.random() * 100000000).toString().padStart(8, '0')
 }
@@ -192,6 +194,7 @@ export default function ProductsPage() {
       }
       setModal(null)
       load()
+      invalidatePosCache()
     } catch (e) { alert('ข้อผิดพลาด: ' + e.message) } finally { setSaving(false) }
   }
 
@@ -199,6 +202,7 @@ export default function ProductsPage() {
     if (!confirm('ลบสินค้านี้?')) return
     await supabase.from('products').delete().eq('id', id)
     load()
+    invalidatePosCache()
   }
 
   function toggleSelect(id) {
@@ -350,6 +354,7 @@ export default function ProductsPage() {
       }))
       await load()
       exitBulkMode()
+      invalidatePosCache()
     } catch (e) { alert('บันทึกไม่สำเร็จ: ' + e.message) }
     finally { setBulkSaving(false) }
   }
@@ -362,6 +367,7 @@ export default function ProductsPage() {
       await supabase.from('products').delete().in('id', [...selected])
       await load()
       exitBulkMode()
+      invalidatePosCache()
     } catch (e) { alert('ลบไม่สำเร็จ: ' + e.message) }
     finally { setBulkSaving(false) }
   }
@@ -421,6 +427,7 @@ export default function ProductsPage() {
     setSaving(false)
     setImportDone({ ok, fail })
     load()
+    invalidatePosCache()
   }
 
   // ── CSV Stock Count Import ──
@@ -463,6 +470,7 @@ export default function ProductsPage() {
     setSaving(false)
     setImportDone({ ok, fail })
     load()
+    invalidatePosCache()
   }
 
   const stockBadge = (p) => {
