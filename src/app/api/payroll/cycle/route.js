@@ -66,7 +66,6 @@ export async function GET(req) {
       name: emp.name,
       nickname: emp.nickname,
       daily_rate: emp.daily_rate,
-      totalDays,
       lastCycleDayTo,
       daysInCycle: Math.round(daysInCycle * 10) / 10,
       daysUntilPay: Math.round(daysUntilPay * 10) / 10,
