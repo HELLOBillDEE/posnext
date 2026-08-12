@@ -197,7 +197,7 @@ export async function notifyDrawerRequest({ id, empName, note, amount }) {
 }
 
 /* ── แจ้งเตือนปิดกะ ── */
-export async function notifyShiftClose({ cashierName, shopName, openedAt, salesTotal, salesCount, cashSales, closingCash, expected, diff, expSafe, expWages, expAdvance, expOther, cashRemaining }) {
+export async function notifyShiftClose({ cashierName, shopName, openedAt, salesTotal, salesCount, cashSales, transferTotal, creditTotal, transferByAcct, govtByType, closingCash, expected, diff, expSafe, expWages, expAdvance, expOther, cashRemaining }) {
   const cfg = await getTelegramSettings()
   if (!cfg) return
 
@@ -219,12 +219,25 @@ export async function notifyShiftClose({ cashierName, shopName, openedAt, salesT
     `🏪 ${shopName || 'ร้านค้า'}  |  🕐 ${openStr} – ${timeStr}`,
     ``,
     `🧾 ยอดขาย: <b>฿${f(salesTotal)}</b> (${salesCount} บิล)`,
-    `💵 เงินสดรับ: ฿${f(cashSales)}`,
     ``,
-    `📦 เงินนับได้: ฿${f(closingCash)}`,
-    `   ตามระบบ: ฿${f(expected)}`,
-    `   ${diffSign}`,
+    `💵 เงินสดชนลิ้นชัก: ฿${f(cashSales)}`,
   ]
+  // โอนแยกรายบัญชี
+  const accts = Object.entries(transferByAcct || {})
+  if (accts.length > 0) {
+    accts.forEach(([acct, amt]) => lines.push(`📱 โอน — ${acct}: ฿${f(amt)}`))
+  } else if (Number(transferTotal) > 0) {
+    lines.push(`📱 โอน/QR: ฿${f(transferTotal)}`)
+  }
+  if (Number(creditTotal) > 0) lines.push(`📝 เชื่อ: ฿${f(creditTotal)}`)
+  // โครงการรัฐแยกประเภท
+  Object.entries(govtByType || {}).forEach(([type, amt]) => {
+    lines.push(`🏛 ${type}: ฿${f(amt)}`)
+  })
+  lines.push(``)
+  lines.push(`📦 เงินนับได้: ฿${f(closingCash)}`)
+  lines.push(`   ตามระบบ: ฿${f(expected)}`)
+  lines.push(`   ${diffSign}`)
 
   if (totalExp > 0) {
     lines.push(``)

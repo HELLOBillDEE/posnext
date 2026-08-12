@@ -110,6 +110,8 @@ export default function POSPage() {
   const [selectedQrAcct, setSelectedQrAcct] = useState(null)
   const [generatedQr, setGeneratedQr]       = useState(null) // data URL
   const [mixAmounts, setMixAmounts] = useState({ cash: '', transfer: '', credit: '', govt: '' })
+  const [govtType, setGovtType]       = useState('คนละครึ่ง')
+  const [mixGovtType, setMixGovtType] = useState('คนละครึ่ง')
   const [billDiscount, setBillDiscount] = useState('')
   const [billDiscMode, setBillDiscMode] = useState('baht') // 'baht' | 'pct'
   const [note, setNote]             = useState('')
@@ -731,18 +733,20 @@ export default function POSPage() {
       if (payMode === 'mixed') {
         const parts = []
         if (mixCash > 0)     parts.push(`สด ฿${fmt(mixCash)}`)
-        if (mixTransfer > 0) parts.push(`โอน ฿${fmt(mixTransfer)}`)
-        if (mixGovt > 0)     parts.push(`โครงการรัฐ ฿${fmt(mixGovt)}`)
+        if (mixTransfer > 0) parts.push(`โอน${selectedQrAcct ? `(${selectedQrAcct.name})` : ''} ฿${fmt(mixTransfer)}`)
+        if (mixGovt > 0)     parts.push(`โครงการรัฐ(${mixGovtType}) ฿${fmt(mixGovt)}`)
         if (mixCredit > 0)   parts.push(`เชื่อ ฿${fmt(mixCredit)}`)
         saveMethod = 'mixed'
         saveAmount = total
         saveChange = mixChange
         saveNote = `[ผสม: ${parts.join(' + ')}${mixChange > 0 ? ` ทอน ฿${fmt(mixChange)}` : ''}]${note ? ' ' + note : ''}`
       } else {
-        saveMethod = payMethod
+        saveMethod = payMethod === 'govt' ? `govt_${govtType}` : payMethod
         saveAmount = payMethod === 'cash' ? parseFloat(payAmount) : total
         saveChange = Math.max(0, change)
-        saveNote   = note
+        saveNote   = (payMethod === 'transfer' && selectedQrAcct)
+          ? `[บัญชี: ${selectedQrAcct.name}]${note ? ' ' + note : ''}`
+          : note
       }
       const tierLabel = PRICE_TIERS.find(t => t.id === priceTier)?.label
       if (tierLabel) saveNote = [tierLabel, saveNote].filter(Boolean).join(' ')
@@ -1548,6 +1552,19 @@ export default function POSPage() {
                   ))}
                 </div>
 
+                {/* Govt sub-type picker — single mode */}
+                {payMethod === 'govt' && (
+                  <div className="flex gap-2">
+                    {['คนละครึ่ง','บัตรประชาชน','บัตรธกส'].map(t => (
+                      <button key={t} onClick={() => setGovtType(t)}
+                        className={`flex-1 py-2 rounded-xl text-xs font-bold border-2 transition-all
+                          ${govtType === t ? 'border-brand bg-brand/10 text-brand' : 'border-slate-200 text-slate-500'}`}>
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 {/* QR/Transfer */}
                 {payMethod === 'transfer' && (
                   <div className="flex flex-col gap-2">
@@ -1654,12 +1671,25 @@ export default function POSPage() {
                     { key:'govt',     label:'🏛 โครงการรัฐ'      },
                     { key:'credit',   label:'📝 เชื่อ'            },
                   ].map(({ key, label }) => (
-                    <div key={key} className="flex items-center gap-2">
-                      <span className="text-xs font-semibold text-slate-500 w-24 shrink-0">{label}</span>
-                      <input type="number" min="0" placeholder="0"
-                        value={mixAmounts[key]}
-                        onChange={e => setMixAmounts(p => ({ ...p, [key]: e.target.value }))}
-                        className="flex-1 border-2 border-slate-200 rounded-xl px-3 py-2 text-right font-bold text-lg focus:border-brand outline-none" />
+                    <div key={key} className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-slate-500 w-24 shrink-0">{label}</span>
+                        <input type="number" min="0" placeholder="0"
+                          value={mixAmounts[key]}
+                          onChange={e => setMixAmounts(p => ({ ...p, [key]: e.target.value }))}
+                          className="flex-1 border-2 border-slate-200 rounded-xl px-3 py-2 text-right font-bold text-lg focus:border-brand outline-none" />
+                      </div>
+                      {key === 'govt' && parseFloat(mixAmounts.govt) > 0 && (
+                        <div className="flex gap-1.5" style={{ paddingLeft: '6.5rem' }}>
+                          {['คนละครึ่ง','บัตรประชาชน','บัตรธกส'].map(t => (
+                            <button key={t} onClick={() => setMixGovtType(t)}
+                              className={`flex-1 py-1 rounded-lg text-[10px] font-bold border transition-all
+                                ${mixGovtType === t ? 'border-brand bg-brand/10 text-brand' : 'border-slate-200 text-slate-400'}`}>
+                              {t}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -2992,18 +3022,49 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
       supabase.from('drawer_logs').select('amount,note').gte('opened_at', from),
     ])
     const salesTotal = (sales || []).reduce((s, r) => s + Number(r.total), 0)
-    const cashSales  = (sales || []).reduce((s, r) => {
-      if (r.payment_method === 'cash') return s + Number(r.total)
-      if (r.payment_method === 'mixed' && r.note) {
-        const m = r.note.match(/สด ฿([\d,]+(?:\.\d+)?)/)
-        if (m) return s + parseFloat(m[1].replace(/,/g, ''))
+    const govtByType = {}
+    const transferByAcct = {}
+    let cashSales = 0, transferTotal = 0, creditTotal = 0
+    for (const r of sales || []) {
+      const meth = r.payment_method, n = Number(r.total), note = r.note || ''
+      if (meth === 'cash') { cashSales += n }
+      else if (meth?.startsWith('govt_')) {
+        const t = meth.slice(5); govtByType[t] = (govtByType[t] || 0) + n
+      } else if (meth === 'govt') {
+        govtByType['ไม่ระบุ'] = (govtByType['ไม่ระบุ'] || 0) + n
+      } else if (meth === 'transfer') {
+        const acctM = note.match(/\[บัญชี: ([^\]]+)\]/)
+        const acct = acctM?.[1] || 'โอน/QR'
+        transferByAcct[acct] = (transferByAcct[acct] || 0) + n; transferTotal += n
+      } else if (meth === 'credit') { creditTotal += n }
+      else if (meth === 'mixed') {
+        const cashM = note.match(/สด ฿([\d,]+(?:\.\d+)?)/)
+        if (cashM) cashSales += parseFloat(cashM[1].replace(/,/g, ''))
+        for (const m of [...note.matchAll(/โอน\(([^)]+)\) ฿([\d,]+(?:\.\d+)?)/g)]) {
+          const a = parseFloat(m[2].replace(/,/g, ''))
+          transferByAcct[m[1]] = (transferByAcct[m[1]] || 0) + a; transferTotal += a
+        }
+        const plainTransferM = note.match(/โอน ฿([\d,]+(?:\.\d+)?)/)
+        if (plainTransferM && !note.includes('โอน(')) {
+          const a = parseFloat(plainTransferM[1].replace(/,/g, ''))
+          transferByAcct['โอน/QR'] = (transferByAcct['โอน/QR'] || 0) + a; transferTotal += a
+        }
+        for (const m of [...note.matchAll(/โครงการรัฐ\(([^)]+)\) ฿([\d,]+(?:\.\d+)?)/g)]) {
+          const a = parseFloat(m[2].replace(/,/g, ''))
+          govtByType[m[1]] = (govtByType[m[1]] || 0) + a
+        }
+        const plainGovtM = note.match(/โครงการรัฐ ฿([\d,]+(?:\.\d+)?)/)
+        if (plainGovtM && !note.includes('โครงการรัฐ(')) {
+          govtByType['ไม่ระบุ'] = (govtByType['ไม่ระบุ'] || 0) + parseFloat(plainGovtM[1].replace(/,/g, ''))
+        }
+        const creditM = note.match(/เชื่อ ฿([\d,]+(?:\.\d+)?)/)
+        if (creditM) creditTotal += parseFloat(creditM[1].replace(/,/g, ''))
       }
-      return s
-    }, 0)
+    }
     const drawerIn  = (drawers || []).filter(d => (d.note||'').includes('รับเงินเข้า')).reduce((s,d) => s + Number(d.amount||0), 0)
     const drawerOut = (drawers || []).filter(d => (d.note||'').includes('เบิกเงินออก')).reduce((s,d) => s + Number(d.amount||0), 0)
     const expected  = Number(currentShift.opening_cash) + cashSales + drawerIn - drawerOut
-    setShiftSummary({ salesTotal, cashSales, drawerIn, drawerOut, expected, count: sales?.length || 0 })
+    setShiftSummary({ salesTotal, cashSales, transferTotal, creditTotal, govtByType, transferByAcct, drawerIn, drawerOut, expected, count: sales?.length || 0 })
   }
 
   function startShiftRec() {
@@ -3123,6 +3184,10 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
           salesTotal: shiftSummary?.salesTotal || 0,
           salesCount: shiftSummary?.count || 0,
           cashSales: shiftSummary?.cashSales || 0,
+          transferTotal: shiftSummary?.transferTotal || 0,
+          creditTotal: shiftSummary?.creditTotal || 0,
+          transferByAcct: shiftSummary?.transferByAcct || {},
+          govtByType: shiftSummary?.govtByType || {},
           closingCash: totalCash,
           expected,
           diff,
@@ -3180,7 +3245,14 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
           {mode === 'close' && shiftSummary && (
             <div className="bg-slate-50 rounded-2xl p-3 space-y-1.5 border border-slate-100">
               <div className="flex justify-between text-sm"><span className="text-slate-500">ยอดขายกะนี้</span><span className="font-bold text-brand">฿{fmt(shiftSummary.salesTotal)}</span></div>
-              <div className="flex justify-between text-sm"><span className="text-slate-500">เงินสดรับ</span><span className="font-semibold text-slate-700">฿{fmt(shiftSummary.cashSales)}</span></div>
+              <div className="flex justify-between text-sm"><span className="text-slate-500">💵 เงินสด</span><span className="font-semibold text-slate-700">฿{fmt(shiftSummary.cashSales)}</span></div>
+              {shiftSummary.transferTotal > 0 && Object.entries(shiftSummary.transferByAcct || {}).map(([acct, amt]) => (
+                <div key={acct} className="flex justify-between text-sm"><span className="text-slate-400 pl-3">📱 {acct}</span><span className="text-slate-600">฿{fmt(amt)}</span></div>
+              ))}
+              {shiftSummary.creditTotal > 0 && <div className="flex justify-between text-sm"><span className="text-slate-500">📝 เชื่อ</span><span className="font-semibold text-slate-700">฿{fmt(shiftSummary.creditTotal)}</span></div>}
+              {Object.entries(shiftSummary.govtByType || {}).map(([type, amt]) => (
+                <div key={type} className="flex justify-between text-sm"><span className="text-slate-500">🏛 {type}</span><span className="font-semibold text-slate-700">฿{fmt(amt)}</span></div>
+              ))}
               <div className="flex justify-between text-sm"><span className="text-slate-500">เงินเริ่มต้น</span><span className="font-semibold text-slate-700">฿{fmt(currentShift.opening_cash)}</span></div>
               {shiftSummary.drawerIn > 0 && <div className="flex justify-between text-sm"><span className="text-slate-500">รับเงินเข้าเก๊ะ</span><span className="font-semibold text-emerald-600">+฿{fmt(shiftSummary.drawerIn)}</span></div>}
               {shiftSummary.drawerOut > 0 && <div className="flex justify-between text-sm"><span className="text-slate-500">เบิกเงินออกเก๊ะ</span><span className="font-semibold text-red-500">−฿{fmt(shiftSummary.drawerOut)}</span></div>}
