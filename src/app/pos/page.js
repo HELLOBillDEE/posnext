@@ -74,9 +74,10 @@ function camSnap(payload) {
 }
 
 const PAY_METHODS = [
-  { id:'cash',     label:'เงินสด', icon:'💵' },
-  { id:'transfer', label:'โอน/QR', icon:'📱' },
-  { id:'credit',   label:'เชื่อ',  icon:'📝' },
+  { id:'cash',     label:'เงินสด',    icon:'💵' },
+  { id:'transfer', label:'โอน/QR',    icon:'📱' },
+  { id:'govt',     label:'โครงการรัฐ', icon:'🏛' },
+  { id:'credit',   label:'เชื่อ',     icon:'📝' },
 ]
 
 const QUICK_CASH = [20, 50, 100, 500, 1000]
