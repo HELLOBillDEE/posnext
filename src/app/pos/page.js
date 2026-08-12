@@ -94,7 +94,10 @@ export default function POSPage() {
   const [employees, setEmployees]     = useState([])
   const [currentEmp, setCurrentEmp]   = useState(null)   // { id, name, nickname }
   const [showEmpPick, setShowEmpPick] = useState(false)
-  const [cart, setCart]             = useState([])
+  const [cart, setCart]             = useState(() => {
+    if (typeof window === 'undefined') return []
+    try { return JSON.parse(localStorage.getItem('pos_cart') || '[]') } catch { return [] }
+  })
   const [search, setSearch]         = useState('')
   const [activeCat, setActiveCat]   = useState(null)
   const [visibleCount, setVisibleCount] = useState(40)
@@ -158,6 +161,7 @@ export default function POSPage() {
   const wasPaying   = useRef(false)
   const dispChRef   = useRef(null)
   const paidUntilRef = useRef(0) // suppress auto-broadcast during paid screen
+  useEffect(() => { localStorage.setItem('pos_cart', JSON.stringify(cart)) }, [cart])
   useEffect(() => { productsRef.current = products }, [products])
   useEffect(() => { showPayRef.current  = showPay  }, [showPay])
   useEffect(() => {
