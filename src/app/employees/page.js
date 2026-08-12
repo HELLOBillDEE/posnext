@@ -381,10 +381,16 @@ ${emp.carryForwardIn>0?`<div class="row"><span>ทบจากเดือนก
                 <span className="ml-1.5 text-slate-400">({cycle.daysInCycle}/10 วัน)</span>
               </span>
               {cycle.isComplete ? (
-                <button onClick={payCycle} disabled={payingCycle}
-                  className="text-xs bg-emerald-500 text-white px-3 py-1 rounded-full font-bold disabled:opacity-50 animate-pulse">
-                  {payingCycle ? '...' : `💰 จ่าย ฿${fmt(cycle.cycleAmount)}`}
-                </button>
+                <div className="flex flex-col items-end gap-0.5">
+                  {cycle.hasStreakBonus
+                    ? <span className="text-[10px] text-amber-500 font-bold">🔥 ต่อเนื่อง +฿200</span>
+                    : <span className="text-[10px] text-slate-400">ไม่ต่อเนื่อง ไม่ได้โบนัส</span>
+                  }
+                  <button onClick={payCycle} disabled={payingCycle}
+                    className="text-xs bg-emerald-500 text-white px-3 py-1 rounded-full font-bold disabled:opacity-50 animate-pulse">
+                    {payingCycle ? '...' : `💰 จ่าย ฿${fmt(cycle.cycleAmount)}`}
+                  </button>
+                </div>
               ) : (
                 <span className="text-[11px] text-slate-400">อีก {cycle.daysUntilPay} วัน</span>
               )}

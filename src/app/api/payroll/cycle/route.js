@@ -58,8 +58,24 @@ export async function GET(req) {
       }
     }
 
-    // ยอดค่าแรงรอบนี้ = 10 วัน × daily_rate + โบนัส 200
-    const cycleAmount = 10 * Number(emp.daily_rate || 0) + 200
+    // เช็คว่า 10 วันนี้ทำต่อเนื่องไม่หยุดเลยมั้ย (ทุกวันปฏิทิน diff=1)
+    let hasStreakBonus = false
+    if (isComplete) {
+      const cycleDates = []
+      let counted = 0
+      for (const d of days) {
+        cycleDates.push(d.date)
+        counted += d.count
+        if (counted >= 10) break
+      }
+      hasStreakBonus = cycleDates.every((date, i) => {
+        if (i === 0) return true
+        return Math.round((new Date(date) - new Date(cycleDates[i - 1])) / 86400000) === 1
+      })
+    }
+
+    // ยอดค่าแรงรอบนี้ = 10 วัน × daily_rate + โบนัส 200 (เฉพาะถ้าต่อเนื่อง)
+    const cycleAmount = 10 * Number(emp.daily_rate || 0) + (hasStreakBonus ? 200 : 0)
 
     result.push({
       employee_id: emp.id,
@@ -72,6 +88,7 @@ export async function GET(req) {
       isComplete,
       completedDate,
       cycleAmount,
+      hasStreakBonus,
     })
   }
 
