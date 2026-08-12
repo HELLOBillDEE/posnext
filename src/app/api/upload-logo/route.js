@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { invalidateCache } from '@/lib/serverCache'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -29,6 +30,7 @@ export async function POST(req) {
       .upsert({ key: 'shop_logo', value: url }, { onConflict: 'key' })
     if (setErr) return Response.json({ error: setErr.message }, { status: 500 })
 
+    invalidateCache('srv:settings')
     return Response.json({ url })
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 })
