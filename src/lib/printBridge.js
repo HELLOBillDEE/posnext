@@ -284,7 +284,19 @@ export async function buildReceiptESCPOS(r, paperMM = 80) {
   if (n(r.discount) > 0) two('ส่วนลด', '-' + n(r.discount).toFixed(2))
   if (n(r.vat) > 0)      two(`VAT ${(n(r.vatRate) * 100).toFixed(0)}%`, n(r.vat).toFixed(2))
   two('สุทธิ', '฿' + n(r.total).toFixed(2), true)
-  two('ชำระ', n(r.payment_amount || r.total).toFixed(2))
+  const PAY_LBL = { cash:'เงินสด', transfer:'โอน/QR', credit:'เชื่อ', govt:'โครงการรัฐ', mixed:'ผสม' }
+  const pm = r.payment_method || ''
+  const pmLabel = pm.startsWith('govt_') ? `โครงการรัฐ (${pm.slice(5)})` : (PAY_LBL[pm] || pm)
+  if (pm === 'mixed' && r.mix_amounts) {
+    const mx = typeof r.mix_amounts === 'string' ? JSON.parse(r.mix_amounts) : r.mix_amounts
+    if (n(mx.cash) > 0)     two('- เงินสด', n(mx.cash).toFixed(2))
+    if (n(mx.transfer) > 0) two('- โอน/QR', n(mx.transfer).toFixed(2))
+    if (n(mx.govt) > 0)     two('- โครงการรัฐ', n(mx.govt).toFixed(2))
+    if (n(mx.credit) > 0)   two('- เชื่อ', n(mx.credit).toFixed(2))
+    two('รวมชำระ', n(r.payment_amount || r.total).toFixed(2))
+  } else {
+    two(pmLabel || 'ชำระ', n(r.payment_amount || r.total).toFixed(2))
+  }
   if (n(r.change) > 0) two('ทอน', n(r.change).toFixed(2))
   if (r.cashier) two('ผู้รับเงิน', r.cashier)
   if (r.note)    { div(); line('หมายเหตุ: ' + r.note, 'left', Math.round(fSm * 0.9)) }
