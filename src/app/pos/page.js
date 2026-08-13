@@ -2159,7 +2159,16 @@ function SalesHistoryPanel({ settings, currentEmp, empMode, terminalId, terminal
     onEditBill(cartItems, cust, selected.discount || 0)
   }
 
-  const payLabel = m => m === 'cash' ? 'เงินสด' : m === 'transfer' ? 'โอน/QR' : m === 'credit' ? 'เชื่อ' : m === 'govt' ? 'โครงการรัฐ' : m || '—'
+  const payLabel = m => {
+    if (!m) return '—'
+    if (m === 'cash') return 'เงินสด'
+    if (m === 'transfer') return 'โอน/QR'
+    if (m === 'credit') return 'เชื่อ'
+    if (m === 'govt') return 'โครงการรัฐ'
+    if (m === 'mixed') return 'ผสม'
+    if (m.startsWith('govt_')) return `โครงการรัฐ (${m.slice(5)})`
+    return m
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex">
@@ -2579,7 +2588,7 @@ function CancelBillModal({ sale, settings, currentEmp, empMode, onClose, onVoide
             <div className="bg-red-50 rounded-2xl px-4 py-3 border border-red-100">
               <p className="text-xs text-slate-400 mb-0.5">บิล</p>
               <p className="font-bold text-slate-800">{sale.receipt_no}</p>
-              <p className="text-sm text-slate-500">฿{Number(sale.total).toLocaleString('th-TH')} · {sale.payment_method === 'cash' ? 'เงินสด' : sale.payment_method === 'transfer' ? 'โอน/QR' : 'เชื่อ'}</p>
+              <p className="text-sm text-slate-500">฿{Number(sale.total).toLocaleString('th-TH')} · {sale.payment_method?.startsWith('govt_') ? `โครงการรัฐ (${sale.payment_method.slice(5)})` : sale.payment_method === 'cash' ? 'เงินสด' : sale.payment_method === 'transfer' ? 'โอน/QR' : sale.payment_method === 'govt' ? 'โครงการรัฐ' : sale.payment_method === 'mixed' ? 'ผสม' : 'เชื่อ'}</p>
             </div>
 
             <input value={reason} onChange={e => setReason(e.target.value)}
@@ -3415,7 +3424,7 @@ function buildReceiptHTML(r) {
     ${r.discount>0?`<tr><td style="font-size:17px">ส่วนลด</td><td style="text-align:right;font-size:17px">-${Number(r.discount).toFixed(2)}</td></tr>`:''}
     ${r.vat>0?`<tr><td style="font-size:17px">VAT ${(r.vatRate*100).toFixed(0)}%</td><td style="text-align:right;font-size:17px">${Number(r.vat).toFixed(2)}</td></tr>`:''}
     <tr class="total-row"><td>สุทธิ</td><td style="text-align:right">${Number(r.total).toFixed(2)}</td></tr>
-    <tr><td style="font-size:17px">${PAY[r.payment_method]||r.payment_method||''}</td><td style="text-align:right;font-size:17px">${r.payment_amount?Number(r.payment_amount).toFixed(2):''}</td></tr>
+    <tr><td style="font-size:17px">${r.payment_method?.startsWith('govt_')?`โครงการรัฐ (${r.payment_method.slice(5)})`:PAY[r.payment_method]||r.payment_method||''}</td><td style="text-align:right;font-size:17px">${r.payment_amount?Number(r.payment_amount).toFixed(2):''}</td></tr>
     ${r.change>0?`<tr><td style="font-size:17px">เงินทอน</td><td style="text-align:right;font-size:17px">${Number(r.change).toFixed(2)}</td></tr>`:''}
   </table>
   <hr class="dash">
