@@ -2074,7 +2074,7 @@ function SalesHistoryPanel({ settings, currentEmp, empMode, terminalId, terminal
     try {
       if (histTab === 'sales') {
         let q = supabase.from('sales')
-          .select('id,receipt_no,created_at,total,payment_method,status,note,void_reason,payment_amount,discount,customer_id,employee_id,terminal_id')
+          .select('id,receipt_no,created_at,total,subtotal,payment_method,status,note,void_reason,payment_amount,discount,customer_id,employee_id,terminal_id')
           .order('created_at', { ascending: false }).limit(60)
         if (search.trim()) q = q.ilike('receipt_no', `%${search.trim()}%`)
         if (termFilter === 'mine' && terminalId) q = q.eq('terminal_id', terminalId)
@@ -3430,6 +3430,7 @@ function buildReceiptHTML(r) {
   <hr class="dash">
   ${r.customerName?`<div class="meta"><span>ลูกค้า</span><span>${r.customerName}${r.customerPhone?` ${r.customerPhone}`:''}</span></div>`:''}
   ${r.cashier?`<div class="meta"><span>พนักงาน</span><span>${r.cashier}</span></div>`:''}
+  ${r.terminal_id?`<div class="meta"><span>จุดขาย</span><span>${r.terminal_id}</span></div>`:''}
   ${r.note?`<div style="font-size:15px;padding:3px 0">หมายเหตุ: ${r.note}</div>`:''}
   <div class="meta"><span>เลขที่</span><span>${r.receipt_no}</span></div>
   <div class="meta"><span></span><span style="font-size:15px">** ${dtStr} **</span></div>

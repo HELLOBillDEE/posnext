@@ -299,7 +299,8 @@ export async function buildReceiptESCPOS(r, paperMM = 80) {
     two(pmLabel || 'ชำระ', n(r.payment_amount || r.total).toFixed(2))
   }
   if (n(r.change) > 0) two('ทอน', n(r.change).toFixed(2))
-  if (r.cashier) two('ผู้รับเงิน', r.cashier)
+  if (r.cashier)     two('ผู้รับเงิน', r.cashier)
+  if (r.terminal_id) two('จุดขาย', r.terminal_id)
   if (r.note)    { div(); line('หมายเหตุ: ' + r.note, 'left', Math.round(fSm * 0.9)) }
 
   nl()
