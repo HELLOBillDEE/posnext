@@ -2299,7 +2299,14 @@ function SalesHistoryPanel({ settings, currentEmp, empMode, terminalId, terminal
         ) : detailLoading ? (
           <div className="flex-1 flex items-center justify-center text-slate-400">กำลังโหลด...</div>
         ) : selectedDelivery ? (
-          <DeliveryDetailInHistory doc={selectedDelivery} settings={settings} onBack={() => { setPage('list'); setSelectedDelivery(null) }} />
+          <DeliveryDetailInHistory
+            doc={selectedDelivery} settings={settings}
+            onBack={() => { setPage('list'); setSelectedDelivery(null) }}
+            onUpdated={updated => {
+              setSelectedDelivery(updated)
+              setDeliveryDocs(prev => prev.map(d => d.id === updated.id ? updated : d))
+            }}
+          />
         ) : selected ? (
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* Sale meta */}
@@ -2394,21 +2401,91 @@ function SalesHistoryPanel({ settings, currentEmp, empMode, terminalId, terminal
   )
 }
 
-function DeliveryDetailInHistory({ doc, settings, onBack }) {
+function DeliveryDetailInHistory({ doc: initialDoc, settings, onBack, onUpdated }) {
+  const [doc, setDoc]           = useState(initialDoc)
+  const [editMode, setEditMode] = useState(false)
+  const [saving, setSaving]     = useState(false)
+
+  // edit fields
+  const [custName, setCustName]       = useState('')
+  const [custPhone, setCustPhone]     = useState('')
+  const [custAddr, setCustAddr]       = useState('')
+  const [editItems, setEditItems]     = useState([])
+  const [deliveryFee, setDeliveryFee] = useState('0')
+  const [editNote, setEditNote]       = useState('')
+
   const isCancelled = doc.status === 'cancelled'
 
-  async function reprint() {
+  function startEdit() {
+    setCustName(doc.customer_name || '')
+    setCustPhone(doc.customer_phone || '')
+    setCustAddr(doc.customer_address || '')
+    setEditItems((doc.items || []).map(i => ({ ...i })))
+    setDeliveryFee(String(doc.delivery_fee || 0))
+    setEditNote(doc.note || '')
+    setEditMode(true)
+  }
+
+  function updateItem(idx, field, val) {
+    setEditItems(prev => prev.map((item, i) => i === idx ? { ...item, [field]: val } : item))
+  }
+
+  const fee = parseFloat(deliveryFee) || 0
+  const computedSubtotal = editItems.reduce((s, i) => s + Number(i.price || 0) * Number(i.qty || 1) - Number(i.disc || 0), 0)
+  const computedTotal = computedSubtotal - Number(doc.discount || 0) + fee
+
+  async function saveEdit() {
+    if (!custName.trim()) return alert('กรุณาใส่ชื่อลูกค้า')
+    setSaving(true)
+    try {
+      const updatedItems = editItems.map(i => ({
+        ...i,
+        qty: Number(i.qty) || 1,
+        disc: Number(i.disc) || 0,
+        subtotal: Number(i.price || 0) * (Number(i.qty) || 1) - (Number(i.disc) || 0),
+      }))
+      const { data, error } = await supabase.from('quotations').update({
+        customer_name: custName.trim(),
+        customer_phone: custPhone.trim(),
+        customer_address: custAddr.trim(),
+        items: updatedItems,
+        delivery_fee: fee,
+        subtotal: computedSubtotal,
+        total: computedTotal,
+        note: editNote.trim() || null,
+      }).eq('id', doc.id).select().single()
+      if (error) throw error
+      setDoc(data)
+      if (onUpdated) onUpdated(data)
+      setEditMode(false)
+    } catch (e) {
+      alert('บันทึกไม่สำเร็จ: ' + e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function cancelDoc() {
+    if (!confirm(`ยกเลิกใบส่งของ ${doc.doc_no} ใช่ไหม?`)) return
+    const { error } = await supabase.from('quotations').update({ status: 'cancelled' }).eq('id', doc.id)
+    if (error) return alert('เกิดข้อผิดพลาด: ' + error.message)
+    const updated = { ...doc, status: 'cancelled' }
+    setDoc(updated)
+    if (onUpdated) onUpdated(updated)
+  }
+
+  async function reprint(d) {
     const cfg = getReceiptCfg()
     const paperW = parseInt(cfg.paper_width) || 80
     try {
       const slipBytes = await buildDeliverySlipESCPOS({
-        doc_no: doc.doc_no,
+        doc_no: d.doc_no,
         shopName: settings?.shop_name, shopAddress: settings?.shop_address, shopPhone: settings?.shop_phone,
-        customer_name: doc.customer_name, customer_phone: doc.customer_phone,
-        customer_address: doc.customer_address,
-        items: doc.items || [], subtotal: doc.subtotal || doc.total,
-        discount: doc.discount || 0, delivery_fee: doc.delivery_fee || 0,
-        total: doc.total, note: doc.note, created_at: doc.created_at,
+        customer_name: d.customer_name, customer_phone: d.customer_phone,
+        customer_address: d.customer_address,
+        items: d.items || [], subtotal: d.subtotal || d.total,
+        discount: d.discount || 0, delivery_fee: d.delivery_fee || 0,
+        total: d.total, note: d.note, created_at: d.created_at,
       }, paperW)
       const usbAuto = cfg.usb_port && (cfg.usb_mode || await getServerUsb())
       if (usbAuto) await printViaUSB(slipBytes, cfg.usb_port)
@@ -2416,6 +2493,80 @@ function DeliveryDetailInHistory({ doc, settings, onBack }) {
     } catch (e) { alert('พิมไม่สำเร็จ: ' + e.message) }
   }
 
+  // ── Edit mode ──────────────────────────────────────────────────────────────
+  if (editMode) {
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="px-4 py-3 bg-amber-50 border-b border-amber-100 shrink-0 flex items-center justify-between">
+          <p className="font-bold text-amber-700 text-sm">✏️ แก้ไข {doc.doc_no}</p>
+          <button onClick={() => setEditMode(false)} className="text-slate-400 text-sm">ยกเลิก</button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+          {/* Customer */}
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">ข้อมูลลูกค้า</p>
+          <input value={custName} onChange={e => setCustName(e.target.value)}
+            placeholder="ชื่อลูกค้า *" className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm" />
+          <input value={custPhone} onChange={e => setCustPhone(e.target.value)}
+            placeholder="เบอร์โทร" className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm" />
+          <textarea value={custAddr} onChange={e => setCustAddr(e.target.value)}
+            placeholder="ที่อยู่จัดส่ง" rows={2} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm resize-none" />
+
+          {/* Items */}
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide pt-1">รายการสินค้า</p>
+          {editItems.map((item, idx) => (
+            <div key={idx} className="border border-gray-100 rounded-xl p-3 space-y-2">
+              <p className="text-sm font-semibold text-slate-800">{item.name || item.product_name}</p>
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <p className="text-[10px] text-slate-400 mb-1">จำนวน</p>
+                  <input type="number" min="1" value={item.qty}
+                    onChange={e => updateItem(idx, 'qty', e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-[10px] text-slate-400 mb-1">ราคา/ชิ้น</p>
+                  <input type="number" min="0" value={item.price}
+                    onChange={e => updateItem(idx, 'price', e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-[10px] text-slate-400 mb-1">ส่วนลด</p>
+                  <input type="number" min="0" value={item.disc || 0}
+                    onChange={e => updateItem(idx, 'disc', e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center" />
+                </div>
+              </div>
+              <input value={item.note || ''} onChange={e => updateItem(idx, 'note', e.target.value)}
+                placeholder="หมายเหตุสินค้า" className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs" />
+            </div>
+          ))}
+
+          {/* Delivery & note */}
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide pt-1">ค่าจัดส่ง / หมายเหตุ</p>
+          <input type="number" min="0" value={deliveryFee} onChange={e => setDeliveryFee(e.target.value)}
+            placeholder="ค่าจัดส่ง (฿)" className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm" />
+          <textarea value={editNote} onChange={e => setEditNote(e.target.value)}
+            placeholder="หมายเหตุ" rows={2} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm resize-none" />
+
+          {/* Summary */}
+          <div className="bg-blue-50 rounded-xl p-3 space-y-1 text-sm">
+            <div className="flex justify-between text-slate-500"><span>รวมสินค้า</span><span>฿{fmt(computedSubtotal)}</span></div>
+            {fee > 0 && <div className="flex justify-between text-slate-500"><span>ค่าจัดส่ง</span><span>฿{fmt(fee)}</span></div>}
+            {Number(doc.discount || 0) > 0 && <div className="flex justify-between text-red-500"><span>ส่วนลด</span><span>-฿{fmt(Number(doc.discount))}</span></div>}
+            <div className="flex justify-between font-bold text-blue-700 text-base border-t border-blue-100 pt-1"><span>ยอดรวม</span><span>฿{fmt(computedTotal)}</span></div>
+          </div>
+        </div>
+        <div className="px-4 py-3 border-t border-gray-100 shrink-0 space-y-2">
+          <button onClick={saveEdit} disabled={saving}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-2xl text-sm transition-colors disabled:opacity-60">
+            {saving ? 'กำลังบันทึก...' : '💾 บันทึกการแก้ไข'}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Detail view ────────────────────────────────────────────────────────────
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <div className="px-4 py-3 bg-blue-50 border-b border-blue-100 shrink-0">
@@ -2435,6 +2586,7 @@ function DeliveryDetailInHistory({ doc, settings, onBack }) {
             {doc.distance_km && <p className="text-blue-500">🛣️ {Number(doc.distance_km).toFixed(1)} กม. · ค่าส่ง ฿{fmt(doc.delivery_fee || 0)}</p>}
           </div>
         )}
+        {doc.note && <p className="mt-1.5 text-xs text-slate-400">{doc.note}</p>}
       </div>
       <div className="flex-1 overflow-y-auto divide-y divide-gray-50">
         {(doc.items || []).map((item, i) => (
@@ -2450,11 +2602,24 @@ function DeliveryDetailInHistory({ doc, settings, onBack }) {
           </div>
         ))}
       </div>
-      <div className="px-4 py-3 border-t border-gray-100 shrink-0">
-        <button onClick={reprint}
+      <div className="px-4 py-3 border-t border-gray-100 shrink-0 space-y-2">
+        <button onClick={() => reprint(doc)}
           className="w-full bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold py-3 rounded-2xl text-sm transition-colors">
           🖨️ พิมพ์ใบส่งของ
         </button>
+        {!isCancelled && (
+          <button onClick={startEdit}
+            className="w-full font-bold py-3 rounded-2xl text-sm transition-colors active:scale-[0.98]"
+            style={{ background: 'rgba(124,58,237,0.08)', color: '#7c3aed' }}>
+            ✏️ แก้ไขใบส่งของ
+          </button>
+        )}
+        {!isCancelled && (
+          <button onClick={cancelDoc}
+            className="w-full bg-red-50 hover:bg-red-100 text-red-500 font-bold py-3 rounded-2xl text-sm transition-colors active:scale-[0.98]">
+            🚫 ยกเลิกใบส่งของ
+          </button>
+        )}
       </div>
     </div>
   )
