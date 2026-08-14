@@ -276,6 +276,7 @@ export async function buildReceiptESCPOS(r, paperMM = 80) {
         Number(i.price * i.qty - (i.disc || 0)).toFixed(2))
     const techDisplay = i.technician_names?.length ? i.technician_names.join(', ') : i.tech_name
     if (techDisplay) line(`  🔧 ช่าง: ${techDisplay}`, 'left', Math.round(fSm * 0.85))
+    if (i.note) line(`  * ${i.note}`, 'left', Math.round(fSm * 0.85))
   }
   div()
 
@@ -338,10 +339,12 @@ export async function buildCheckerESCPOS(r, paperMM = 80) {
     totalQty += Number(i.qty) || 0
     line(`[ ]  ${no}. ${i.name || ''}`, 'left', fSm, true)
     two('', `x ${i.qty} ${i.unit || 'ชิ้น'}`)
+    if (i.note) line(`     * ${i.note}`, 'left', Math.round(fSm * 0.85))
     nl()
   }
   div()
   two('รวม', `${no} รายการ  ${totalQty} ชิ้น`, true)
+  if (r.note) { nl(); line('หมายเหตุ: ' + r.note, 'left', Math.round(fSm * 0.9)) }
   nl(); nl(); nl(); nl(); nl(); nl()
 
   return renderDLtoESCPOS(dl, pw)
