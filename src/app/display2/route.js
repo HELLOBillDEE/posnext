@@ -89,10 +89,13 @@ body{font-family:'Kanit',sans-serif;}
 /* ── POS PANEL BASE ── */
 .pos{display:flex;flex-direction:column;overflow:hidden;transition:opacity .4s;}
 .pos.idle-dim{opacity:.55;}
-.pos-idle{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;background:#fff;}
+.pos-idle{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;background:#fff;position:relative;}
 .pos-idle .logo-wrap img{max-width:100%;max-height:140px;object-fit:contain;}
 .pos-idle .wlc{font-size:18px;color:#94a3b8;text-align:center;}
 .pos-idle .tid{font-size:11px;color:#cbd5e1;margin-top:4px;}
+.d2-clock-wrap{position:absolute;bottom:14px;left:0;right:0;text-align:center;}
+.d2-clock-time{font-size:34px;font-weight:800;color:#1e293b;letter-spacing:2px;font-variant-numeric:tabular-nums;}
+.d2-clock-date{font-size:11px;color:#64748b;margin-top:2px;}
 .pos-active{flex:1;display:flex;flex-direction:column;background:#f8fafc;}
 .pos-hdr{background:linear-gradient(135deg,#C72C41,#801336);color:#fff;padding:12px 14px;flex-shrink:0;}
 .pos-hdr h2{font-size:17px;font-weight:700;}
@@ -394,7 +397,9 @@ function renderPos(id, st, tid) {
   if (isIdle) {
     el.innerHTML = '<div class="pos-idle">'+logoSmall()
       +'<div class="wlc">ยินดีต้อนรับ</div>'
-      +'<div class="tid">'+tid+'</div></div>'
+      +'<div class="tid">'+tid+'</div>'
+      +'<div class="d2-clock-wrap"><div class="d2-clock-time">--:--:--</div><div class="d2-clock-date"></div></div>'
+      +'</div>'
     return
   }
   if (st.status === 'active') {
@@ -412,17 +417,33 @@ function renderPos(id, st, tid) {
     return
   }
   if (st.status === 'paying') {
-    el.innerHTML = '<div class="pos-paying">'
-      +'<div class="ic">💳</div><div class="t1">กำลังชำระเงิน</div>'
-      +'<div class="t2">฿'+fmt(st.total)+'</div></div>'
+    const rows = (st.items||[]).map(i=>
+      '<div class="ci"><div><div class="ci-name">'+i.name+'</div>'
+      +'<div class="ci-unit">฿'+fmt(i.price)+' × '+i.qty+'</div></div>'
+      +'<div class="ci-tot">฿'+fmt(i.subtotal)+'</div></div>'
+    ).join('')
+    el.innerHTML = '<div class="pos-active">'
+      +'<div class="pos-hdr" style="background:linear-gradient(135deg,#0f172a,#1e3a5f)">'
+      +'<h2>💳 กำลังชำระเงิน</h2></div>'
+      +'<div class="pos-body">'+rows+'</div>'
+      +'<div class="pos-total" style="background:linear-gradient(135deg,#0f172a,#1e3a5f)">'
+      +'<div class="lbl">ยอดชำระ</div><div class="amt">฿'+fmt(st.total)+'</div></div></div>'
     return
   }
   if (st.status === 'paying_qr') {
     const qrSrc = st.qr_url || cfg.payment_qr || ''
-    const qrEl = qrSrc ? '<img src="'+qrSrc+'" alt="QR">' : '<div style="font-size:72px">📱</div>'
-    el.innerHTML = '<div class="pos-qr">'
+    const qrEl = qrSrc ? '<img src="'+qrSrc+'" alt="QR" style="width:min(130px,70%);border-radius:8px">' : '<div style="font-size:48px">📱</div>'
+    const rows = (st.items||[]).map(i=>
+      '<div class="ci"><div><div class="ci-name">'+i.name+'</div>'
+      +'<div class="ci-unit">฿'+fmt(i.price)+' × '+i.qty+'</div></div>'
+      +'<div class="ci-tot">฿'+fmt(i.subtotal)+'</div></div>'
+    ).join('')
+    el.innerHTML = '<div class="pos-active">'
+      +'<div class="pos-hdr"><h2>รายการสินค้า</h2></div>'
+      +'<div class="pos-body">'+rows+'</div>'
+      +'<div class="pos-qr" style="flex:0 0 auto;padding:12px 8px;border-top:1px solid #e2e8f0">'
       +'<div class="qt">สแกนเพื่อชำระเงิน</div>'
-      +qrEl+'<div class="qa">฿'+fmt(st.total)+'</div></div>'
+      +qrEl+'<div class="qa">฿'+fmt(st.total)+'</div></div></div>'
     return
   }
   if (st.status === 'paid') {
@@ -436,6 +457,17 @@ function renderPos(id, st, tid) {
 
 /* ── INIT ── */
 loadCfg()
+
+// Clock for idle panels
+function d2ClockTick(){
+  const now=new Date()
+  const t=now.toLocaleTimeString('th-TH',{timeZone:'Asia/Bangkok',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})
+  const d=now.toLocaleDateString('th-TH',{timeZone:'Asia/Bangkok',weekday:'long',day:'numeric',month:'long',year:'numeric'})
+  document.querySelectorAll('.d2-clock-time').forEach(el=>el.textContent=t)
+  document.querySelectorAll('.d2-clock-date').forEach(el=>el.textContent=d)
+}
+d2ClockTick()
+setInterval(d2ClockTick,1000)
 
 // รีเฟรชราคาสินค้าทุก 5 นาที
 setInterval(async () => {
