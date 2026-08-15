@@ -54,8 +54,9 @@ body{font-family:'Kanit',sans-serif;}
 .idle-r .sname{font-size:26px;font-weight:700;color:#1e293b;text-align:center;}
 .idle-r .phone{font-size:22px;color:#C72C41;font-weight:600;}
 .idle-r .wlc{font-size:16px;color:#94a3b8;margin-top:4px;}
-#clock-time{font-size:52px;font-weight:800;color:#1e293b;letter-spacing:2px;line-height:1;font-variant-numeric:tabular-nums;}
-#clock-date{font-size:15px;color:#64748b;margin-top:2px;text-align:center;}
+#clock-wrap{position:absolute;bottom:16px;left:0;right:0;text-align:center;}
+#clock-time{font-size:44px;font-weight:800;color:#1e293b;letter-spacing:2px;line-height:1;font-variant-numeric:tabular-nums;}
+#clock-date{font-size:13px;color:#64748b;margin-top:2px;}
 
 /* ── ACTIVE ── */
 .cart-l{background:#f8fafc;display:flex;flex-direction:column;}
@@ -237,7 +238,7 @@ function render(){
       slideCount=3
     }
     const tid=CHANNEL.replace('customer-display-','').replace('customer-display','')
-    const rightPanel='<div class="pR idle-r">'+logoElWhite('150px')+'<div id="clock-time">--:--:--</div><div id="clock-date"></div>'+'<div style="margin-top:8px;padding:10px 16px;border:2px solid #C72C41;border-radius:14px;text-align:center;color:#C72C41;font-weight:700;font-size:15px;line-height:1.5">🧾 กรุณารับใบเสร็จ<br>จากพนักงานทุกครั้ง</div>'+'<div class="wlc" style="margin-top:4px">ยินดีต้อนรับ</div>'+(tid?'<div style="font-size:11px;color:#94a3b8;margin-top:6px">'+tid+'</div>':'')+'</div>'
+    const rightPanel='<div class="pR idle-r" style="position:relative">'+logoElWhite('150px')+'<div style="margin-top:8px;padding:10px 16px;border:2px solid #C72C41;border-radius:14px;text-align:center;color:#C72C41;font-weight:700;font-size:15px;line-height:1.5">🧾 กรุณารับใบเสร็จ<br>จากพนักงานทุกครั้ง</div>'+'<div class="wlc" style="margin-top:4px">ยินดีต้อนรับ</div>'+(tid?'<div style="font-size:11px;color:#94a3b8;margin-top:6px">'+tid+'</div>':'')+'<div id="clock-wrap"><div id="clock-time">--:--:--</div><div id="clock-date"></div></div>'+'</div>'
     app.innerHTML='<div class="split">'+leftPanel+rightPanel+'</div>'
     if(pendingItems) setupPlaylist(pendingItems)
     else if(slideCount>0) startSlides(slideCount)
