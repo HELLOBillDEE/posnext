@@ -54,6 +54,8 @@ body{font-family:'Kanit',sans-serif;}
 .idle-r .sname{font-size:26px;font-weight:700;color:#1e293b;text-align:center;}
 .idle-r .phone{font-size:22px;color:#C72C41;font-weight:600;}
 .idle-r .wlc{font-size:16px;color:#94a3b8;margin-top:4px;}
+#clock-time{font-size:52px;font-weight:800;color:#1e293b;letter-spacing:2px;line-height:1;font-variant-numeric:tabular-nums;}
+#clock-date{font-size:15px;color:#64748b;margin-top:2px;text-align:center;}
 
 /* ── ACTIVE ── */
 .cart-l{background:#f8fafc;display:flex;flex-direction:column;}
@@ -235,7 +237,7 @@ function render(){
       slideCount=3
     }
     const tid=CHANNEL.replace('customer-display-','').replace('customer-display','')
-    const rightPanel='<div class="pR idle-r">'+logoElWhite('150px')+'<div style="margin-top:12px;padding:10px 16px;border:2px solid #C72C41;border-radius:14px;text-align:center;color:#C72C41;font-weight:700;font-size:15px;line-height:1.5">🧾 กรุณารับใบเสร็จ<br>จากพนักงานทุกครั้ง</div>'+'<div class="wlc" style="margin-top:6px">ยินดีต้อนรับ</div>'+(tid?'<div style="font-size:11px;color:#94a3b8;margin-top:8px">'+tid+'</div>':'')+'</div>'
+    const rightPanel='<div class="pR idle-r">'+logoElWhite('150px')+'<div id="clock-time">--:--:--</div><div id="clock-date"></div>'+'<div style="margin-top:8px;padding:10px 16px;border:2px solid #C72C41;border-radius:14px;text-align:center;color:#C72C41;font-weight:700;font-size:15px;line-height:1.5">🧾 กรุณารับใบเสร็จ<br>จากพนักงานทุกครั้ง</div>'+'<div class="wlc" style="margin-top:4px">ยินดีต้อนรับ</div>'+(tid?'<div style="font-size:11px;color:#94a3b8;margin-top:6px">'+tid+'</div>':'')+'</div>'
     app.innerHTML='<div class="split">'+leftPanel+rightPanel+'</div>'
     if(pendingItems) setupPlaylist(pendingItems)
     else if(slideCount>0) startSlides(slideCount)
@@ -334,6 +336,32 @@ function toggleMute(){
 
 render()
 loadCfg()
+
+let _clockTimer=null
+function startClock(){
+  if(_clockTimer) return
+  function tick(){
+    const el=document.getElementById('clock-time')
+    const de=document.getElementById('clock-date')
+    if(!el||!de) return
+    const now=new Date()
+    el.textContent=now.toLocaleTimeString('th-TH',{timeZone:'Asia/Bangkok',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})
+    de.textContent=now.toLocaleDateString('th-TH',{timeZone:'Asia/Bangkok',weekday:'long',day:'numeric',month:'long',year:'numeric'})
+  }
+  tick()
+  _clockTimer=setInterval(tick,1000)
+}
+function stopClock(){
+  if(_clockTimer){clearInterval(_clockTimer);_clockTimer=null}
+}
+
+const _origRender=render
+render=function(){
+  stopClock()
+  _origRender()
+  if(state.status==='idle') startClock()
+}
+if(state.status==='idle') startClock()
 
 let _receiptTimer=null
 sb.channel(CHANNEL)

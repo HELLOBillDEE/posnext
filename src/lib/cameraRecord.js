@@ -52,18 +52,27 @@ function recordCamera(url, durationSec, outPath) {
 }
 
 async function sendToTelegram(token, chatId, buffer, caption) {
-  const form = new FormData()
-  form.append('chat_id', chatId)
-  form.append('video', new Blob([buffer], { type: 'video/mp4' }), 'clip.mp4')
-  if (caption) form.append('caption', caption)
-  const ctrl = new AbortController()
-  const tid  = setTimeout(() => ctrl.abort(), 90_000) // 90s timeout
+  const attempt = async () => {
+    const form = new FormData()
+    form.append('chat_id', chatId)
+    form.append('video', new Blob([buffer], { type: 'video/mp4' }), 'clip.mp4')
+    if (caption) form.append('caption', caption)
+    const ctrl = new AbortController()
+    const tid  = setTimeout(() => ctrl.abort(), 120_000)
+    try {
+      const res  = await fetch(`https://api.telegram.org/bot${token}/sendVideo`, { method: 'POST', body: form, signal: ctrl.signal })
+      const json = await res.json()
+      if (!json.ok) console.error('[camera] Telegram sendVideo error:', json.description)
+    } finally {
+      clearTimeout(tid)
+    }
+  }
   try {
-    const res  = await fetch(`https://api.telegram.org/bot${token}/sendVideo`, { method: 'POST', body: form, signal: ctrl.signal })
-    const json = await res.json()
-    if (!json.ok) console.error('[camera] Telegram sendVideo error:', json.description)
-  } finally {
-    clearTimeout(tid)
+    await attempt()
+  } catch (e) {
+    console.warn('[camera] sendVideo retry after error:', e.message)
+    await new Promise(r => setTimeout(r, 5000))
+    await attempt()
   }
 }
 
