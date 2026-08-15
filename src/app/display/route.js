@@ -269,11 +269,22 @@ function render(){
 
   /* ── PAYING (cash / credit) ── */
   if(s.status==='paying'){
+    const rows=(s.items||[]).map(i=>
+      '<div class="ci"><div><div class="ci-name">'+i.name+'</div><div class="ci-unit">฿'+fmt(i.price)+' × '+i.qty+'</div></div><div class="ci-tot">฿'+fmt(i.subtotal)+'</div></div>'
+    ).join('')
+    const disc=s.discount>0?'<div class="disc">ส่วนลด −฿'+fmt(s.discount)+'</div>':''
     app.innerHTML=\`
-      <div class="fs pay-fs">
-        <div class="ic">💳</div>
-        <div class="t1">กำลังชำระเงิน</div>
-        <div class="t2">฿\${fmt(s.total)}</div>
+      <div class="split">
+        <div class="pL cart-l">
+          <div class="cart-hdr"><h2>รายการสินค้า</h2></div>
+          <div class="cart-body">\${rows}</div>
+        </div>
+        <div class="pR total-r" style="background:linear-gradient(170deg,#0f172a,#1e3a5f)">
+          <div class="lbl" style="font-size:20px">💳 กำลังชำระเงิน</div>
+          <div class="amt">฿\${fmt(s.total)}</div>
+          \${disc}
+          <div class="cnt">\${(s.items||[]).length} รายการ</div>
+        </div>
       </div>
     \`
     return
@@ -281,22 +292,26 @@ function render(){
 
   /* ── PAYING QR ── */
   if(s.status==='paying_qr'){
+    const rows=(s.items||[]).map(i=>
+      '<div class="ci"><div><div class="ci-name">'+i.name+'</div><div class="ci-unit">฿'+fmt(i.price)+' × '+i.qty+'</div></div><div class="ci-tot">฿'+fmt(i.subtotal)+'</div></div>'
+    ).join('')
+    const disc=s.discount>0?'<div style="font-size:14px;opacity:.75">ส่วนลด −฿'+fmt(s.discount)+'</div>':''
     const qrSrc=s.qr_url||cfg.payment_qr||''
     const qrEl=qrSrc
       ?'<img class="qimg" src="'+qrSrc+'" alt="QR">'
-      :'<div style="width:220px;height:220px;background:#f1f5f9;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:72px">📱</div>'
+      :'<div style="width:180px;height:180px;background:#f1f5f9;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:64px">📱</div>'
     app.innerHTML=\`
       <div class="split">
-        <div class="pL qr-l">
-          <div class="qtitle">สแกนเพื่อชำระเงิน</div>
-          \${qrEl}
-          <div class="qnote">รองรับทุกธนาคาร · PromptPay</div>
+        <div class="pL cart-l">
+          <div class="cart-hdr"><h2>รายการสินค้า</h2></div>
+          <div class="cart-body">\${rows}</div>
         </div>
-        <div class="pR qr-r">
-          <div class="ic">💳</div>
-          <div class="t1">ยอดที่ต้องชำระ</div>
-          <div class="t2">฿\${fmt(s.total)}</div>
-          <div class="t3">สแกน QR แล้วแจ้งพนักงาน</div>
+        <div class="pR qr-r" style="gap:8px">
+          <div class="qtitle" style="color:rgba(255,255,255,0.75);font-size:16px">สแกนเพื่อชำระเงิน</div>
+          \${qrEl}
+          <div style="font-size:48px;font-weight:800;line-height:1">฿\${fmt(s.total)}</div>
+          \${disc}
+          <div style="font-size:13px;opacity:.6">รองรับทุกธนาคาร · PromptPay</div>
         </div>
       </div>
     \`
