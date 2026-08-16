@@ -609,7 +609,10 @@ export default function POSPage() {
     const ch = dispChRef.current
     if (!ch) return
     if (Date.now() < paidUntilRef.current) return // ให้ paid screen แสดงก่อน
-    const isQR = showPay && payMethod === 'transfer' && payMode === 'single'
+    const isQR = showPay && (
+      (payMethod === 'transfer' && payMode === 'single') ||
+      (payMode === 'mixed' && mixTransfer > 0)
+    )
     const status = showPay ? (isQR ? 'paying_qr' : 'paying') : cart.length > 0 ? 'active' : 'idle'
     ch.send({
       type: 'broadcast', event: 'pos',
