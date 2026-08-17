@@ -448,6 +448,7 @@ function renderPos(id, st, tid) {
     const otherRows = otherMix.length>0
       ? '<div style="margin-top:6px;width:100%;display:flex;flex-direction:column;gap:3px">'
         +otherMix.map(m=>'<div style="display:flex;justify-content:space-between;font-size:11px;background:#f1f5f9;border-radius:6px;padding:4px 8px"><span>'+m.label+'</span><span style="font-weight:700;color:#0f172a">฿'+fmt(m.amount)+'</span></div>').join('')
+        +'<div style="display:flex;justify-content:space-between;font-size:12px;font-weight:800;border-top:1px solid #cbd5e1;margin-top:3px;padding-top:4px"><span>รวมทั้งหมด</span><span>฿'+fmt(st.total)+'</span></div>'
         +'</div>'
       : ''
     el.innerHTML = '<div class="pos-active">'
