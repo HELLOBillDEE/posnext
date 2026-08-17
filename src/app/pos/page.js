@@ -620,11 +620,11 @@ export default function POSPage() {
         status,
         items: cart.map(i => ({ name: i.name, qty: i.qty, price: i.price, subtotal: i.price * i.qty - i.disc })),
         subtotal, discount: totalDisc, total,
-        qr_url: isQR ? (generatedQr || selectedQrAcct?.qr_image_url || null) : null,
+        qr_url: isQR ? (generatedQr || selectedQrAcct?.qr_image_url || settings.payment_qr || null) : null,
       }
     }).catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cart, showPay, payMethod, payMode, subtotal, totalDisc, total, generatedQr, selectedQrAcct])
+  }, [cart, showPay, payMethod, payMode, subtotal, totalDisc, total, generatedQr, selectedQrAcct, mixTransfer])
 
   // Generate QR เมื่อเลือกบัญชีหรือยอดเปลี่ยน
   useEffect(() => {
