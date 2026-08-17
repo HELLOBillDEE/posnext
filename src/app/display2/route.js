@@ -443,12 +443,19 @@ function renderPos(id, st, tid) {
       +'<div class="ci-unit">฿'+fmt(i.price)+' × '+i.qty+'</div></div>'
       +'<div class="ci-tot">฿'+fmt(i.subtotal)+'</div></div>'
     ).join('')
+    const qrAmt = (st.pay_mix||[]).find(m=>m.label==='โอน/QR')?.amount ?? st.total
+    const otherMix = (st.pay_mix||[]).filter(m=>m.label!=='โอน/QR')
+    const otherRows = otherMix.length>0
+      ? '<div style="margin-top:6px;width:100%;display:flex;flex-direction:column;gap:3px">'
+        +otherMix.map(m=>'<div style="display:flex;justify-content:space-between;font-size:11px;background:#f1f5f9;border-radius:6px;padding:4px 8px"><span>'+m.label+'</span><span style="font-weight:700;color:#0f172a">฿'+fmt(m.amount)+'</span></div>').join('')
+        +'</div>'
+      : ''
     el.innerHTML = '<div class="pos-active">'
       +'<div class="pos-hdr"><h2>รายการสินค้า</h2></div>'
       +'<div class="pos-body">'+rows+'</div>'
       +'<div class="pos-qr" style="flex:0 0 auto;padding:12px 8px;border-top:1px solid #e2e8f0">'
       +'<div class="qt">สแกนเพื่อชำระเงิน</div>'
-      +qrEl+'<div class="qa">฿'+fmt(st.total)+'</div></div></div>'
+      +qrEl+'<div class="qa">฿'+fmt(qrAmt)+'</div>'+otherRows+'</div></div>'
     return
   }
   if (st.status === 'paid') {

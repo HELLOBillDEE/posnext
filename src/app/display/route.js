@@ -310,9 +310,9 @@ function render(){
         <div class="pR qr-r" style="gap:8px">
           <div class="qtitle" style="color:rgba(255,255,255,0.75);font-size:16px">สแกนเพื่อชำระเงิน</div>
           \${qrEl}
-          <div style="font-size:48px;font-weight:800;line-height:1">฿\${fmt(s.total)}</div>
+          <div style="font-size:48px;font-weight:800;line-height:1">฿\${fmt((s.pay_mix||[]).find(m=>m.label==='โอน/QR')?.amount??s.total)}</div>
           \${disc}
-          <div style="font-size:13px;opacity:.6">รองรับทุกธนาคาร · PromptPay</div>
+          \${(s.pay_mix&&s.pay_mix.length>1)?'<div style="margin-top:6px;display:flex;flex-direction:column;gap:5px;width:100%;max-width:240px">'+s.pay_mix.filter(m=>m.label!=='โอน/QR').map(m=>'<div style="display:flex;justify-content:space-between;font-size:16px;background:rgba(255,255,255,.12);border-radius:8px;padding:6px 12px"><span>'+m.label+'</span><span style="font-weight:700">฿'+fmt(m.amount)+'</span></div>').join('')+'</div>':'<div style="font-size:13px;opacity:.6">รองรับทุกธนาคาร · PromptPay</div>'}
         </div>
       </div>
     \`
