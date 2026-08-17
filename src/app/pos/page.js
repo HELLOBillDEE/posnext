@@ -621,6 +621,12 @@ export default function POSPage() {
         items: cart.map(i => ({ name: i.name, qty: i.qty, price: i.price, subtotal: i.price * i.qty - i.disc })),
         subtotal, discount: totalDisc, total,
         qr_url: isQR ? (generatedQr || selectedQrAcct?.qr_image_url || settings.payment_qr || null) : null,
+        pay_mix: showPay && payMode === 'mixed' ? [
+          ...(mixCash     > 0 ? [{ label: 'เงินสด',  amount: mixCash     }] : []),
+          ...(mixTransfer > 0 ? [{ label: 'โอน/QR',  amount: mixTransfer }] : []),
+          ...(mixGovt     > 0 ? [{ label: 'โครงการรัฐ', amount: mixGovt  }] : []),
+          ...(mixCredit   > 0 ? [{ label: 'เชื่อ',   amount: mixCredit   }] : []),
+        ] : null,
       }
     }).catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps

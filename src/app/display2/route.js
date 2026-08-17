@@ -422,12 +422,17 @@ function renderPos(id, st, tid) {
       +'<div class="ci-unit">฿'+fmt(i.price)+' × '+i.qty+'</div></div>'
       +'<div class="ci-tot">฿'+fmt(i.subtotal)+'</div></div>'
     ).join('')
+    const mixRows = (st.pay_mix&&st.pay_mix.length>1)
+      ? '<div style="margin:6px 0;display:flex;flex-direction:column;gap:4px;width:100%">'
+        +st.pay_mix.map(m=>'<div style="display:flex;justify-content:space-between;font-size:12px;opacity:.85;border-bottom:1px solid rgba(255,255,255,.15);padding-bottom:4px"><span>'+m.label+'</span><span style="font-weight:700">฿'+fmt(m.amount)+'</span></div>').join('')
+        +'</div>'
+      : ''
     el.innerHTML = '<div class="pos-active">'
       +'<div class="pos-hdr" style="background:linear-gradient(135deg,#0f172a,#1e3a5f)">'
       +'<h2>💳 กำลังชำระเงิน</h2></div>'
       +'<div class="pos-body">'+rows+'</div>'
       +'<div class="pos-total" style="background:linear-gradient(135deg,#0f172a,#1e3a5f)">'
-      +'<div class="lbl">ยอดชำระ</div><div class="amt">฿'+fmt(st.total)+'</div></div></div>'
+      +'<div class="lbl">ยอดชำระ</div><div class="amt">฿'+fmt(st.total)+'</div>'+mixRows+'</div></div>'
     return
   }
   if (st.status === 'paying_qr') {

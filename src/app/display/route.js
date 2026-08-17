@@ -284,7 +284,7 @@ function render(){
           <div class="lbl" style="font-size:20px">💳 กำลังชำระเงิน</div>
           <div class="amt">฿\${fmt(s.total)}</div>
           \${disc}
-          <div class="cnt">\${(s.items||[]).length} รายการ</div>
+          \${(s.pay_mix&&s.pay_mix.length>1)?'<div style="margin-top:12px;width:100%;max-width:260px;display:flex;flex-direction:column;gap:6px">'+s.pay_mix.map(m=>'<div style="display:flex;justify-content:space-between;font-size:15px;opacity:.85;border-bottom:1px solid rgba(255,255,255,.1);padding-bottom:5px"><span>'+m.label+'</span><span style="font-weight:700">฿'+fmt(m.amount)+'</span></div>').join('')+'</div>':''}
         </div>
       </div>
     \`
