@@ -3244,10 +3244,13 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
         if (creditM) creditTotal += parseFloat(creditM[1].replace(/,/g, ''))
       }
     }
-    const drawerIn  = (drawers || []).filter(d => (d.note||'').includes('รับเงินเข้า')).reduce((s,d) => s + Number(d.amount||0), 0)
-    const drawerOut = (drawers || []).filter(d => (d.note||'').includes('เบิกเงินออก')).reduce((s,d) => s + Number(d.amount||0), 0)
-    const expected  = Number(currentShift.opening_cash) + cashSales + drawerIn - drawerOut
-    setShiftSummary({ salesTotal, cashSales, transferTotal, creditTotal, govtByType, transferByAcct, drawerIn, drawerOut, expected, count: sales?.length || 0 })
+    const drawerIn   = (drawers || []).filter(d => (d.note||'').includes('รับเงินเข้า')).reduce((s,d) => s + Number(d.amount||0), 0)
+    // แยก refund (คืนเงินบิลยกเลิก) ออกจาก drawerOut เพราะ voided sale ถูกตัดออกจาก cashSales ไปแล้ว
+    // — นับ drawerOut เฉพาะการเบิกเงินออกที่ไม่ใช่คืนเงินบิล
+    const drawerOut  = (drawers || []).filter(d => (d.note||'').includes('เบิกเงินออก') && !(d.note||'').includes('คืนเงิน')).reduce((s,d) => s + Number(d.amount||0), 0)
+    const voidRefund = (drawers || []).filter(d => (d.note||'').includes('คืนเงิน')).reduce((s,d) => s + Number(d.amount||0), 0)
+    const expected   = Number(currentShift.opening_cash) + cashSales + drawerIn - drawerOut
+    setShiftSummary({ salesTotal, cashSales, transferTotal, creditTotal, govtByType, transferByAcct, drawerIn, drawerOut, voidRefund, expected, count: sales?.length || 0 })
   }
 
   function startShiftRec() {
@@ -3439,6 +3442,7 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
               <div className="flex justify-between text-sm"><span className="text-slate-500">เงินเริ่มต้น</span><span className="font-semibold text-slate-700">฿{fmt(currentShift.opening_cash)}</span></div>
               {shiftSummary.drawerIn > 0 && <div className="flex justify-between text-sm"><span className="text-slate-500">รับเงินเข้าเก๊ะ</span><span className="font-semibold text-emerald-600">+฿{fmt(shiftSummary.drawerIn)}</span></div>}
               {shiftSummary.drawerOut > 0 && <div className="flex justify-between text-sm"><span className="text-slate-500">เบิกเงินออกเก๊ะ</span><span className="font-semibold text-red-500">−฿{fmt(shiftSummary.drawerOut)}</span></div>}
+              {(shiftSummary.voidRefund || 0) > 0 && <div className="flex justify-between text-sm"><span className="text-slate-500">💸 คืนเงินบิลยกเลิก</span><span className="font-semibold text-orange-500">−฿{fmt(shiftSummary.voidRefund)}</span></div>}
               <div className="flex justify-between text-sm font-bold border-t border-slate-200 pt-1.5">
                 <span className="text-slate-700">ควรมีในเก๊ะ</span>
                 <span className="text-emerald-600">฿{fmt(shiftSummary.expected)}</span>
