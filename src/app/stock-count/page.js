@@ -283,6 +283,12 @@ export default function StockCountPage() {
   }
 
   // ─── DERIVED ─────────────────────────────────────────────────────────────
+  function stockAfterLive(system, total) {
+    if (applyMode === 'add')    return system + total
+    if (applyMode === 'reduce') return Math.max(0, system - total)
+    return total // reset
+  }
+
   const me = myName
   const countsList = Object.entries(counts)
     .filter(([, d]) => catFilter.length === 0 || catFilter.includes(d.catName))
@@ -293,7 +299,7 @@ export default function StockCountPage() {
       others: Object.entries(d.counters).filter(([n]) => n !== me),
     }))
   const totalItems = countsList.reduce((s, c) => s + c.total, 0)
-  const diffCount  = countsList.filter(c => c.total !== c.system).length
+  const diffCount  = countsList.filter(c => stockAfterLive(c.system, c.total) !== c.system).length
   const allCount   = Object.values(counts).reduce((s, d) => s + Object.values(d.counters).reduce((a, n) => a + n, 0), 0)
 
   // ─── VIEWS ───────────────────────────────────────────────────────────────
@@ -451,6 +457,28 @@ export default function StockCountPage() {
           </button>
         </div>
 
+        {/* Mode selector */}
+        <div className="flex gap-1.5 mt-2">
+          {[
+            { key: 'reset',  label: '↺ นับใหม่', desc: 'ตั้งค่าใหม่ตามที่นับ' },
+            { key: 'add',    label: '+ เพิ่ม',   desc: 'บวกเข้าสต๊อกเดิม' },
+            { key: 'reduce', label: '− ลด',      desc: 'หักออกจากสต๊อกเดิม' },
+          ].map(m => (
+            <button key={m.key} onClick={() => setApplyMode(m.key)}
+              className="flex-1 py-1.5 rounded-xl text-xs font-bold border-2 transition-all"
+              style={applyMode === m.key
+                ? { background: '#C72C41', borderColor: '#C72C41', color: '#fff' }
+                : { background: '#f8fafc', borderColor: '#e2e8f0', color: '#64748b' }}>
+              {m.label}
+            </button>
+          ))}
+        </div>
+        <p className="text-[10px] text-slate-400 text-center mt-1">
+          {applyMode === 'reset'  && 'สต๊อกใหม่ = จำนวนที่นับได้'}
+          {applyMode === 'add'    && 'สต๊อกใหม่ = เดิม + นับได้'}
+          {applyMode === 'reduce' && 'สต๊อกใหม่ = เดิม − นับได้'}
+        </p>
+
         {/* Cat filter panel */}
         {showCatPanel && (
           <div className="flex flex-wrap gap-1.5 pt-2 pb-1">
@@ -537,7 +565,8 @@ export default function StockCountPage() {
         ) : (
           <div className="space-y-2">
             {countsList.map(c => {
-              const diff = c.total - c.system
+              const newStock = stockAfterLive(c.system, c.total)
+              const diff = newStock - c.system
               return (
                 <div key={c.pid} className="bg-white rounded-xl p-3.5 shadow-sm">
                   <div className="flex items-center gap-3">
@@ -545,7 +574,13 @@ export default function StockCountPage() {
                       <div className="font-semibold text-slate-700 text-sm leading-tight">{c.name}</div>
                       <div className="text-[11px] text-slate-400 mt-0.5">{c.barcode || '—'}</div>
                       {!blind && (
-                        <div className="text-xs text-slate-400 mt-1">ระบบ: <span className="font-medium text-slate-600">{fmt(c.system)}</span> {c.unit}</div>
+                        <div className="text-xs mt-1 flex items-center gap-1.5 flex-wrap">
+                          <span className="text-slate-400">ระบบ: <span className="font-medium text-slate-600">{fmt(c.system)}</span></span>
+                          <span className="text-slate-300">→</span>
+                          <span className={`font-bold ${newStock < 0 ? 'text-red-500' : diff === 0 ? 'text-green-600' : diff > 0 ? 'text-blue-600' : 'text-orange-500'}`}>
+                            {fmt(newStock)} {c.unit}
+                          </span>
+                        </div>
                       )}
                       {c.others.length > 0 && (
                         <div className="flex gap-1 mt-1.5 flex-wrap">
@@ -566,7 +601,7 @@ export default function StockCountPage() {
                         className="w-8 h-8 rounded-full font-bold text-lg flex items-center justify-center active:scale-95"
                         style={{ background: 'rgba(199,44,65,0.1)', color: '#C72C41' }}>+</button>
                     </div>
-                    <div className={`text-sm font-bold w-8 text-right flex-shrink-0 ${diff === 0 ? 'text-green-600' : diff > 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                    <div className={`text-sm font-bold w-10 text-right flex-shrink-0 ${diff === 0 ? 'text-green-600' : diff > 0 ? 'text-blue-600' : 'text-orange-500'}`}>
                       {!blind ? (diff === 0 ? '✓' : diff > 0 ? `+${diff}` : `${diff}`) : '—'}
                     </div>
                   </div>
