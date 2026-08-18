@@ -662,6 +662,7 @@ function StockCountTab({ empName }) {
   const [orderNote, setOrderNote]     = useState('')
   const [selectedAdjust, setSelectedAdjust] = useState(new Set())
   const [selectedOrder, setSelectedOrder]   = useState(new Set())
+  const [adjustMode, setAdjustMode]         = useState('reset') // 'reset'|'add'|'reduce'
   const inputRef    = useRef(null)
   const productsRef = useRef([])
   const scannerRef  = useRef(null)
@@ -925,19 +926,21 @@ function StockCountTab({ empName }) {
     if (!toAdjust.length) return
     setIsSaving(true)
     try {
-      await Promise.all(toAdjust.map(c =>
-        supabase.from('products').update({ stock: c.counted }).eq('id', c.pid)
-      ))
+      await Promise.all(toAdjust.map(c => {
+        const after = stockAfterLive(c.system, c.counted)
+        return supabase.from('products').update({ stock: after }).eq('id', c.pid)
+      }))
       // log to stock_history
-      await Promise.all(toAdjust.map(c =>
-        supabase.from('stock_history').insert({
+      await Promise.all(toAdjust.map(c => {
+        const after = stockAfterLive(c.system, c.counted)
+        return supabase.from('stock_history').insert({
           product_id: c.pid, product_name: c.name,
-          qty_before: c.system, qty_change: c.counted - c.system, qty_after: c.counted,
-          type: 'count_adjust', note: `นับสต็อก${nameInput ? ` — ${nameInput}` : ''}`, created_by: empName || ''
+          qty_before: c.system, qty_change: after - c.system, qty_after: after,
+          type: 'count_adjust', note: `นับสต็อก${nameInput ? ` — ${nameInput}` : ''} (${adjustMode})`, created_by: empName || ''
         })
-      ))
+      }))
       // refresh system stock in counts
-      setCounts(prev => prev.map(c => selectedAdjust.has(c.pid) ? { ...c, system: c.counted } : c))
+      setCounts(prev => prev.map(c => selectedAdjust.has(c.pid) ? { ...c, system: stockAfterLive(c.system, c.counted) } : c))
       flash(`✓ ปรับสต็อก ${toAdjust.length} รายการแล้ว`)
       setModal(null)
     } catch { flash('ปรับสต็อกไม่ได้', false) }
@@ -972,9 +975,15 @@ function StockCountTab({ empName }) {
     finally { setIsSaving(false) }
   }
 
+  function stockAfterLive(system, counted) {
+    if (adjustMode === 'add')    return system + counted
+    if (adjustMode === 'reduce') return Math.max(0, system - counted)
+    return counted
+  }
+
   const totalItems = counts.reduce((s, c) => s + c.counted, 0)
-  const diffCount  = counts.filter(c => c.counted !== c.system).length
-  const diffItems  = counts.filter(c => c.counted !== c.system)
+  const diffCount  = counts.filter(c => stockAfterLive(c.system, c.counted) !== c.system).length
+  const diffItems  = counts.filter(c => stockAfterLive(c.system, c.counted) !== c.system)
 
   return (
     <div className="flex flex-col h-full">
@@ -1048,6 +1057,28 @@ function StockCountTab({ empName }) {
             </ul>
           )}
         </div>
+
+        {/* Mode selector */}
+        <div className="flex gap-1.5 mt-2">
+          {[
+            { key: 'reset',  label: '↺ นับใหม่' },
+            { key: 'add',    label: '+ เพิ่ม'   },
+            { key: 'reduce', label: '− ลด'      },
+          ].map(m => (
+            <button key={m.key} onClick={() => setAdjustMode(m.key)}
+              className="flex-1 py-1.5 rounded-xl text-xs font-bold border-2 transition-all"
+              style={adjustMode === m.key
+                ? { background: '#C72C41', borderColor: '#C72C41', color: '#fff' }
+                : { background: '#f8fafc', borderColor: '#e2e8f0', color: '#64748b' }}>
+              {m.label}
+            </button>
+          ))}
+        </div>
+        <p className="text-[10px] text-slate-400 text-center mt-1">
+          {adjustMode === 'reset'  && 'สต๊อกใหม่ = จำนวนที่นับได้'}
+          {adjustMode === 'add'    && 'สต๊อกใหม่ = เดิม + นับได้'}
+          {adjustMode === 'reduce' && 'สต๊อกใหม่ = เดิม − นับได้'}
+        </p>
       </div>
 
       {/* Summary */}
@@ -1074,12 +1105,19 @@ function StockCountTab({ empName }) {
               <p className="text-sm">สแกนบาร์โค้ดหรือค้นหาชื่อสินค้า</p>
             </div>
           : counts.map(c => {
-            const diff = c.counted - c.system
+            const newStock = stockAfterLive(c.system, c.counted)
+            const diff = newStock - c.system
             return (
               <div key={c.pid} className="bg-white rounded-xl p-3 shadow-sm flex items-center gap-2.5">
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold text-slate-700 text-sm leading-tight">{c.name}</div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">ระบบ: {fmt(c.system)} {c.unit}</div>
+                  <div className="text-[11px] mt-0.5 flex items-center gap-1 flex-wrap">
+                    <span className="text-slate-400">ระบบ: {fmt(c.system)}</span>
+                    <span className="text-slate-300">→</span>
+                    <span className={`font-bold ${diff === 0 ? 'text-green-600' : diff > 0 ? 'text-blue-600' : 'text-orange-500'}`}>
+                      {fmt(newStock)} {c.unit}
+                    </span>
+                  </div>
                 </div>
                 <div className="flex items-center gap-1 flex-shrink-0">
                   <button onClick={() => adjustCount(c.pid, -1)}
@@ -1090,7 +1128,7 @@ function StockCountTab({ empName }) {
                     style={{ background: 'rgba(199,44,65,0.1)', color: '#C72C41' }}>+</button>
                 </div>
                 <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                  <span className={`text-sm font-bold w-8 text-right ${diff === 0 ? 'text-green-600' : diff > 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                  <span className={`text-sm font-bold w-10 text-right ${diff === 0 ? 'text-green-600' : diff > 0 ? 'text-blue-600' : 'text-orange-500'}`}>
                     {diff === 0 ? '✓' : diff > 0 ? `+${diff}` : diff}
                   </span>
                   <button onClick={() => removeItem(c.pid)} className="text-[10px] text-slate-300 active:text-red-400">ลบ</button>
@@ -1215,7 +1253,8 @@ function StockCountTab({ empName }) {
               {diffItems.length === 0
                 ? <p className="text-center text-slate-400 py-8 text-sm">ไม่มีรายการที่ต่างจากระบบ</p>
                 : diffItems.map(c => {
-                  const diff = c.counted - c.system
+                  const after = stockAfterLive(c.system, c.counted)
+                  const diff = after - c.system
                   const checked = selectedAdjust.has(c.pid)
                   return (
                     <div key={c.pid} onClick={() => setSelectedAdjust(prev => { const n = new Set(prev); checked ? n.delete(c.pid) : n.add(c.pid); return n })}
@@ -1225,9 +1264,9 @@ function StockCountTab({ empName }) {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-semibold text-slate-700 text-sm truncate">{c.name}</p>
-                        <p className="text-[11px] text-slate-400">ระบบ: {fmt(c.system)} → นับได้: {fmt(c.counted)} {c.unit}</p>
+                        <p className="text-[11px] text-slate-400">ระบบ: {fmt(c.system)} → ใหม่: <span className="font-semibold text-slate-600">{fmt(after)}</span> {c.unit}</p>
                       </div>
-                      <span className={`text-sm font-bold flex-shrink-0 ${diff > 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                      <span className={`text-sm font-bold flex-shrink-0 ${diff > 0 ? 'text-blue-600' : 'text-orange-500'}`}>
                         {diff > 0 ? `+${diff}` : diff}
                       </span>
                     </div>

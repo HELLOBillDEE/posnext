@@ -26,6 +26,7 @@ export default function StockCountPage() {
   const [newBlind, setNewBlind]       = useState(false)
   const [newCats, setNewCats]         = useState([])
   const [creating, setCreating]       = useState(false)
+  const [createError, setCreateError] = useState('')
   const [showApply, setShowApply]     = useState(false)
   const [applyMode, setApplyMode]     = useState('reset')
   const [applyPreview, setApplyPreview] = useState([])
@@ -216,7 +217,7 @@ export default function StockCountPage() {
   // ─── CREATE SESSION ───────────────────────────────────────────────────────
   async function createSession() {
     if (!newSName.trim()) return
-    setCreating(true)
+    setCreating(true); setCreateError('')
     try {
       const { data, error } = await supabase.from('stock_count_sessions').insert({
         name: newSName.trim(), blind: newBlind,
@@ -226,7 +227,10 @@ export default function StockCountPage() {
       if (error) throw error
       setShowCreate(false); setNewSName(''); setNewBlind(false); setNewCats([])
       await joinSession(data)
-    } catch (e) { flashMsg('สร้างไม่ได้: ' + e.message, false) }
+    } catch (e) {
+      console.error('createSession error:', e)
+      setCreateError(e.message || 'สร้างไม่ได้')
+    }
     finally { setCreating(false) }
   }
 
@@ -420,6 +424,9 @@ export default function StockCountPage() {
                 </button>
               </div>
 
+              {createError && (
+                <div className="mb-3 px-4 py-2.5 rounded-xl bg-red-50 text-red-600 text-sm font-medium">{createError}</div>
+              )}
               <button onClick={createSession} disabled={!newSName.trim() || creating}
                 className="w-full py-4 rounded-2xl text-white font-bold text-base disabled:opacity-40"
                 style={{ background: 'linear-gradient(135deg,#C72C41,#801336)' }}>
