@@ -21,9 +21,6 @@ export default function StockCountPage() {
   const [nameSearch, setNameSearch]   = useState('')
   const [nameSuggestions, setNameSuggestions] = useState([])
   const [lastMsg, setLastMsg]         = useState(null)
-  const [cameraOpen, setCameraOpen]   = useState(false)
-  const [hasBD, setHasBD]             = useState(false)
-  const [camDbg, setCamDbg]           = useState('')
   const [showCreate, setShowCreate]   = useState(false)
   const [newSName, setNewSName]       = useState('')
   const [newBlind, setNewBlind]       = useState(false)
@@ -39,17 +36,12 @@ export default function StockCountPage() {
   const inputRef     = useRef(null)
   const productsRef  = useRef([])
   const myCountsRef  = useRef({})
-  const scannerRef   = useRef(null)
-  const videoRef     = useRef(null)
-  const canvasRef    = useRef(null)
-  const rafRef       = useRef(null)
   const sessionRef   = useRef(null)
   const catFilterRef = useRef([])
 
   useEffect(() => { productsRef.current = products }, [products])
   useEffect(() => { sessionRef.current = session },   [session])
   useEffect(() => { catFilterRef.current = catFilter }, [catFilter])
-  useEffect(() => { setHasBD(typeof window !== 'undefined' && 'BarcodeDetector' in window) }, [])
 
   // Init
   useEffect(() => {
@@ -198,67 +190,28 @@ export default function StockCountPage() {
     addProduct(prod); inputRef.current?.focus()
   }
 
-  // ─── CAMERA ──────────────────────────────────────────────────────────────
-  async function openCamera() {
-    setCameraOpen(true)
-    await new Promise(r => setTimeout(r, 200))
-    try {
-      if ('BarcodeDetector' in window) {
-        setCamDbg('กำลังขอสิทธิ์กล้อง…')
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } } })
-        scannerRef.current = stream
-        let fmts = ['ean_13','ean_8','code_128','code_39','upc_a','upc_e','qr_code']
-        try { const all = await window.BarcodeDetector.getSupportedFormats(); fmts = fmts.filter(f => all.includes(f)) } catch {}
-        const detector = new window.BarcodeDetector({ formats: fmts.length ? fmts : ['qr_code'] })
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream
-          await new Promise(res => { if (videoRef.current.readyState >= 1) { res(); return }; videoRef.current.onloadedmetadata = res })
-          await videoRef.current.play()
-          setCamDbg('')
-        }
-        let lastCode = '', lastTime = 0, scanning = false
-        const scan = async () => {
-          const vid = videoRef.current
-          if (!vid || vid.readyState < 2 || vid.videoWidth === 0 || scanning) return
-          scanning = true
-          try {
-            const results = await detector.detect(vid)
-            if (results.length > 0) {
-              const code = results[0].rawValue; const now = Date.now()
-              if (code !== lastCode || now - lastTime > 2000) {
-                lastCode = code; lastTime = now
-                processBarcode(code)
-                if (navigator.vibrate) navigator.vibrate(80)
-              }
-            }
-          } catch {}
-          scanning = false
-        }
-        const ivId = setInterval(scan, 250)
-        rafRef.current = { cancel: () => clearInterval(ivId) }
-      } else {
-        setCamDbg('ใช้ html5-qrcode…')
-        const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import('html5-qrcode')
-        const scanner = new Html5Qrcode('stock-qr-reader', { formatsToSupport: [Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8, Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.CODE_39, Html5QrcodeSupportedFormats.UPC_A, Html5QrcodeSupportedFormats.UPC_E, Html5QrcodeSupportedFormats.QR_CODE], verbose: false })
-        scannerRef.current = scanner
-        await scanner.start({ facingMode: 'environment' }, { fps: 15 }, (text) => { processBarcode(text); if (navigator.vibrate) navigator.vibrate(80) }, () => {})
-        setCamDbg('')
+  // ─── GLOBAL KEYDOWN SCANNER ───────────────────────────────────────────────
+  useEffect(() => {
+    if (view !== 'counting') return
+    let buf = [], timer = null
+    function onKey(e) {
+      const active = document.activeElement
+      if (active && active !== inputRef.current && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return
+      if (e.key === 'Enter') {
+        if (timer) clearTimeout(timer)
+        const bc = buf.join(''); buf = []; setScanInput('')
+        if (bc) processBarcode(bc)
+        return
       }
-    } catch (e) {
-      setCamDbg(''); flashMsg('เปิดกล้องไม่ได้: ' + (e?.message || ''), false); setCameraOpen(false)
+      if (e.key.length === 1) {
+        buf.push(e.key); setScanInput(buf.join(''))
+        if (timer) clearTimeout(timer)
+        timer = setTimeout(() => { const bc = buf.join(''); buf = []; setScanInput(''); if (bc.length >= 4) processBarcode(bc) }, 300)
+      }
     }
-  }
-
-  async function closeCamera() {
-    if (rafRef.current) { if (typeof rafRef.current.cancel === 'function') rafRef.current.cancel(); else cancelAnimationFrame(rafRef.current); rafRef.current = null }
-    try {
-      if (scannerRef.current instanceof MediaStream) scannerRef.current.getTracks().forEach(t => t.stop())
-      else if (scannerRef.current) { await scannerRef.current.stop(); scannerRef.current.clear() }
-      scannerRef.current = null
-    } catch {}
-    if (videoRef.current) videoRef.current.srcObject = null
-    setCameraOpen(false); inputRef.current?.focus()
-  }
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('keydown', onKey); if (timer) clearTimeout(timer) }
+  }, [view, processBarcode])
 
   // ─── CREATE SESSION ───────────────────────────────────────────────────────
   async function createSession() {
@@ -520,42 +473,19 @@ export default function StockCountPage() {
         )}
       </div>
 
-      {/* Camera */}
-      {cameraOpen && (
-        <div className="relative overflow-hidden flex-shrink-0 bg-black" style={{ height: 260 }}>
-          <video ref={videoRef} playsInline muted className="w-full h-full object-cover" style={{ display: hasBD ? 'block' : 'none' }} />
-          <canvas ref={canvasRef} style={{ display: 'none' }} />
-          <div id="stock-qr-reader" className="w-full h-full" style={{ display: hasBD ? 'none' : 'block' }} />
-          <div className="absolute top-0 left-0 right-0 z-10 flex items-center px-4 pt-3 pointer-events-none" style={{ background: 'linear-gradient(to bottom,rgba(0,0,0,0.6),transparent)' }}>
-            <span className="text-white text-sm font-medium">📷 จ่อกล้องที่บาร์โค้ด</span>
-          </div>
-          <button onClick={closeCamera} className="absolute top-3 right-4 z-20 text-white text-xl font-bold w-8 h-8 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)', borderRadius: 20 }}>✕</button>
-          {camDbg ? <div className="absolute bottom-10 left-2 right-2 z-10 bg-black/70 text-white text-[10px] px-2 py-1 rounded">{camDbg}</div> : null}
-          {lastMsg && (
-            <div className={`absolute bottom-3 left-3 right-3 z-10 py-2.5 px-4 rounded-2xl text-center font-bold text-sm shadow-lg ${lastMsg.ok ? 'bg-green-500 text-white' : 'bg-red-500 text-white'}`}>{lastMsg.text}</div>
-          )}
-        </div>
-      )}
-
       <div className="px-4 pt-3">
         {/* Scanner input */}
-        <div className="flex gap-2 mb-2">
+        <div className="mb-2">
           <input ref={inputRef} type="text" value={scanInput}
             onChange={e => setScanInput(e.target.value)}
             onKeyDown={handleInputKey}
-            onBlur={() => !cameraOpen && setTimeout(() => inputRef.current?.focus(), 80)}
             placeholder="สแกนหรือพิมพ์บาร์โค้ด…"
-            className="flex-1 border-2 border-brand rounded-xl px-4 py-3 text-lg focus:outline-none focus:ring-2 focus:ring-brand/50"
+            className="w-full border-2 border-brand rounded-xl px-4 py-3 text-lg focus:outline-none focus:ring-2 focus:ring-brand/50"
           />
-          <button onClick={cameraOpen ? closeCamera : openCamera}
-            className="text-white rounded-xl px-4 py-3 text-2xl flex-shrink-0 active:opacity-80"
-            style={{ background: cameraOpen ? '#64748b' : '#C72C41' }}>
-            {cameraOpen ? '⏹' : '📷'}
-          </button>
         </div>
 
         {/* Flash message */}
-        {!cameraOpen && lastMsg && (
+        {lastMsg && (
           <div className={`text-base mb-2 px-4 py-2.5 rounded-xl font-medium ${lastMsg.ok ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-500'}`}>{lastMsg.text}</div>
         )}
 
@@ -601,7 +531,7 @@ export default function StockCountPage() {
         {/* Items */}
         {countsList.length === 0 ? (
           <div className="text-center text-slate-400 py-12">
-            <div className="text-4xl mb-3">📷</div>
+            <div className="text-4xl mb-3">📦</div>
             <p className="text-sm">สแกนบาร์โค้ดหรือค้นหาชื่อสินค้าเพื่อเริ่มนับ</p>
           </div>
         ) : (
