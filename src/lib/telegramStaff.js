@@ -20,6 +20,8 @@ async function getTelegramSettings() {
   return s
 }
 
+const ADMIN_MENTION = '<a href="tg://user?id=758234052">แอดมิน</a>'
+
 async function sendMessage(token, chatId, text, replyMarkup) {
   const body = { chat_id: chatId, text, parse_mode: 'HTML' }
   if (replyMarkup) body.reply_markup = replyMarkup
@@ -90,7 +92,7 @@ export async function notifyLeave({ id, empName, dateFrom, dateTo, period, leave
   const days        = (period === 'morning' || period === 'afternoon') ? 0.5 : dayCount
 
   const lines = [
-    `🏖 <b>คำขอลา</b>`,
+    `${ADMIN_MENTION} 🏖 <b>คำขอลา</b>`,
     `──────────────`,
     `👤 พนักงาน: <b>${empName}</b>`,
     `📅 วันที่: ${dateStr}`,
@@ -175,7 +177,7 @@ export async function notifyDrawerRequest({ id, empName, note, amount }) {
   const today = new Date().toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'short', year: '2-digit' })
 
   const lines = [
-    `🔓 <b>คำขอเปิดลิ้นชัก</b>`,
+    `${ADMIN_MENTION} 🔓 <b>คำขอเปิดลิ้นชัก</b>`,
     `──────────────`,
     `👤 พนักงาน: <b>${empName}</b>`,
     `📅 วันที่: ${today}`,
@@ -295,7 +297,7 @@ export async function notifyAdvance({ id, empName, amount, note, autoApproved })
   if (!cfg) { console.error('[notifyAdvance] no Telegram settings found'); return }
 
   const lines = [
-    `💵 <b>${autoApproved ? 'เบิกค่าแรง ✅ อนุมัติอัตโนมัติ' : 'คำขอเบิก ⏳ รออนุมัติ'}</b>`,
+    `${autoApproved ? '' : ADMIN_MENTION + ' '}💵 <b>${autoApproved ? 'เบิกค่าแรง ✅ อนุมัติอัตโนมัติ' : 'คำขอเบิก ⏳ รออนุมัติ'}</b>`,
     `──────────────`,
     `👤 พนักงาน: <b>${empName}</b>`,
     `💰 ยอดเบิก: <b>฿${Number(amount).toLocaleString('th-TH')}</b>`,
