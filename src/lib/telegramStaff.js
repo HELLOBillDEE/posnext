@@ -20,7 +20,7 @@ async function getTelegramSettings() {
   return s
 }
 
-const ADMIN_MENTION = '<a href="tg://user?id=758234052">แอดมิน</a>'
+const ADMIN_MENTION = '<a href="tg://user?id=7582343052">แอดมิน</a>'
 
 async function sendMessage(token, chatId, text, replyMarkup) {
   const body = { chat_id: chatId, text, parse_mode: 'HTML' }
