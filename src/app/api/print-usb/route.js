@@ -7,17 +7,16 @@ export const runtime = 'nodejs'
 
 // ── Persistent PowerShell worker ─────────────────────────────────────────
 // Spawns once → stays alive → no per-request PS startup overhead
-// First start: ~2-3s (DLL compile if needed). All subsequent: ~100ms.
+// ใช้ Add-Type แบบ in-memory (ไม่ OutputAssembly) เพื่อไม่เรียก csc.exe แยก
+// → ไม่มีหน้าต่าง PowerShell เด้งขึ้นมา
 
 let _w = null   // { proc, queue:[], buf:'', ready:false }
 
 const SCRIPT = `
 $ErrorActionPreference = 'SilentlyContinue'
-$dll = [IO.Path]::Combine([IO.Path]::GetTempPath(), 'WinPrint5.dll')
-if (-not (Test-Path $dll)) {
-  Add-Type -TypeDefinition @'
+Add-Type -TypeDefinition @'
 using System; using System.Runtime.InteropServices;
-public class WP5 {
+public class WP6 {
   [DllImport("winspool.drv",CharSet=CharSet.Unicode,SetLastError=true)]
   public static extern bool OpenPrinter(string n,out IntPtr h,IntPtr d);
   [DllImport("winspool.drv",SetLastError=true)] public static extern bool ClosePrinter(IntPtr h);
@@ -30,9 +29,7 @@ public class WP5 {
 }
 [StructLayout(LayoutKind.Sequential,CharSet=CharSet.Unicode)]
 public struct DOCINFOW { public string pDocName; public string pOutputFile; public string pDataType; }
-'@ -OutputAssembly $dll
-}
-[void][Reflection.Assembly]::LoadFrom($dll)
+'@
 $handles=@{}
 function GetHandle([string]$pov) {
   if ($handles[$pov]) { return $handles[$pov] }
@@ -42,7 +39,7 @@ function GetHandle([string]$pov) {
     if(-not $f){return $null}; $pn=$f.Name
   }
   $h=[IntPtr]::Zero
-  if(-not [WP5]::OpenPrinter($pn,[ref]$h,[IntPtr]::Zero)){return $null}
+  if(-not [WP6]::OpenPrinter($pn,[ref]$h,[IntPtr]::Zero)){return $null}
   $handles[$pov]=$h; return $h
 }
 [Console]::Out.WriteLine('READY'); [Console]::Out.Flush()
@@ -60,18 +57,18 @@ while($true){
     if($null -eq $h){[Console]::Out.WriteLine('ERR:no printer'); [Console]::Out.Flush(); continue}
     $b=[Convert]::FromBase64String($p[2])
     $di=New-Object DOCINFOW; $di.pDocName='POS'; $di.pDataType='RAW'
-    $j=[WP5]::StartDocPrinter($h,1,[ref]$di)
+    $j=[WP6]::StartDocPrinter($h,1,[ref]$di)
     if($j -le 0){[Console]::Out.WriteLine('ERR:StartDoc'); [Console]::Out.Flush(); continue}
-    [WP5]::StartPagePrinter($h)|Out-Null
-    $w=0; [WP5]::WritePrinter($h,$b,$b.Length,[ref]$w)|Out-Null
-    [WP5]::EndPagePrinter($h)|Out-Null; [WP5]::EndDocPrinter($h)|Out-Null
+    [WP6]::StartPagePrinter($h)|Out-Null
+    $w=0; [WP6]::WritePrinter($h,$b,$b.Length,[ref]$w)|Out-Null
+    [WP6]::EndPagePrinter($h)|Out-Null; [WP6]::EndDocPrinter($h)|Out-Null
     [Console]::Out.WriteLine("OK:$w"); [Console]::Out.Flush()
   } catch { [Console]::Out.WriteLine("ERR:$($_.Exception.Message)"); [Console]::Out.Flush() }
 }
 `
 
 function startWorker() {
-  const ps1 = join(tmpdir(), 'pos_print_worker5.ps1')
+  const ps1 = join(tmpdir(), 'pos_print_worker6.ps1')
   writeFileSync(ps1, Buffer.concat([Buffer.from([0xFF,0xFE]), Buffer.from(SCRIPT,'utf16le')]))
 
   const proc = spawn('powershell', [
