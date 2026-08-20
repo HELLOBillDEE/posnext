@@ -532,7 +532,7 @@ function speakPayment(st) {
   speechSynthesis.cancel()
   const utt = new SpeechSynthesisUtterance(text)
   utt.lang = 'th-TH'
-  utt.rate = 0.7
+  utt.rate = 0.6
   utt.volume = 1
   // เลือกเสียงผู้หญิงไทยก่อน ถ้าไม่มีค่อยเอาเสียงไทยใดก็ได้
   const voices = speechSynthesis.getVoices()
