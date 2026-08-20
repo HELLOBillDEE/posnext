@@ -8,9 +8,9 @@ export const runtime = 'nodejs'
 // ครั้งแรก: compile C# EXE ด้วย csc.exe ที่มีใน .NET Framework (built-in Windows)
 // หลังจากนั้น: spawn EXE โดยตรง ~100ms/request — ไม่มี PS overhead เลย
 
-const EXE_DIR  = 'C:\\posnext\\usbprint'
-const EXE_PATH = 'C:\\posnext\\usbprint\\wprint.exe'
-const CS_PATH  = 'C:\\posnext\\usbprint\\wprint.cs'
+const EXE_DIR  = 'C:\\Users\\cherd\\posnext\\usbprint'
+const EXE_PATH = 'C:\\Users\\cherd\\posnext\\usbprint\\wprint.exe'
+const CS_PATH  = 'C:\\Users\\cherd\\posnext\\usbprint\\wprint.cs'
 
 const CS_SOURCE = `
 using System;
