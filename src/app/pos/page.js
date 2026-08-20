@@ -805,7 +805,7 @@ export default function POSPage() {
           ).catch(() => {})
         }
         paidUntilRef.current = Date.now() + 7000
-        dispChRef.current?.send({ type: 'broadcast', event: 'pos', payload: { status: 'paid', total } }).catch(() => {})
+        dispChRef.current?.send({ type: 'broadcast', event: 'pos', payload: { status: 'paid', total, pay_method: saveMethod, pay_amount: saveAmount, pay_change: saveChange, mix_cash: payMode === 'mixed' ? (parseFloat(mixCash)||0) : 0, mix_transfer: payMode === 'mixed' ? (parseFloat(mixTransfer)||0) : 0, mix_credit: payMode === 'mixed' ? (parseFloat(mixCredit)||0) : 0 } }).catch(() => {})
         setCart([]); setBillDiscount(''); setPayAmount(''); setNote(''); setCustomer(null)
         setShowPay(false)
         setSaving(false)
@@ -951,7 +951,7 @@ export default function POSPage() {
         setCurrentQuoteId(null)
       }
       paidUntilRef.current = Date.now() + 7000
-      dispChRef.current?.send({ type: 'broadcast', event: 'pos', payload: { status: 'paid', total } }).catch(() => {})
+      dispChRef.current?.send({ type: 'broadcast', event: 'pos', payload: { status: 'paid', total, pay_method: saveMethod, pay_amount: saveAmount, pay_change: saveChange, mix_cash: payMode === 'mixed' ? (parseFloat(mixCash)||0) : 0, mix_transfer: payMode === 'mixed' ? (parseFloat(mixTransfer)||0) : 0, mix_credit: payMode === 'mixed' ? (parseFloat(mixCredit)||0) : 0 } }).catch(() => {})
       setCart([]); setBillDiscount(''); setPayAmount(''); setNote(''); setCustomer(null); setPriceTier(null)
       setPayMode('single'); setPayMethod('cash'); setMixAmounts({ cash:'', transfer:'', credit:'', govt:'' })
       setSelectedQrAcct(null); setGeneratedQr(null)

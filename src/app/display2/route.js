@@ -496,10 +496,44 @@ sb.channel('promo-products')
   })
   .subscribe()
 
+function speakPayment(st) {
+  if (!window.speechSynthesis) return
+  const m = st.pay_method || ''
+  const amt = st.pay_amount || 0
+  const chg = st.pay_change || 0
+  const fmtN = n => Number(n||0).toLocaleString('th-TH',{minimumFractionDigits:0,maximumFractionDigits:0})
+  let text = ''
+  if (m === 'cash') {
+    text = 'รับ ' + fmtN(amt) + ' บาท' + (chg > 0 ? ' ทอน ' + fmtN(chg) + ' บาท' : '')
+  } else if (m === 'transfer' || m.startsWith('transfer')) {
+    text = 'รับเงินโอนเรียบร้อย'
+  } else if (m === 'mixed') {
+    const parts = []
+    if (st.mix_transfer > 0) parts.push('โอน ' + fmtN(st.mix_transfer) + ' บาท')
+    if (st.mix_cash > 0)     parts.push('เงินสด ' + fmtN(st.mix_cash) + ' บาท')
+    if (chg > 0)             parts.push('ทอน ' + fmtN(chg) + ' บาท')
+    text = parts.join(' ')
+  } else if (m === 'credit') {
+    text = 'ลงบิลเชื่อเรียบร้อย'
+  } else if (m && m.startsWith('govt')) {
+    text = 'รับเงินโครงการรัฐเรียบร้อย'
+  }
+  if (!text) return
+  speechSynthesis.cancel()
+  const utt = new SpeechSynthesisUtterance(text)
+  utt.lang = 'th-TH'
+  utt.rate = 0.95
+  // เลือกเสียงไทยถ้ามี
+  const thVoice = speechSynthesis.getVoices().find(v => v.lang.startsWith('th'))
+  if (thVoice) utt.voice = thVoice
+  speechSynthesis.speak(utt)
+}
+
 sb.channel(CH1).on('broadcast',{event:'pos'},({payload})=>{
   if (_timerA) { clearTimeout(_timerA); _timerA = null }
   stA = payload; renderPos('p1', stA, T1)
   if (payload.status === 'paid') {
+    speakPayment(payload)
     _timerA = setTimeout(() => {
       stA = {status:'idle',items:[],subtotal:0,discount:0,total:0}
       renderPos('p1', stA, T1); _timerA = null
@@ -511,6 +545,7 @@ sb.channel(CH2).on('broadcast',{event:'pos'},({payload})=>{
   if (_timerB) { clearTimeout(_timerB); _timerB = null }
   stB = payload; renderPos('p2', stB, T2)
   if (payload.status === 'paid') {
+    speakPayment(payload)
     _timerB = setTimeout(() => {
       stB = {status:'idle',items:[],subtotal:0,discount:0,total:0}
       renderPos('p2', stB, T2); _timerB = null
