@@ -1,142 +1,142 @@
-import { spawn } from 'child_process'
-import { writeFileSync } from 'fs'
+import { spawn, spawnSync } from 'child_process'
+import { writeFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
-import { tmpdir } from 'os'
 
 export const runtime = 'nodejs'
 
-// ── Persistent PowerShell worker ─────────────────────────────────────────
-// Spawns once → stays alive → no per-request PS startup overhead
-// ใช้ Add-Type แบบ in-memory (ไม่ OutputAssembly) เพื่อไม่เรียก csc.exe แยก
-// → ไม่มีหน้าต่าง PowerShell เด้งขึ้นมา
+// ── USB Printer via pre-compiled EXE ─────────────────────────────────────
+// ครั้งแรก: compile C# EXE ด้วย csc.exe ที่มีใน .NET Framework (built-in Windows)
+// หลังจากนั้น: spawn EXE โดยตรง ~100ms/request — ไม่มี PS overhead เลย
 
-let _w = null   // { proc, queue:[], buf:'', ready:false }
+const EXE_DIR  = 'C:\\posnext\\usbprint'
+const EXE_PATH = 'C:\\posnext\\usbprint\\wprint.exe'
+const CS_PATH  = 'C:\\posnext\\usbprint\\wprint.cs'
 
-const SCRIPT = `
-$ErrorActionPreference = 'SilentlyContinue'
-Add-Type -TypeDefinition @'
-using System; using System.Runtime.InteropServices;
-public class WP6 {
+const CS_SOURCE = `
+using System;
+using System.Management;
+using System.Runtime.InteropServices;
+class WPrint {
   [DllImport("winspool.drv",CharSet=CharSet.Unicode,SetLastError=true)]
-  public static extern bool OpenPrinter(string n,out IntPtr h,IntPtr d);
-  [DllImport("winspool.drv",SetLastError=true)] public static extern bool ClosePrinter(IntPtr h);
+  static extern bool OpenPrinter(string n,out IntPtr h,IntPtr d);
+  [DllImport("winspool.drv")] static extern bool ClosePrinter(IntPtr h);
   [DllImport("winspool.drv",CharSet=CharSet.Unicode,SetLastError=true)]
-  public static extern int StartDocPrinter(IntPtr h,int lv,ref DOCINFOW di);
-  [DllImport("winspool.drv")] public static extern bool EndDocPrinter(IntPtr h);
-  [DllImport("winspool.drv")] public static extern bool StartPagePrinter(IntPtr h);
-  [DllImport("winspool.drv")] public static extern bool EndPagePrinter(IntPtr h);
-  [DllImport("winspool.drv")] public static extern bool WritePrinter(IntPtr h,byte[] b,int n,out int w);
-}
-[StructLayout(LayoutKind.Sequential,CharSet=CharSet.Unicode)]
-public struct DOCINFOW { public string pDocName; public string pOutputFile; public string pDataType; }
-'@
-$handles=@{}
-function GetHandle([string]$pov) {
-  if ($handles[$pov]) { return $handles[$pov] }
-  $pn=$pov
-  if ($pov -match '^USB\d+$') {
-    $f=Get-WmiObject Win32_Printer|Where-Object{$_.PortName -eq $pov}|Select-Object -First 1
-    if(-not $f){return $null}; $pn=$f.Name
+  static extern int StartDocPrinter(IntPtr h,int lv,ref DOC_INFO_1 d);
+  [DllImport("winspool.drv")] static extern bool EndDocPrinter(IntPtr h);
+  [DllImport("winspool.drv")] static extern bool StartPagePrinter(IntPtr h);
+  [DllImport("winspool.drv")] static extern bool EndPagePrinter(IntPtr h);
+  [DllImport("winspool.drv")] static extern bool WritePrinter(IntPtr h,byte[] b,int n,out int w);
+  [StructLayout(LayoutKind.Sequential,CharSet=CharSet.Unicode)]
+  struct DOC_INFO_1 { public string pDocName,pOutputFile,pDataType; }
+
+  static string ResolvePort(string portOrName) {
+    if (!portOrName.ToUpper().StartsWith("USB")) return portOrName;
+    try {
+      var q = new ManagementObjectSearcher("SELECT Name FROM Win32_Printer WHERE PortName='" + portOrName + "'");
+      foreach (ManagementObject o in q.Get()) return o["Name"].ToString();
+    } catch {}
+    return portOrName;
   }
-  $h=[IntPtr]::Zero
-  if(-not [WP6]::OpenPrinter($pn,[ref]$h,[IntPtr]::Zero)){return $null}
-  $handles[$pov]=$h; return $h
-}
-[Console]::Out.WriteLine('READY'); [Console]::Out.Flush()
-while($true){
-  $line=[Console]::In.ReadLine()
-  if($null -eq $line){break}
-  $line=$line.Trim(); if($line -eq ''){continue}
-  try{
-    $p=$line -split '\|',3
-    if($p[0] -eq 'WARMUP'){
-      GetHandle $p[1]|Out-Null
-      [Console]::Out.WriteLine('OK:warmup'); [Console]::Out.Flush(); continue
-    }
-    $h=GetHandle $p[1]
-    if($null -eq $h){[Console]::Out.WriteLine('ERR:no printer'); [Console]::Out.Flush(); continue}
-    $b=[Convert]::FromBase64String($p[2])
-    $di=New-Object DOCINFOW; $di.pDocName='POS'; $di.pDataType='RAW'
-    $j=[WP6]::StartDocPrinter($h,1,[ref]$di)
-    if($j -le 0){[Console]::Out.WriteLine('ERR:StartDoc'); [Console]::Out.Flush(); continue}
-    [WP6]::StartPagePrinter($h)|Out-Null
-    $w=0; [WP6]::WritePrinter($h,$b,$b.Length,[ref]$w)|Out-Null
-    [WP6]::EndPagePrinter($h)|Out-Null; [WP6]::EndDocPrinter($h)|Out-Null
-    [Console]::Out.WriteLine("OK:$w"); [Console]::Out.Flush()
-  } catch { [Console]::Out.WriteLine("ERR:$($_.Exception.Message)"); [Console]::Out.Flush() }
+
+  static int Main(string[] args) {
+    if (args.Length < 2) { Console.Error.WriteLine("Usage: wprint <port> <base64>"); return 1; }
+    string name = ResolvePort(args[0]);
+    byte[] data = Convert.FromBase64String(args[1]);
+    IntPtr h = IntPtr.Zero;
+    if (!OpenPrinter(name, out h, IntPtr.Zero)) { Console.Error.WriteLine("ERR:OpenPrinter " + name); return 2; }
+    DOC_INFO_1 di = new DOC_INFO_1 { pDocName="POS", pDataType="RAW" };
+    if (StartDocPrinter(h,1,ref di) <= 0) { ClosePrinter(h); Console.Error.WriteLine("ERR:StartDoc"); return 3; }
+    StartPagePrinter(h);
+    int w = 0; WritePrinter(h,data,data.Length,out w);
+    EndPagePrinter(h); EndDocPrinter(h); ClosePrinter(h);
+    Console.WriteLine("OK:" + w);
+    return 0;
+  }
 }
 `
 
-function startWorker() {
-  const ps1 = join(tmpdir(), 'pos_print_worker6.ps1')
-  writeFileSync(ps1, Buffer.concat([Buffer.from([0xFF,0xFE]), Buffer.from(SCRIPT,'utf16le')]))
+// csc.exe locations in .NET Framework (built-in Windows)
+const CSC_PATHS = [
+  'C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe',
+  'C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\csc.exe',
+]
 
-  const proc = spawn('powershell', [
-    '-WindowStyle','Hidden','-NonInteractive','-ExecutionPolicy','Bypass','-File',ps1,
-  ], { windowsHide: true })
+let _exeReady = null  // null=unknown, true=ready, false=unavailable
 
-  const w = { proc, queue:[], buf:'', ready:false }
+function findCsc() {
+  for (const p of CSC_PATHS) if (existsSync(p)) return p
+  return null
+}
 
-  proc.stdout.on('data', chunk => {
-    w.buf += chunk.toString()
-    const lines = w.buf.split('\n')
-    w.buf = lines.pop()
-    for (const raw of lines) {
-      const line = raw.trim()
-      if (!line) continue
-      if (!w.ready && line === 'READY') { w.ready = true; continue }
-      if (w.queue.length > 0) {
-        const { resolve } = w.queue.shift()
-        resolve(line)
-      }
+function ensureExe() {
+  if (process.platform !== 'win32') return false
+  if (existsSync(EXE_PATH)) { _exeReady = true; return true }
+
+  const csc = findCsc()
+  if (!csc) { console.error('[wprint] csc.exe not found'); _exeReady = false; return false }
+
+  try {
+    if (!existsSync(EXE_DIR)) mkdirSync(EXE_DIR, { recursive: true })
+    writeFileSync(CS_PATH, CS_SOURCE, 'utf8')
+    const r = spawnSync(csc, [
+      `/out:${EXE_PATH}`, '/optimize+', '/nologo',
+      '/reference:System.Management.dll', CS_PATH,
+    ], { windowsHide: true, timeout: 30000 })
+    if (r.status === 0 && existsSync(EXE_PATH)) {
+      _exeReady = true
+      console.log('[wprint] EXE compiled OK')
+      return true
     }
-  })
-  proc.stderr.on('data', d => console.error('[ps-worker]', d.toString().slice(0,200)))
-  proc.on('exit', () => { if (_w === w) _w = null })
-  return w
+    console.error('[wprint] compile failed:', r.stderr?.toString().slice(0, 200))
+    _exeReady = false
+    return false
+  } catch (e) {
+    console.error('[wprint] compile error:', e.message)
+    _exeReady = false
+    return false
+  }
 }
 
-function getWorker() {
-  if (_w && !_w.proc.killed) return _w
-  _w = startWorker()
-  return _w
-}
-
-async function waitReady(w, timeoutMs = 20000) {
-  if (w.ready) return
-  await new Promise((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error('worker timeout')), timeoutMs)
-    const iv = setInterval(() => {
-      if (w.ready)       { clearInterval(iv); clearTimeout(t); resolve() }
-      if (w.proc.killed) { clearInterval(iv); clearTimeout(t); reject(new Error('worker died')) }
-    }, 30)
-  })
-}
-
-async function workerCmd(cmd) {
-  const w = getWorker()
-  await waitReady(w)
+function printViaExe(port, b64) {
   return new Promise((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error('print timeout')), 30000)
-    w.queue.push({ resolve: r => { clearTimeout(t); resolve(r) }, reject })
-    w.proc.stdin.write(cmd + '\n')
+    const proc = spawn(EXE_PATH, [port, b64], {
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let out = ''
+    proc.stdout.on('data', d => { out += d })
+    proc.stderr.on('data', d => { out += d })
+    proc.on('close', code => {
+      if (out.startsWith('OK:')) resolve(out.trim())
+      else reject(new Error(out.trim() || `exit ${code}`))
+    })
+    proc.on('error', reject)
+    setTimeout(() => { proc.kill(); reject(new Error('timeout')) }, 10000)
   })
 }
 
-// Pre-start worker when module loads (PM2 boot)
-if (process.platform === 'win32') getWorker()
+// ── Pre-compile EXE at server start ──────────────────────────────────────
+if (process.platform === 'win32') {
+  // Run in background — does not block startup
+  Promise.resolve().then(() => ensureExe())
+}
 
 // ── Handlers ──────────────────────────────────────────────────────────────
 
-// GET /api/print-usb?port=USB001  — warmup (called by POS page on mount)
+// GET /api/print-usb?port=USB001 — warmup: ensure EXE exists + test port
 export async function GET(req) {
   const port = new URL(req.url).searchParams.get('port') || 'USB001'
+  if (process.platform !== 'win32') return Response.json({ ok: true, note: 'non-windows' })
+
+  if (!_exeReady) ensureExe()
+  if (!_exeReady) return Response.json({ ok: false, error: 'csc not found' })
+
+  // Warmup: do a dry-run open/close of the printer handle
+  // We send empty data — printer ignores it
   try {
-    const result = await workerCmd(`WARMUP|${port}`)
-    return Response.json({ ok: true, result })
-  } catch (e) {
-    return Response.json({ ok: false, error: e.message })
-  }
+    await printViaExe(port, btoa(''))
+  } catch {}  // ok to fail on empty doc
+  return Response.json({ ok: true })
 }
 
 export async function POST(req) {
@@ -145,13 +145,16 @@ export async function POST(req) {
     if (!data) return Response.json({ error: 'ไม่มีข้อมูล' }, { status: 400 })
 
     const port = (usb_port || 'USB001').trim()
-    // Fire-and-forget: ส่งคำสั่งให้ PS worker แล้ว return ทันที ไม่รอ
-    // ลิ้นชักและเครื่องพิมพ์จะทำงานใน background — UI ตอบสนองทันที
-    workerCmd(`PRINT|${port}|${data}`).catch(e => {
-      // worker died — restart and retry once (silent)
-      if (_w) { try { _w.proc.kill() } catch {} _w = null }
-      workerCmd(`PRINT|${port}|${data}`).catch(e2 => console.error('[usb print]', e2.message))
-    })
+
+    if (process.platform !== 'win32') {
+      return Response.json({ error: 'USB print only on Windows' }, { status: 400 })
+    }
+
+    if (!_exeReady) ensureExe()
+    if (!_exeReady) return Response.json({ error: 'wprint.exe ยังไม่พร้อม' }, { status: 503 })
+
+    // Fire-and-forget: ส่งให้ EXE พิมพ์ แล้ว return ทันที
+    printViaExe(port, data).catch(e => console.error('[wprint]', e.message))
     return Response.json({ ok: true })
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 })
