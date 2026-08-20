@@ -519,13 +519,34 @@ function speakPayment(st) {
     text = 'รับเงินโครงการรัฐเรียบร้อย'
   }
   if (!text) return
+
+  // mute วิดีโอระหว่างพูด
+  const vid = document.getElementById('vid')
+  const frm = document.getElementById('ytFrame2')
+  const wasVidMuted = vid ? vid.muted : true
+  if (vid && !vid.paused) vid.muted = true
+  if (frm && frm.style.display !== 'none' && _ytBaseSrc2) {
+    frm.src = _ytBaseSrc2 + '&mute=1'
+  }
+
   speechSynthesis.cancel()
   const utt = new SpeechSynthesisUtterance(text)
   utt.lang = 'th-TH'
-  utt.rate = 0.95
-  // เลือกเสียงไทยถ้ามี
-  const thVoice = speechSynthesis.getVoices().find(v => v.lang.startsWith('th'))
-  if (thVoice) utt.voice = thVoice
+  utt.rate = 0.82
+  // เลือกเสียงผู้หญิงไทยก่อน ถ้าไม่มีค่อยเอาเสียงไทยใดก็ได้
+  const voices = speechSynthesis.getVoices()
+  const thFemale = voices.find(v => v.lang.startsWith('th') && /female|woman|girl|thipsuda|pattara/i.test(v.name))
+  const thAny    = voices.find(v => v.lang.startsWith('th'))
+  if (thFemale) utt.voice = thFemale
+  else if (thAny) utt.voice = thAny
+
+  utt.onend = utt.onerror = () => {
+    // คืนเสียงวิดีโอหลังพูดจบ
+    if (vid) vid.muted = wasVidMuted
+    if (frm && frm.style.display !== 'none' && _ytBaseSrc2) {
+      frm.src = ytSrc2(_ytBaseSrc2)
+    }
+  }
   speechSynthesis.speak(utt)
 }
 
