@@ -12,6 +12,7 @@ const EXE_DIR  = 'C:\\Users\\cherd\\posnext\\usbprint'
 const EXE_PATH = 'C:\\Users\\cherd\\posnext\\usbprint\\wprint.exe'
 const CS_PATH  = 'C:\\Users\\cherd\\posnext\\usbprint\\wprint.cs'
 
+// C# source: รับ port จาก argv[1], รับ base64 data จาก stdin (ไม่จำกัดขนาด)
 const CS_SOURCE = `
 using System;
 using System.Management;
@@ -39,9 +40,11 @@ class WPrint {
   }
 
   static int Main(string[] args) {
-    if (args.Length < 2) { Console.Error.WriteLine("Usage: wprint <port> <base64>"); return 1; }
+    if (args.Length < 1) { Console.Error.WriteLine("Usage: wprint <port>  (base64 via stdin)"); return 1; }
     string name = ResolvePort(args[0]);
-    byte[] data = Convert.FromBase64String(args[1]);
+    string b64 = Console.In.ReadToEnd().Trim();
+    if (b64.Length == 0) { Console.WriteLine("OK:0"); return 0; }
+    byte[] data = Convert.FromBase64String(b64);
     IntPtr h = IntPtr.Zero;
     if (!OpenPrinter(name, out h, IntPtr.Zero)) { Console.Error.WriteLine("ERR:OpenPrinter " + name); return 2; }
     DOC_INFO_1 di = new DOC_INFO_1 { pDocName="POS", pDataType="RAW" };
@@ -99,9 +102,10 @@ function ensureExe() {
 
 function printViaExe(port, b64) {
   return new Promise((resolve, reject) => {
-    const proc = spawn(EXE_PATH, [port, b64], {
+    // ส่ง port ผ่าน argv, ส่ง base64 data ผ่าน stdin (ไม่จำกัดขนาด)
+    const proc = spawn(EXE_PATH, [port], {
       windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['pipe', 'pipe', 'pipe'],
     })
     let out = ''
     proc.stdout.on('data', d => { out += d })
@@ -112,6 +116,9 @@ function printViaExe(port, b64) {
     })
     proc.on('error', reject)
     setTimeout(() => { proc.kill(); reject(new Error('timeout')) }, 10000)
+    // เขียน base64 ไปยัง stdin แล้ว close
+    proc.stdin.write(b64)
+    proc.stdin.end()
   })
 }
 
