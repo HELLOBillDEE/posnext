@@ -290,6 +290,10 @@ export default function POSPage() {
         }
       } catch {}
       if (!receipt.ip && !receipt.usb_mode && !receipt.usb_port && !barcode.ip) return
+      // Pre-warm USB worker ทันที (ทำให้ PowerShell พร้อมก่อนใช้งาน)
+      if (receipt.usb_port) {
+        fetch(`/api/print-usb?port=${encodeURIComponent(receipt.usb_port)}`).catch(() => {})
+      }
       fetch('/api/printer-keepalive', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -832,7 +836,7 @@ export default function POSPage() {
         if (pendingQ) setPendingQuotes(p => [pendingQ, ...p])
       }
 
-      for (const i of cart) {
+      await Promise.all(cart.map(async i => {
         try {
           const { error: rpcErr } = await supabase.rpc('adjust_stock', {
             p_product_id: i.pid, p_qty_change: -i.qty,
@@ -843,7 +847,7 @@ export default function POSPage() {
           const { data: pd } = await supabase.from('products').select('stock').eq('id', i.pid).single()
           await supabase.from('products').update({ stock: (pd?.stock || 0) - i.qty }).eq('id', i.pid)
         }
-      }
+      }))
 
       const receipt = {
         ...sale, items: cart,
@@ -3295,8 +3299,8 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
 
   async function requestDrawerOpen() {
     const cfg = getReceiptCfg()
-    if (!empMode && canPrintReceipt(cfg)) {
-      // admin — เปิดตรง
+    if (canPrintReceipt(cfg)) {
+      // เปิดตรง ไม่ต้องขออนุมัติ (เปิดกะ/ปิดกะ/นับเงิน)
       setDrawerReq('sending')
       try {
         await printReceiptBytes(cfg, buildDrawerKickESCPOS())
@@ -3305,7 +3309,7 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
       } catch { setDrawerReq('error') }
       return
     }
-    // employee — ส่ง request แล้ว poll รอ approve
+    // ไม่มีเครื่องพิมพ์ — ต้องขออนุมัติ
     if (!empMode) { setDrawerReq('error'); return }
     setDrawerReq('sending')
     try {
