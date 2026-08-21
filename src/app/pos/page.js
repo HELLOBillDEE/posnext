@@ -872,7 +872,7 @@ export default function POSPage() {
             const empCam = currentEmp ? (currentEmp.nickname || currentEmp.name) : 'POS'
             const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
             // บันทึก drawer_log + กล้องก่อน print (แยกออกจาก print error)
-            supabase.from('drawer_logs').insert({ employee_name: empCam, note: `ขาย ${receiptNo}` }).then(null, () => {})
+            supabase.from('drawer_logs').insert({ employee_name: empCam, note: `ขาย ${receiptNo}`, terminal_id: getTerminalId() || null }).then(null, () => {})
             camSnap({ caption: `💳 บิลขาย — ${empCam}  🕐 ${timeCam}`, terminal_id: getTerminalId() || '', duration: 13 })
             const kick = buildDrawerKickESCPOS()
             const combined = new Uint8Array(kick.length + bytes.length)
@@ -2693,7 +2693,7 @@ function CancelBillModal({ sale, settings, currentEmp, empMode, onClose, onVoide
             if (canPrintReceipt(cfg)) await printReceiptBytes(cfg, buildDrawerKickESCPOS())
           } catch {}
           await supabase.from('drawer_logs').insert({
-            employee_name: 'แอดมิน', amount: refundAmt, note: `เบิกเงินออก — ${voidNote}`,
+            employee_name: 'แอดมิน', amount: refundAmt, note: `เบิกเงินออก — ${voidNote}`, terminal_id: getTerminalId() || null,
           }).then(null, () => {})
           const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
           camSnap({ caption: `💸 คืนเงิน — ${sale.receipt_no}  🕐 ${timeCam}`, terminal_id: getTerminalId() || '', duration: 13 })
@@ -2721,7 +2721,7 @@ function CancelBillModal({ sale, settings, currentEmp, empMode, onClose, onVoide
           } catch {}
           await supabase.from('drawer_logs').insert({
             employee_name: empName, amount: drawerData.amount,
-            note: `เบิกเงินออก — ${drawerData.note}`,
+            note: `เบิกเงินออก — ${drawerData.note}`, terminal_id: getTerminalId() || null,
           }).then(null, () => {})
           const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
           camSnap({ caption: `💸 คืนเงิน — ${sale.receipt_no}  🕐 ${timeCam}`, terminal_id: getTerminalId() || '', duration: 13 })
@@ -2852,6 +2852,7 @@ function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
             employee_name: empName,
             amount: drawerData.amount || null,
             note: drawerData.note || null,
+            terminal_id: getTerminalId() || null,
           }).then(null, () => {})
           const timeStr = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
           camSnap({ caption: `🔓 เปิดลิ้นชัก — ${empName}  🕐 ${timeStr}`, terminal_id: getTerminalId() || '', duration: 13 })
@@ -2879,7 +2880,7 @@ function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
 
     try {
       await supabase.from('drawer_logs').insert({
-        employee_name: 'แอดมิน', amount: amtNum || null, note: fullNote,
+        employee_name: 'แอดมิน', amount: amtNum || null, note: fullNote, terminal_id: getTerminalId() || null,
       })
     } catch {}
 
@@ -3204,10 +3205,9 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
     const tid  = currentShift.terminal_id || terminalId
     const salesQ = supabase.from('sales').select('total,payment_method,note,status').gte('created_at', from).eq('status','completed')
     if (tid) salesQ.eq('terminal_id', tid)
-    const [{ data: sales }, { data: drawers }] = await Promise.all([
-      salesQ,
-      supabase.from('drawer_logs').select('amount,note').gte('opened_at', from),
-    ])
+    const drawerQ = supabase.from('drawer_logs').select('amount,note').gte('opened_at', from)
+    if (tid) drawerQ.eq('terminal_id', tid)
+    const [{ data: sales }, { data: drawers }] = await Promise.all([salesQ, drawerQ])
     const salesTotal = (sales || []).reduce((s, r) => s + Number(r.total), 0)
     const govtByType = {}
     const transferByAcct = {}
@@ -3360,6 +3360,7 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
       difference: diff,
       sales_total: shiftSummary?.salesTotal || 0,
       sales_count: shiftSummary?.count || 0,
+      cash_sales: shiftSummary?.cashSales || 0,
       note: note.trim() || null,
       status: 'closed',
     }).eq('id', currentShift.id)

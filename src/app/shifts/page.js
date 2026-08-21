@@ -80,7 +80,7 @@ export default function ShiftsPage() {
               <div className="mt-3 pt-3 border-t border-gray-100 grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
                 <Row label="เงินเริ่มต้น" val={`฿${fmt(s.opening_cash)}`} />
                 <Row label="เงินปิดกะ" val={`฿${fmt(s.closing_cash)}`} />
-                <Row label="ยอดขายเงินสด" val={`฿${fmt((s.sales_total||0) - ((s.closing_cash||0) - (s.opening_cash||0)))}`} />
+                <Row label="ยอดขายเงินสด" val={s.cash_sales != null ? `฿${fmt(s.cash_sales)}` : '—'} />
                 <Row label="ควรมีในเก๊ะ" val={`฿${fmt(s.expected_cash)}`} />
                 {s.note && <div className="col-span-2 text-xs text-slate-400 italic">หมายเหตุ: {s.note}</div>}
               </div>
