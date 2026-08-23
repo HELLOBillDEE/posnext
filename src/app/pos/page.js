@@ -917,7 +917,7 @@ export default function POSPage() {
       fetch('/api/notify-sale', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sale: { ...receipt, shopName: settings.shop_name || 'ร้านค้า' } }),
+        body: JSON.stringify({ sale: { ...receipt, shopName: settings.shop_name || 'ร้านค้า', terminal_id: getTerminalId() || null } }),
       }).catch(() => {})
 
       // แจ้งเตือนส่วนลด (เฉพาะพนักงาน + มีส่วนลดจริง)
@@ -3299,11 +3299,19 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
 
   async function requestDrawerOpen() {
     const cfg = getReceiptCfg()
+    const empName = empMode?.name || 'แคชเชียร์'
+    const shiftNote = mode === 'open' ? 'เปิดกะ — นับเงิน' : 'ปิดกะ — นับเงิน'
+    const notifyDrawerTg = () => fetch('/api/notify-drawer', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ employeeName: empName, shopName: getTerminalId() || 'POS', note: shiftNote }),
+    }).catch(() => {})
     if (canPrintReceipt(cfg)) {
       // เปิดตรง ไม่ต้องขออนุมัติ (เปิดกะ/ปิดกะ/นับเงิน)
       setDrawerReq('sending')
       try {
         await printReceiptBytes(cfg, buildDrawerKickESCPOS())
+        supabase.from('drawer_logs').insert({ employee_name: empName, note: shiftNote, terminal_id: getTerminalId() || null }).then(null, () => {})
+        notifyDrawerTg()
         startShiftRec()
         setDrawerReq('sent')
       } catch { setDrawerReq('error') }
@@ -3316,10 +3324,12 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
       const res = await fetch('/api/request-drawer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employee_id: empMode.id, employee_name: empMode.name, note: `${mode === 'open' ? 'เปิดกะ' : 'ปิดกะ'} — นับเงิน` }),
+        body: JSON.stringify({ employee_id: empMode.id, employee_name: empMode.name, note: shiftNote }),
       })
       const j = await res.json()
       if (j.error) { setDrawerReq('error'); return }
+      supabase.from('drawer_logs').insert({ employee_name: empName, note: shiftNote, terminal_id: getTerminalId() || null }).then(null, () => {})
+      notifyDrawerTg()
       startShiftRec()
       setDrawerReq('waiting')
       pollShiftDrawerApproval(j.request_id)
@@ -3371,6 +3381,7 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
         body: JSON.stringify({
           cashierName: currentShift.cashier_name || (empMode?.name) || '',
           shopName: settings?.shop_name || 'ร้านค้า',
+          terminalId: terminalId || null,
           openedAt: currentShift.opened_at,
           salesTotal: shiftSummary?.salesTotal || 0,
           salesCount: shiftSummary?.count || 0,
@@ -3405,12 +3416,12 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
 
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-end md:items-center justify-center p-3"
-      onClick={e => { if (e.target === e.currentTarget) { stopShiftRec(null); onClose() } }}>
+      onClick={e => { if (e.target === e.currentTarget) { if (drawerReq === 'sent' && !confirm('⚠️ เปิดลิ้นชักไปแล้ว — ออกโดยไม่บันทึกกะ?')) return; stopShiftRec(null); onClose() } }}>
       <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden fade-in flex flex-col" style={{maxHeight:'92vh'}}>
 
         <div className={`text-white px-4 py-3.5 flex justify-between items-center shrink-0 ${mode==='open' ? 'bg-emerald-700' : 'bg-red-600'}`}>
           <h2 className="font-bold text-base">{mode==='open' ? '🟢 เปิดกะ — นับเงิน' : '🔴 ปิดกะ — นับเงิน'}</h2>
-          <button onClick={() => { stopShiftRec(null); onClose() }} className="text-2xl leading-none opacity-70">×</button>
+          <button onClick={() => { if (drawerReq === 'sent' && !confirm('⚠️ เปิดลิ้นชักไปแล้ว — ออกโดยไม่บันทึกกะ?')) return; stopShiftRec(null); onClose() }} className="text-2xl leading-none opacity-70">×</button>
         </div>
 
         <div className="overflow-y-auto flex-1 p-4 space-y-3">

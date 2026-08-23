@@ -130,8 +130,9 @@ export async function notifySale(sale) {
   const mixNote = sale.payment_method === 'mixed' && sale.note
     ? '\n' + (sale.note.match(/\[ผสม:([^\]]+)\]/)?.[1]?.trim() || '') : ''
 
+  const termLabel = sale.terminal_id ? ` [${sale.terminal_id.toUpperCase()}]` : ''
   const lines = [
-    `🛒 <b>${shopName}</b>`,
+    `🛒 <b>${shopName}${termLabel}</b>`,
     `📄 ${sale.receipt_no}`,
     sale.customerName ? `👤 ${sale.customerName}` : null,
     ``,
@@ -199,7 +200,7 @@ export async function notifyDrawerRequest({ id, empName, note, amount }) {
 }
 
 /* ── แจ้งเตือนปิดกะ ── */
-export async function notifyShiftClose({ cashierName, shopName, openedAt, salesTotal, salesCount, cashSales, transferTotal, creditTotal, transferByAcct, govtByType, closingCash, expected, diff, expSafe, expWages, expAdvance, expOther, cashRemaining }) {
+export async function notifyShiftClose({ cashierName, shopName, terminalId, openedAt, salesTotal, salesCount, cashSales, transferTotal, creditTotal, transferByAcct, govtByType, closingCash, expected, diff, expSafe, expWages, expAdvance, expOther, cashRemaining }) {
   const cfg = await getTelegramSettings()
   if (!cfg) return
 
@@ -216,8 +217,9 @@ export async function notifyShiftClose({ cashierName, shopName, openedAt, salesT
 
   const diffSign = Number(diff) >= 0 ? `✅ เกิน +฿${f(Math.abs(diff))}` : `⚠️ ขาด −฿${f(Math.abs(diff))}`
 
+  const termLabel = terminalId ? ` [${terminalId.toUpperCase()}]` : ''
   const lines = [
-    `🔴 <b>ปิดกะ</b>${cashierName ? ` — ${cashierName}` : ''}`,
+    `🔴 <b>ปิดกะ${termLabel}</b>${cashierName ? ` — ${cashierName}` : ''}`,
     `🏪 ${shopName || 'ร้านค้า'}  |  🕐 ${openStr} – ${timeStr}`,
     ``,
     `🧾 ยอดขาย: <b>฿${f(salesTotal)}</b> (${salesCount} บิล)`,

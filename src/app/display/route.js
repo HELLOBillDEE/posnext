@@ -4,7 +4,8 @@ export function GET(request) {
   const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
   const SUPA_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
   const sp = new URL(request.url).searchParams
-  const terminalId = (sp.get('t') || sp.get('T') || '').toLowerCase()
+  const posNum = sp.get('pos') || sp.get('POS') || ''
+  const terminalId = (sp.get('t') || sp.get('T') || (posNum ? 'pos' + posNum : '') || '').toLowerCase()
   const CHANNEL = terminalId ? 'customer-display-' + terminalId : 'customer-display'
 
   const html = `<!DOCTYPE html>
