@@ -195,17 +195,29 @@ function PrintGrid({ items, cols, rows }) {
           pageBreakInside: 'avoid', breakInside: 'avoid',
         }}>
           <div style={{
-            border: '1px solid #cbd5e1', borderRadius: 8, padding: '6px 8px',
-            background: '#fff', display: 'flex', flexDirection: 'column', gap: 2,
+            border: '1px solid #cbd5e1', borderRadius: 8, overflow: 'hidden',
+            background: '#fff', display: 'flex', flexDirection: 'column',
           }}>
-            <div style={{ fontSize: cols === 3 ? 11 : 13, color: '#1E293B', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', lineHeight: 1.3 }}>
-              {p.name}
+            {/* ช่องรูปสินค้า */}
+            <div style={{
+              width: '100%', aspectRatio: cols === 3 ? '5/2' : '4/3',
+              background: '#fff', borderBottom: '1.5px dashed #94a3b8',
+              display: 'flex', flexDirection: 'column', alignItems: 'center',
+              justifyContent: 'center', gap: 3,
+            }}>
+              <span style={{ fontSize: 18, opacity: .15 }}>📷</span>
+              <span style={{ fontSize: 7, color: '#94a3b8', fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase' }}>ติดรูปสินค้าที่นี่</span>
             </div>
-            <BarcodeImg value={p.barcode} cols={cols} />
-            <div style={{ fontSize: cols === 2 ? 24 : 18, fontWeight: 800, color: '#C72C41', textAlign: 'center', lineHeight: 1.1 }}>
-              ฿{fmt(p.price)}
+            <div style={{ padding: '5px 8px 5px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <div style={{ fontSize: cols === 3 ? 11 : 13, color: '#1E293B', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', lineHeight: 1.3 }}>
+                {p.name}
+              </div>
+              <BarcodeImg value={p.barcode} cols={cols} />
+              <div style={{ fontSize: cols === 2 ? 24 : 18, fontWeight: 800, color: '#C72C41', textAlign: 'center', lineHeight: 1.1 }}>
+                ฿{fmt(p.price)}
+              </div>
+              <div style={{ fontSize: 9, color: '#94a3b8', textAlign: 'center' }}>/{p.unit}</div>
             </div>
-            <div style={{ fontSize: 9, color: '#94a3b8', textAlign: 'center' }}>/{p.unit}</div>
           </div>
         </div>
       ))}
