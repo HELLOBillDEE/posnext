@@ -3203,10 +3203,10 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
   async function loadShiftSummary() {
     const from = currentShift.opened_at
     const tid  = currentShift.terminal_id || terminalId
-    const salesQ = supabase.from('sales').select('total,payment_method,note,status').gte('created_at', from).eq('status','completed')
-    if (tid) salesQ.eq('terminal_id', tid)
-    const drawerQ = supabase.from('drawer_logs').select('amount,note').gte('opened_at', from)
-    if (tid) drawerQ.eq('terminal_id', tid)
+    let salesQ = supabase.from('sales').select('total,payment_method,note,status').gte('created_at', from).eq('status','completed')
+    if (tid) salesQ = salesQ.eq('terminal_id', tid)
+    let drawerQ = supabase.from('drawer_logs').select('amount,note').gte('opened_at', from)
+    if (tid) drawerQ = drawerQ.eq('terminal_id', tid)
     const [{ data: sales }, { data: drawers }] = await Promise.all([salesQ, drawerQ])
     const salesTotal = (sales || []).reduce((s, r) => s + Number(r.total), 0)
     const govtByType = {}
