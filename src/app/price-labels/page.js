@@ -24,11 +24,22 @@ export default function PriceLabelsPage() {
 
   async function load() {
     setLoading(true)
-    const [{ data: prods }, { data: cats }] = await Promise.all([
-      supabase.from('products').select('id,name,barcode,price,category_id,unit').eq('active', true).order('name').limit(5000),
+    const [, { data: cats }] = await Promise.all([
+      Promise.resolve(),
       supabase.from('categories').select('id,name').order('name'),
     ])
-    setProducts(prods || [])
+    // fetch all products by paging (Supabase cap = 1000/page)
+    let all = [], from = 0
+    while (true) {
+      const { data } = await supabase.from('products')
+        .select('id,name,barcode,price,category_id,unit')
+        .eq('active', true).order('name').range(from, from + 999)
+      if (!data || data.length === 0) break
+      all = all.concat(data)
+      if (data.length < 1000) break
+      from += 1000
+    }
+    setProducts(all)
     setCategories(cats || [])
     setLoading(false)
   }
