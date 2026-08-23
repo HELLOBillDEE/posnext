@@ -25,7 +25,7 @@ export default function PriceLabelsPage() {
   async function load() {
     setLoading(true)
     const [{ data: prods }, { data: cats }] = await Promise.all([
-      supabase.from('products').select('id,name,barcode,price,category_id,unit').eq('active', true).order('name'),
+      supabase.from('products').select('id,name,barcode,price,category_id,unit').eq('active', true).order('name').limit(5000),
       supabase.from('categories').select('id,name').order('name'),
     ])
     setProducts(prods || [])
