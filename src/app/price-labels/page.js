@@ -14,7 +14,8 @@ export default function PriceLabelsPage() {
   const [categories, setCategories] = useState([])
   const [search, setSearch] = useState('')
   const [filterCat, setFilterCat] = useState('')
-  const [selected, setSelected] = useState({}) // { id: qty }
+  const [selected, setSelected] = useState({}) // { id: product }
+  const [selectOrder, setSelectOrder] = useState([]) // ids in selection order
   const [size, setSize] = useState('a4-2x4')
   const [loading, setLoading] = useState(false)
   const printRef = useRef(null)
@@ -47,6 +48,9 @@ export default function PriceLabelsPage() {
       if (next[p.id]) { delete next[p.id] } else { next[p.id] = { ...p, copies: 1 } }
       return next
     })
+    setSelectOrder(prev =>
+      prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id]
+    )
   }
 
   const setCopies = (id, val) => {
@@ -54,7 +58,7 @@ export default function PriceLabelsPage() {
     setSelected(prev => ({ ...prev, [id]: { ...prev[id], copies: n } }))
   }
 
-  const selectedList = Object.values(selected)
+  const selectedList = selectOrder.map(id => selected[id]).filter(Boolean)
   const labelItems = selectedList.flatMap(p => Array(p.copies).fill(p))
 
   const cfg = LABEL_SIZES.find(s => s.id === size)
@@ -65,11 +69,13 @@ export default function PriceLabelsPage() {
 
   function selectAll() {
     const next = {}
-    filtered.forEach(p => { next[p.id] = { ...p, copies: 1 } })
+    const order = []
+    filtered.forEach(p => { next[p.id] = { ...p, copies: 1 }; order.push(p.id) })
     setSelected(next)
+    setSelectOrder(order)
   }
 
-  function clearAll() { setSelected({}) }
+  function clearAll() { setSelected({}); setSelectOrder([]) }
 
   return (
     <div className="min-h-screen bg-slate-50">
