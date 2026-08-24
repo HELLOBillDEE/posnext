@@ -3636,6 +3636,66 @@ function buildReceiptHTML(r) {
   </body></html>`
 }
 
+function buildDeliverySlipHTML(r) {
+  const n = v => (isNaN(Number(v)) ? 0 : Number(v))
+  const fmt = v => n(v).toFixed(2)
+  const rows = (r.items || []).filter(i => i.name !== 'ค่าจัดส่ง').map(i => `
+    <tr>
+      <td style="padding:4px 0;font-size:15px;word-break:break-word">${i.name || ''}${i.note ? `<br><span style="font-size:13px;color:#555">* ${i.note}</span>` : ''}</td>
+      <td style="text-align:center;font-size:15px;padding:4px 2px">${i.qty}</td>
+      <td style="text-align:right;font-size:15px;padding:4px 2px">${fmt(i.price)}</td>
+      <td style="text-align:right;font-size:15px;padding:4px 0">${fmt(n(i.price)*n(i.qty)-n(i.disc||0))}</td>
+    </tr>`).join('')
+  const dt = r.created_at ? new Date(r.created_at).toLocaleString('th-TH') : ''
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:'Courier New',monospace;font-size:15px;width:72mm;padding:4px}
+    h2{font-size:20px;font-weight:bold;text-align:center;margin-bottom:2px}
+    h3{font-size:16px;font-weight:bold;text-align:center;margin-bottom:2px}
+    .c{text-align:center;font-size:14px}
+    .dash{border:none;border-top:1px dashed #000;margin:4px 0}
+    table{width:100%;border-collapse:collapse}
+    .bold{font-weight:bold}
+    .two{display:flex;justify-content:space-between;font-size:15px;padding:2px 0}
+    .two.lg{font-size:18px;font-weight:bold}
+    @media print{body{margin:0;padding:2px}}
+  </style></head><body>
+  ${r.shopLogo?`<img src="${r.shopLogo}" style="display:block;margin:0 auto 4px;max-width:55mm;max-height:24mm;object-fit:contain"/>`:`<h2>${r.shopName||'ร้านค้า'}</h2>`}
+  <h3>ใบส่งของ / ใบแจ้งหนี้</h3>
+  ${r.shopAddress?`<p class="c">${r.shopAddress}</p>`:''}
+  ${r.shopPhone?`<p class="c">โทร : ${r.shopPhone}</p>`:''}
+  <hr class="dash">
+  <div class="two"><span>เลขที่</span><span>${r.doc_no||''}</span></div>
+  <div class="two"><span>วันที่</span><span style="font-size:13px">${dt}</span></div>
+  <hr class="dash">
+  <div>ลูกค้า: <b>${r.customer_name||''}</b></div>
+  ${r.customer_phone?`<div>โทร: ${r.customer_phone}</div>`:''}
+  ${r.customer_address?`<div>ส่งที่: ${r.customer_address}</div>`:''}
+  <hr class="dash">
+  <table>
+    <tr style="font-size:13px;font-weight:bold;border-bottom:1px dashed #000">
+      <td style="padding-bottom:2px">รายการ</td><td style="text-align:center">จำนวน</td><td style="text-align:right">ราคา</td><td style="text-align:right">รวม</td>
+    </tr>
+    ${rows}
+  </table>
+  <hr class="dash">
+  <div class="two"><span>รวม</span><span>${fmt(r.subtotal)}</span></div>
+  ${n(r.discount)>0?`<div class="two"><span>ส่วนลด</span><span>-${fmt(r.discount)}</span></div>`:''}
+  ${n(r.delivery_fee)>0?`<div class="two"><span>ค่าจัดส่ง</span><span>${fmt(r.delivery_fee)}</span></div>`:''}
+  <div class="two lg"><span>ยอดแจ้งหนี้</span><span>฿${fmt(r.total)}</span></div>
+  ${r.note?`<hr class="dash"><div style="font-size:13px">หมายเหตุ: ${r.note}</div>`:''}
+  ${r.salesperson?`<div class="two"><span>พนักงาน</span><span>${r.salesperson}</span></div>`:''}
+  <hr class="dash">
+  <div class="c bold">${r.pay_status==='paid'?'** ชำระแล้ว **':'** เก็บปลายทาง **'}</div>
+  <hr class="dash">
+  <div class="two"><span>ผู้รับสินค้า (ลูกค้า)</span><span>ผู้ส่ง (พนักงาน)</span></div>
+  <br><br>
+  <div class="two"><span>___________</span><span>___________</span></div>
+  <script>window.onload=()=>{window.focus();window.print()}</script>
+  </body></html>`
+}
+
 const CART_DOC_TYPES = [
   { value: 'quotation',        label: '📝 ใบเสนอราคา' },
   { value: 'delivery_invoice', label: '📦 ใบส่งของ/ใบแจ้งหนี้' },
@@ -3883,22 +3943,22 @@ function DeliverySlipModal({ cart, totals, settings, currentEmp, customer, onClo
 
       const cfg = getReceiptCfg()
       const paperW = parseInt(cfg.paper_width) || 80
+      const slipData = {
+        doc_no: finalDocNo,
+        shopName: settings.shop_name, shopAddress: settings.shop_address,
+        shopPhone: settings.shop_phone, shopLogo: settings.shop_logo,
+        customer_name: custName.trim(), customer_phone: custPhone.trim(),
+        customer_address: custAddr.trim(),
+        items: docItems, subtotal: totals.subtotal,
+        discount: totals.discount || 0, delivery_fee: fee, total: grandTotal,
+        note: note.trim(), created_at: new Date().toISOString(),
+        salesperson: empLabel || undefined,
+        pay_status: payStatus,
+      }
       if (canPrintReceipt(cfg)) {
         const printImg = mapSnapshotUrl || mapImageDataUrl
-        buildDeliverySlipESCPOS({
-          doc_no: finalDocNo,
-          shopName: settings.shop_name, shopAddress: settings.shop_address,
-          shopPhone: settings.shop_phone, shopLogo: settings.shop_logo,
-          customer_name: custName.trim(), customer_phone: custPhone.trim(),
-          customer_address: custAddr.trim(),
-          items: docItems, subtotal: totals.subtotal,
-          discount: totals.discount || 0, delivery_fee: fee, total: grandTotal,
-          note: note.trim(), created_at: new Date().toISOString(),
-          salesperson: empLabel || undefined,
-          pay_status: payStatus,
-        }, paperW).then(async slipBytes => {
+        buildDeliverySlipESCPOS(slipData, paperW).then(async slipBytes => {
           if (printImg) {
-            // ใบ 1 + ใบ 2 (slip) → CUT → แผนที่ + header → CUT  (job เดียว)
             const mapDetails = {
               customer_name: custName.trim(), customer_phone: custPhone.trim(),
               customer_address: custAddr.trim(),
@@ -3912,6 +3972,18 @@ function DeliverySlipModal({ cart, totals, settings, currentEmp, customer, onClo
             await printReceiptBytes(cfg, slipBytes)
           }
         }).catch(e => console.warn('Delivery slip print error:', e))
+      } else {
+        // fallback: browser print (เมื่อไม่มีเครื่องพิมพ์ thermal)
+        const html = buildDeliverySlipHTML(slipData)
+        const blob = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }))
+        const iframe = document.createElement('iframe')
+        iframe.style.cssText = 'position:fixed;left:-9999px;width:1px;height:1px;opacity:0'
+        document.body.appendChild(iframe)
+        iframe.onload = () => {
+          try { iframe.contentWindow.focus(); iframe.contentWindow.print() } catch {}
+          setTimeout(() => { document.body.removeChild(iframe); URL.revokeObjectURL(blob) }, 2000)
+        }
+        iframe.src = blob
       }
 
       onSaved(saved)

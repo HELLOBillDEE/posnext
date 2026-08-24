@@ -386,6 +386,7 @@ export async function buildDeliverySlipESCPOS(r, paperMM = 80) {
       line(i.name || '')
       two(`  ${i.qty} x ${n(i.price).toFixed(2)}`,
           (n(i.price) * n(i.qty) - n(i.disc || 0)).toFixed(2))
+      if (i.note) line(`  * ${i.note}`, 'left', Math.round(fSm * 0.85))
     }
     div()
     two('รวม', n(r.subtotal).toFixed(2))
