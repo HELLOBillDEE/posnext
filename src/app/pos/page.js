@@ -2490,20 +2490,35 @@ function DeliveryDetailInHistory({ doc: initialDoc, settings, onBack, onUpdated 
   async function reprint(d) {
     const cfg = getReceiptCfg()
     const paperW = parseInt(cfg.paper_width) || 80
-    try {
-      const slipBytes = await buildDeliverySlipESCPOS({
-        doc_no: d.doc_no,
-        shopName: settings?.shop_name, shopAddress: settings?.shop_address, shopPhone: settings?.shop_phone,
-        customer_name: d.customer_name, customer_phone: d.customer_phone,
-        customer_address: d.customer_address,
-        items: d.items || [], subtotal: d.subtotal || d.total,
-        discount: d.discount || 0, delivery_fee: d.delivery_fee || 0,
-        total: d.total, note: d.note, created_at: d.created_at,
-      }, paperW)
-      const usbAuto = cfg.usb_port && (cfg.usb_mode || await getServerUsb())
-      if (usbAuto) await printViaUSB(slipBytes, cfg.usb_port)
-      else await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, slipBytes)
-    } catch (e) { alert('พิมไม่สำเร็จ: ' + e.message) }
+    const slipData = {
+      doc_no: d.doc_no,
+      shopName: settings?.shop_name, shopAddress: settings?.shop_address,
+      shopPhone: settings?.shop_phone, shopLogo: settings?.shop_logo,
+      customer_name: d.customer_name, customer_phone: d.customer_phone,
+      customer_address: d.customer_address,
+      items: d.items || [], subtotal: d.subtotal || d.total,
+      discount: d.discount || 0, delivery_fee: d.delivery_fee || 0,
+      total: d.total, note: d.note, created_at: d.created_at,
+    }
+    if (canPrintReceipt(cfg)) {
+      try {
+        const slipBytes = await buildDeliverySlipESCPOS(slipData, paperW)
+        const usbAuto = cfg.usb_port && (cfg.usb_mode || await getServerUsb())
+        if (usbAuto) await printViaUSB(slipBytes, cfg.usb_port)
+        else await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, slipBytes)
+      } catch (e) { alert('พิมไม่สำเร็จ: ' + e.message) }
+    } else {
+      const html = buildDeliverySlipHTML(slipData)
+      const blob = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }))
+      const iframe = document.createElement('iframe')
+      iframe.style.cssText = 'position:fixed;left:-9999px;width:1px;height:1px;opacity:0'
+      document.body.appendChild(iframe)
+      iframe.onload = () => {
+        try { iframe.contentWindow.focus(); iframe.contentWindow.print() } catch {}
+        setTimeout(() => { document.body.removeChild(iframe); URL.revokeObjectURL(blob) }, 2000)
+      }
+      iframe.src = blob
+    }
   }
 
   // ── Edit mode ──────────────────────────────────────────────────────────────
