@@ -203,41 +203,69 @@ function BarcodeImg({ value, cols }) {
 
 function PrintGrid({ items, cols, rows }) {
   const fmt = n => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
-  const labelW = cols === 2 ? '50%' : cols === 3 ? '33.33%' : '50%'
+  const perPage = cols * rows
+  // A4 usable area (8mm margin each side): 194mm wide × 281mm tall
+  const labelW = `${(194 / cols).toFixed(2)}mm`
+  const labelH = `${(281 / rows).toFixed(2)}mm`
+
+  // split into pages
+  const pages = []
+  for (let i = 0; i < items.length; i += perPage) pages.push(items.slice(i, i + perPage))
+
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', width: '100%' }}>
-      {items.map((p, i) => (
-        <div key={i} style={{
-          width: labelW, boxSizing: 'border-box', padding: '4mm',
-          pageBreakInside: 'avoid', breakInside: 'avoid',
+    <>
+      {pages.map((pageItems, pi) => (
+        <div key={pi} style={{
+          width: '194mm', height: '281mm',
+          display: 'grid',
+          gridTemplateColumns: `repeat(${cols}, ${labelW})`,
+          gridTemplateRows: `repeat(${rows}, ${labelH})`,
+          pageBreakAfter: pi < pages.length - 1 ? 'always' : 'auto',
+          breakAfter: pi < pages.length - 1 ? 'page' : 'auto',
+          overflow: 'hidden',
         }}>
-          <div style={{
-            border: '1px solid #cbd5e1', borderRadius: 8, overflow: 'hidden',
-            background: '#fff', display: 'flex', flexDirection: 'column',
-          }}>
-            {/* ช่องรูปสินค้า */}
-            <div style={{
-              width: '100%', aspectRatio: cols === 3 ? '5/2' : '4/3',
-              background: '#fff', borderBottom: '1.5px dashed #94a3b8',
-              display: 'flex', flexDirection: 'column', alignItems: 'center',
-              justifyContent: 'center', gap: 3,
-            }}>
-              <span style={{ fontSize: 18, opacity: .15 }}>📷</span>
-              <span style={{ fontSize: 7, color: '#94a3b8', fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase' }}>ติดรูปสินค้าที่นี่</span>
-            </div>
-            <div style={{ padding: '5px 8px 5px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <div style={{ fontSize: cols === 3 ? 11 : 13, color: '#1E293B', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', lineHeight: 1.3 }}>
-                {p.name}
+          {/* fill empty slots so grid stays fixed */}
+          {Array.from({ length: perPage }).map((_, i) => {
+            const p = pageItems[i]
+            return (
+              <div key={i} style={{
+                width: labelW, height: labelH,
+                boxSizing: 'border-box', padding: '3mm',
+                breakInside: 'avoid', pageBreakInside: 'avoid',
+              }}>
+                {p && (
+                  <div style={{
+                    border: '1px solid #cbd5e1', borderRadius: 6, overflow: 'hidden',
+                    background: '#fff', display: 'flex', flexDirection: 'column',
+                    height: '100%',
+                  }}>
+                    {/* ช่องรูปสินค้า */}
+                    <div style={{
+                      flex: '1 1 0', minHeight: 0,
+                      background: '#fff', borderBottom: '1.5px dashed #94a3b8',
+                      display: 'flex', flexDirection: 'column', alignItems: 'center',
+                      justifyContent: 'center', gap: 2,
+                    }}>
+                      <span style={{ fontSize: 16, opacity: .15 }}>📷</span>
+                      <span style={{ fontSize: 6, color: '#94a3b8', fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase' }}>ติดรูปสินค้าที่นี่</span>
+                    </div>
+                    <div style={{ padding: '4px 6px', display: 'flex', flexDirection: 'column', gap: 1, flexShrink: 0 }}>
+                      <div style={{ fontSize: cols === 3 ? 10 : 12, color: '#1E293B', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', lineHeight: 1.3 }}>
+                        {p.name}
+                      </div>
+                      <BarcodeImg value={p.barcode} cols={cols} />
+                      <div style={{ fontSize: cols === 2 ? 22 : 16, fontWeight: 800, color: '#C72C41', textAlign: 'center', lineHeight: 1.1 }}>
+                        ฿{fmt(p.price)}
+                      </div>
+                      <div style={{ fontSize: 8, color: '#94a3b8', textAlign: 'center' }}>/{p.unit}</div>
+                    </div>
+                  </div>
+                )}
               </div>
-              <BarcodeImg value={p.barcode} cols={cols} />
-              <div style={{ fontSize: cols === 2 ? 24 : 18, fontWeight: 800, color: '#C72C41', textAlign: 'center', lineHeight: 1.1 }}>
-                ฿{fmt(p.price)}
-              </div>
-              <div style={{ fontSize: 9, color: '#94a3b8', textAlign: 'center' }}>/{p.unit}</div>
-            </div>
-          </div>
+            )
+          })}
         </div>
       ))}
-    </div>
+    </>
   )
 }
