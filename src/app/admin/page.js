@@ -106,14 +106,13 @@ const DEF_RECEIPT  = { name:'Receipt Printer', ip:'192.168.2.88', port:'9100', p
 
 function loadPrinters() {
   if (typeof window === 'undefined') return { barcode: DEF_BARCODE, receipt: DEF_RECEIPT }
-  const origin = window.location.origin
   const saved = {
     barcode: JSON.parse(localStorage.getItem('printer_barcode') || 'null'),
     receipt: JSON.parse(localStorage.getItem('printer_receipt') || 'null'),
   }
   return {
-    barcode: { ...DEF_BARCODE, ...(saved.barcode || {}), bridge_url: origin },
-    receipt: { ...DEF_RECEIPT, ...(saved.receipt || {}), bridge_url: origin },
+    barcode: { ...DEF_BARCODE, ...(saved.barcode || {}) },
+    receipt: { ...DEF_RECEIPT, ...(saved.receipt || {}) },
   }
 }
 
@@ -2169,12 +2168,12 @@ function PrinterFields({ values, onChange, paperOptions, showMac = false, showUs
           )}
           <div>
             <label className="text-xs font-semibold text-slate-500 block mb-1.5">
-              Bridge URL <span className="font-normal text-slate-400">(URL ของ Mac ในร้าน)</span>
+              Bridge URL <span className="font-normal text-slate-400">(URL ของ PC/Mac ในร้าน)</span>
             </label>
             <input value={values.bridge_url || ''} onChange={e => onChange({ bridge_url: e.target.value })}
               className="field w-full font-mono text-xs" placeholder="http://192.168.2.xxx:3000" />
             <p className="text-[10px] text-slate-400 mt-1">
-              เปิด Terminal บน Mac แล้วพิมพ์ <code className="bg-slate-100 px-1 rounded">ipconfig getifaddr en0</code> เพื่อดู IP
+              ต้องกรอกให้ถูกต้องเพื่อพิมพ์จาก Vercel ได้ — ดู IP จาก <code className="bg-slate-100 px-1 rounded">ipconfig getifaddr en0</code> (Mac) หรือ <code className="bg-slate-100 px-1 rounded">ipconfig</code> (PC)
             </p>
           </div>
           <div className="border-t border-slate-100 bg-emerald-50 rounded-xl px-3 py-2">

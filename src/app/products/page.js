@@ -238,8 +238,8 @@ export default function ProductsPage() {
         ? await buildLabelTSPL(tsplItems, size)
         : await buildLabelESCPOS(items, size, parseInt(cfg.paper_width) || 100)
 
-      // ใช้ bridge จาก origin ปัจจุบัน เสมอ (ป้องกัน URL เก่าจาก Vercel ค้างใน config)
-      const bridgeUrl = window.location.origin
+      // ถ้ามี bridge_url ในตั้งค่า (IP PC ในร้าน) ใช้นั้น — ให้ทำงานจาก Vercel ได้
+      const bridgeUrl = cfg.bridge_url || window.location.origin
       try {
         await printViaBridge(bridgeUrl, cfg.ip, cfg.port || 9100, bytes, [0, 4000])
         setPrintModal(false)
