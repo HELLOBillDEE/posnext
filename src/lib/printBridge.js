@@ -310,6 +310,19 @@ export async function buildReceiptESCPOS(r, paperMM = 80) {
     line('แอด LINE เพื่อสั่งสินค้าได้เลย', 'center', fSm, false)
     if (r.lineQr) dl.push({ lineQr: r.lineQr })
   }
+
+  if (n(r.total) >= 1000) {
+    nl()
+    div()
+    line('พิเศษเฉพาะคุณ', 'center', fSm, true)
+    nl()
+    line('เมื่อมียอดซื้อสินค้าครบ 1000 บาท ขึ้นไป', 'center', fSm)
+    line('รับฟรีเสื้อช่าง 1 ตัว!', 'center', fSm, true)
+    nl()
+    line('*โปรโมชั่นนี้มีจนกว่าสินค้าจะหมด*', 'center', Math.round(fSm * 0.85))
+    div()
+  }
+
   nl(); nl(); nl(); nl(); nl(); nl()
 
   return renderDLtoESCPOS(dl, pw)
