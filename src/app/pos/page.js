@@ -4,7 +4,7 @@ import dynamic from 'next/dynamic'
 import { useAuth } from '@/components/AuthProvider'
 import { supabase } from '@/lib/supabase'
 import { convertThaiBarcode, fmt, genReceiptNo } from '@/lib/utils'
-import { printViaBridge, printViaUSB, buildReceiptESCPOS, buildCheckerESCPOS, buildDeliverySlipESCPOS, buildMapSnapshotESCPOS, kickDrawerViaBridge, buildDrawerKickESCPOS } from '@/lib/printBridge'
+import { printViaBridge, printViaUSB, printViaWebUSB, isWebUSBAvailable, buildReceiptESCPOS, buildCheckerESCPOS, buildDeliverySlipESCPOS, buildMapSnapshotESCPOS, kickDrawerViaBridge, buildDrawerKickESCPOS } from '@/lib/printBridge'
 import { syncSaleToBillDee } from '@/lib/billdeeSyncClient'
 import { buildFormalDocHTML, previewNextDocNo, commitNextDocNo } from '@/lib/docBuilder'
 import { cacheSet, cacheGet, addToQueue } from '@/lib/offlineQueue'
@@ -59,9 +59,13 @@ async function getServerUsb() {
 function canPrintReceipt(cfg) { return !!(cfg.ip || cfg.usb_mode || cfg.usb_port) }
 
 // ส่ง bytes ไปเครื่องพิมพ์ตาม mode
-// ใช้ USB เฉพาะเมื่อ usb_mode === true เท่านั้น (ต้องตั้งใน Admin → เครื่องพิมพ์)
+// USB mode: server API → WebUSB (Vercel fallback) → bridge IP
 async function printReceiptBytes(cfg, bytes) {
-  if (cfg.usb_mode && cfg.usb_port) return printViaUSB(bytes, cfg.usb_port)
+  if (cfg.usb_mode && cfg.usb_port) {
+    const serverUsb = await getServerUsb()
+    if (serverUsb) return printViaUSB(bytes, cfg.usb_port)
+    if (isWebUSBAvailable()) return printViaWebUSB(bytes)
+  }
   return printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
 }
 
@@ -2504,9 +2508,7 @@ function DeliveryDetailInHistory({ doc: initialDoc, settings, onBack, onUpdated 
     if (canPrintReceipt(cfg)) {
       try {
         const slipBytes = await buildDeliverySlipESCPOS(slipData, paperW)
-        const usbAuto = cfg.usb_port && (cfg.usb_mode || await getServerUsb())
-        if (usbAuto) await printViaUSB(slipBytes, cfg.usb_port)
-        else await printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, slipBytes)
+        await printReceiptBytes(cfg, slipBytes)
       } catch (e) { alert('พิมไม่สำเร็จ: ' + e.message) }
     } else {
       const html = buildDeliverySlipHTML(slipData)

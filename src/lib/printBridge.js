@@ -95,6 +95,35 @@ export async function printViaUSB(bytes, usbPort = 'USB001') {
   }
 }
 
+// WebUSB — ส่งตรงจาก browser ไปเครื่องพิมพ์ ไม่ผ่าน server
+// ใช้เมื่อเข้าผ่าน Vercel และ server-side USB ไม่มี
+let _webUsbDevice = null
+
+export function isWebUSBAvailable() {
+  return typeof navigator !== 'undefined' && !!navigator.usb
+}
+
+export async function printViaWebUSB(bytes) {
+  if (!navigator.usb) throw new Error('WebUSB not supported')
+  // ใช้ device ที่ paired ไว้แล้ว หรือขอ permission ใหม่
+  if (!_webUsbDevice) {
+    const paired = await navigator.usb.getDevices()
+    _webUsbDevice = paired[0] || null
+  }
+  if (!_webUsbDevice) {
+    _webUsbDevice = await navigator.usb.requestDevice({ filters: [] })
+  }
+  if (!_webUsbDevice.opened) await _webUsbDevice.open()
+  if (_webUsbDevice.configuration === null) await _webUsbDevice.selectConfiguration(1)
+  // claim interface — ลอง 0 ก่อน แล้วค่อย release ถ้า claimed อยู่แล้ว
+  try { await _webUsbDevice.claimInterface(0) } catch {}
+  // หา bulk-out endpoint
+  const iface = _webUsbDevice.configuration.interfaces[0]
+  const ep = iface.alternate.endpoints.find(e => e.direction === 'out' && e.type === 'bulk')
+  const epNum = ep ? ep.endpointNumber : 1
+  await _webUsbDevice.transferOut(epNum, new Uint8Array(bytes))
+}
+
 // สร้าง ESC/POS ใบเสร็จแบบ bitmap — ไม่มีปัญหา Thai codepage
 // ── Shared helpers ──────────────────────────────────────────────────────────
 
