@@ -17,22 +17,34 @@ export default function ReportsPage() {
     const from = dateFrom + 'T00:00:00'
     const to   = dateTo   + 'T23:59:59'
     try {
-      const [{ data: sales }, { data: items }, { data: expenses }] = await Promise.all([
-        supabase.from('sales').select('*').gte('created_at', from).lte('created_at', to).eq('status','completed').order('created_at'),
-        supabase.from('sale_items').select('*, sales!inner(created_at,status)').gte('sales.created_at', from).lte('sales.created_at', to).eq('sales.status','completed'),
-        supabase.from('expenses').select('*').gte('expense_date', dateFrom).lte('expense_date', dateTo),
+      // paginate all queries (Supabase cap = 1000/page)
+      async function fetchAll(builder) {
+        let all = [], p = 0
+        while (true) {
+          const { data } = await builder.range(p, p + 999)
+          if (!data || data.length === 0) break
+          all = all.concat(data)
+          if (data.length < 1000) break
+          p += 1000
+        }
+        return all
+      }
+      const [sales, items, expenses] = await Promise.all([
+        fetchAll(supabase.from('sales').select('*').gte('created_at', from).lte('created_at', to).eq('status','completed').order('created_at')),
+        fetchAll(supabase.from('sale_items').select('*, sales!inner(created_at,status)').gte('sales.created_at', from).lte('sales.created_at', to).eq('sales.status','completed')),
+        fetchAll(supabase.from('expenses').select('*').gte('expense_date', dateFrom).lte('expense_date', dateTo)),
       ])
-      const revenue  = (sales || []).reduce((s, r) => s + Number(r.total), 0)
-      const cost     = (items || []).reduce((s, i) => s + Number(i.cost||0) * Number(i.qty), 0)
-      const expTotal = (expenses || []).reduce((s, e) => s + Number(e.amount), 0)
+      const revenue  = (sales).reduce((s, r) => s + Number(r.total), 0)
+      const cost     = (items).reduce((s, i) => s + Number(i.cost||0) * Number(i.qty), 0)
+      const expTotal = (expenses).reduce((s, e) => s + Number(e.amount), 0)
 
       // Payment method breakdown
       const byPay = {}
-      ;(sales || []).forEach(s => { byPay[s.payment_method] = (byPay[s.payment_method] || 0) + Number(s.total) })
+      ;(sales).forEach(s => { byPay[s.payment_method] = (byPay[s.payment_method] || 0) + Number(s.total) })
 
       // Top products
       const byProd = {}
-      ;(items || []).forEach(i => {
+      ;(items).forEach(i => {
         if (!byProd[i.product_name]) byProd[i.product_name] = { qty: 0, revenue: 0, profit: 0 }
         byProd[i.product_name].qty     += Number(i.qty)
         byProd[i.product_name].revenue += Number(i.subtotal)
@@ -41,7 +53,7 @@ export default function ReportsPage() {
 
       // Daily breakdown (when range > 1 day)
       const byDay = {}
-      ;(sales || []).forEach(s => {
+      ;(sales).forEach(s => {
         const d = s.created_at.slice(0, 10)
         if (!byDay[d]) byDay[d] = { date: d, revenue: 0, orders: 0 }
         byDay[d].revenue += Number(s.total)
@@ -50,7 +62,7 @@ export default function ReportsPage() {
 
       setData({
         revenue, cost, profit: revenue - cost - expTotal, expTotal,
-        orders: (sales || []).length,
+        orders: (sales).length,
         byPay, byProd, byDay,
         grossProfit: revenue - cost,
         margin: revenue ? ((revenue - cost) / revenue * 100) : 0,
@@ -102,17 +114,28 @@ export default function ReportsPage() {
       const lastDay = new Date(lastYM.slice(0,4), parseInt(lastYM.slice(5,7)), 0).getDate()
       const to = lastYM + '-' + String(lastDay).padStart(2, '0')
 
-      const [{ data: sales }, { data: pos }, { data: cfgRows }] = await Promise.all([
-        supabase.from('sales').select('id,created_at,total,payment_method,note')
+      async function fetchAll(builder) {
+        let all = [], p = 0
+        while (true) {
+          const { data } = await builder.range(p, p + 999)
+          if (!data || data.length === 0) break
+          all = all.concat(data)
+          if (data.length < 1000) break
+          p += 1000
+        }
+        return all
+      }
+      const [sales, pos, cfgRows] = await Promise.all([
+        fetchAll(supabase.from('sales').select('id,created_at,total,payment_method,note')
           .gte('created_at', from + 'T00:00:00').lte('created_at', to + 'T23:59:59')
-          .eq('status', 'completed').order('created_at'),
-        supabase.from('purchase_orders').select('id,created_at,total,note')
+          .eq('status', 'completed').order('created_at')),
+        fetchAll(supabase.from('purchase_orders').select('id,created_at,total,note')
           .gte('created_at', from + 'T00:00:00').lte('created_at', to + 'T23:59:59')
-          .order('created_at'),
-        supabase.from('settings').select('key,value'),
+          .order('created_at')),
+        supabase.from('settings').select('key,value').then(r => r.data || []),
       ])
 
-      const cfg = Object.fromEntries((cfgRows || []).map(r => [r.key, r.value]))
+      const cfg = Object.fromEntries(cfgRows.map(r => [r.key, r.value]))
       const rows = []
 
       // header
@@ -135,14 +158,14 @@ export default function ReportsPage() {
 
       // merge ทุก transactions แล้ว sort by date
       const allTx = [
-        ...(sales||[]).map(s => ({
+        ...sales.map(s => ({
           date: s.created_at.slice(0,10),
           label: 'รายได้จากการขาย',
           income: Number(s.total),
           buy: 0, other: 0,
           note: s.payment_method === 'cash' ? 'เงินสด' : s.payment_method === 'transfer' ? 'โอนเงิน' : (s.payment_method||''),
         })),
-        ...(pos||[]).map(p => ({
+        ...pos.map(p => ({
           date: p.created_at?.slice(0, 10),
           label: 'ซื้อสินค้า',
           income: 0, buy: Number(p.total), other: 0,
