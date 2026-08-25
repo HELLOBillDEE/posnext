@@ -2488,6 +2488,7 @@ function DeliveryDetailInHistory({ doc: initialDoc, settings, onBack, onUpdated 
   }
 
   async function reprint(d) {
+    console.log('[reprint] items:', JSON.stringify(d.items?.map(i=>({name:i.name,note:i.note}))))
     const cfg = getReceiptCfg()
     const paperW = parseInt(cfg.paper_width) || 80
     const slipData = {

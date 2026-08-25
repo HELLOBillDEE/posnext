@@ -369,7 +369,7 @@ export async function buildDeliverySlipESCPOS(r, paperMM = 80) {
 
     if (r.shopLogo) dl.push({ logo: r.shopLogo })
     else line(r.shopName || 'ร้านค้า', 'center', fLg, true)
-    line((isCopy ? '[สำเนา] ' : '') + 'ใบส่งของ / ใบแจ้งหนี้', 'center', fSm, true)
+    line((isCopy ? '[สำเนา] ' : '') + 'ใบส่งของ/ใบแจ้งหนี้', 'center', fSm, true)
     if (r.shopAddress) line(r.shopAddress, 'center', Math.round(fSm * 0.8))
     if (r.shopPhone)   line('โทร: ' + r.shopPhone, 'center', Math.round(fSm * 0.9))
     div()
