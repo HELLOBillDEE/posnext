@@ -106,13 +106,14 @@ const DEF_RECEIPT  = { name:'Receipt Printer', ip:'192.168.2.88', port:'9100', p
 
 function loadPrinters() {
   if (typeof window === 'undefined') return { barcode: DEF_BARCODE, receipt: DEF_RECEIPT }
+  const origin = window.location.origin
   const saved = {
     barcode: JSON.parse(localStorage.getItem('printer_barcode') || 'null'),
     receipt: JSON.parse(localStorage.getItem('printer_receipt') || 'null'),
   }
   return {
-    barcode: { ...DEF_BARCODE, ...(saved.barcode || {}) },
-    receipt: { ...DEF_RECEIPT, ...(saved.receipt || {}) },
+    barcode: { ...DEF_BARCODE, ...(saved.barcode || {}), bridge_url: origin },
+    receipt: { ...DEF_RECEIPT, ...(saved.receipt || {}), bridge_url: origin },
   }
 }
 
