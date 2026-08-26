@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/AuthProvider'
 import { fmt } from '@/lib/utils'
-import { buildLabelTSPL, buildLabelESCPOS, printViaBridge } from '@/lib/printBridge'
+import { buildLabelTSPL, buildLabelESCPOS, printViaBridge, printViaWebUSB, isWebUSBAvailable } from '@/lib/printBridge'
 
 // pw=page width, ph=row height, cols=columns per row, m=outer margin (mm)
 // pw = total paper width, lw = each label width, hGap = gap between columns, vGap = gap between rows
@@ -245,6 +245,16 @@ export default function ProductsPage() {
         setPrintModal(false)
         return
       } catch (connErr) {
+        // bridge ล้มเหลว (เช่น Mixed Content จาก Vercel) → ลอง WebUSB
+        if (isWebUSBAvailable()) {
+          try {
+            await printViaWebUSB(bytes)
+            setPrintModal(false)
+            return
+          } catch (usbErr) {
+            console.warn('WebUSB failed:', usbErr.message)
+          }
+        }
         // ถ้า connect ไม่ได้ และมี MAC → ค้นหา IP ใหม่อัตโนมัติ
         if (!cfg.mac) throw connErr
         console.warn('Primary IP failed, auto-discovering printer by MAC...')
