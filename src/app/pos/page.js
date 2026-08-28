@@ -59,13 +59,8 @@ async function getServerUsb() {
 function canPrintReceipt(cfg) { return !!(cfg.ip || cfg.usb_mode || cfg.usb_port) }
 
 // ส่ง bytes ไปเครื่องพิมพ์ตาม mode
-// USB mode: server API → WebUSB (Vercel fallback) → bridge IP
 async function printReceiptBytes(cfg, bytes) {
-  if (cfg.usb_mode && cfg.usb_port) {
-    const serverUsb = await getServerUsb()
-    if (serverUsb) return printViaUSB(bytes, cfg.usb_port)
-    if (isWebUSBAvailable()) return printViaWebUSB(bytes)
-  }
+  if (cfg.usb_mode && cfg.usb_port) return printViaUSB(bytes, cfg.usb_port)
   return printViaBridge(cfg.bridge_url || '', cfg.ip, cfg.port || 9100, bytes)
 }
 
