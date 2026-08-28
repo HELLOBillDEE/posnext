@@ -280,12 +280,12 @@ export default function POSPage() {
             try {
               const v = JSON.parse(r.value)
               // ใบเสร็จ: per-terminal override localStorage
-              if (r.key === `printer_receipt_${tid}` && v?.ip) {
+              if (r.key === `printer_receipt_${tid}` && (v?.ip || v?.usb_port || v?.usb_mode)) {
                 receipt = v
                 localStorage.setItem('printer_receipt', JSON.stringify(v))
               }
               // บาร์โค้ด: global key — sync เฉพาะเมื่อ localStorage ว่าง
-              if (r.key === 'printer_barcode' && v?.ip && !barcode.ip) {
+              if (r.key === 'printer_barcode' && (v?.ip || v?.usb_port) && !barcode.ip && !barcode.usb_port) {
                 barcode = v
                 localStorage.setItem('printer_barcode', JSON.stringify(v))
               }
