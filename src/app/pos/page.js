@@ -3208,12 +3208,12 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
   }, [mode, currentShift]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadPrevShift() {
-    const q = supabase.from('shifts')
+    let q = supabase.from('shifts')
       .select('cash_remaining, closing_cash, closed_at')
       .eq('status', 'closed')
       .order('closed_at', { ascending: false })
       .limit(1)
-    if (terminalId) q.eq('terminal_id', terminalId)
+    if (terminalId) q = q.eq('terminal_id', terminalId)
     const { data } = await q.maybeSingle()
     setPrevShift(data)
   }
