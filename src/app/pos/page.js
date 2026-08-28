@@ -375,8 +375,8 @@ export default function POSPage() {
 
     // shift + quotes ดึงใหม่เสมอ (เปลี่ยนบ่อย ไม่ cache)
     const tid = getTerminalId()
-    const shiftQ = supabase.from('shifts').select('*').eq('status','open').order('opened_at',{ascending:false}).limit(1)
-    if (tid) shiftQ.eq('terminal_id', tid)
+    let shiftQ = supabase.from('shifts').select('*').eq('status','open').order('opened_at',{ascending:false}).limit(1)
+    if (tid) shiftQ = shiftQ.eq('terminal_id', tid)
     const { data: openShift } = await shiftQ.maybeSingle()
     setShift(openShift || null)
     const { data: quotes } = await supabase.from('quotations').select('id,doc_no,doc_type,created_at,customer_name,customer_phone,customer_id,total,items,delivery_fee,discount,note,repair_order_id,status').eq('status','pending').order('created_at',{ascending:false})
