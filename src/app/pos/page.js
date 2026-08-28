@@ -2710,7 +2710,7 @@ function CancelBillModal({ sale, settings, currentEmp, empMode, onClose, onVoide
             const cfg = getReceiptCfg()
             if (canPrintReceipt(cfg)) await printReceiptBytes(cfg, buildDrawerKickESCPOS())
           } catch {}
-          await supabase.from('drawer_logs').insert({
+          supabase.from('drawer_logs').insert({
             employee_name: 'แอดมิน', amount: refundAmt, note: `เบิกเงินออก — ${voidNote}`, terminal_id: getTerminalId() || null,
           }).then(null, () => {})
           const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
@@ -2737,7 +2737,7 @@ function CancelBillModal({ sale, settings, currentEmp, empMode, onClose, onVoide
             const cfg = getReceiptCfg()
             if (canPrintReceipt(cfg)) await printReceiptBytes(cfg, buildDrawerKickESCPOS())
           } catch {}
-          await supabase.from('drawer_logs').insert({
+          supabase.from('drawer_logs').insert({
             employee_name: empName, amount: drawerData.amount,
             note: `เบิกเงินออก — ${drawerData.note}`, terminal_id: getTerminalId() || null,
           }).then(null, () => {})
@@ -2896,11 +2896,9 @@ function DrawerOpenModal({ settings, currentEmp, empMode, onClose }) {
     const amtNum   = parseFloat(amount) || 0
     const fullNote = [dirLabel, amtNum ? `฿${amtNum.toLocaleString('th-TH')}` : null, noteText.trim()].filter(Boolean).join(' — ')
 
-    try {
-      await supabase.from('drawer_logs').insert({
-        employee_name: 'แอดมิน', amount: amtNum || null, note: fullNote, terminal_id: getTerminalId() || null,
-      })
-    } catch {}
+    supabase.from('drawer_logs').insert({
+      employee_name: 'แอดมิน', amount: amtNum || null, note: fullNote, terminal_id: getTerminalId() || null,
+    }).then(null, () => {})
 
     fetch('/api/notify-drawer', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
