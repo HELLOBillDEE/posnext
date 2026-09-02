@@ -14,7 +14,7 @@ export async function GET(req) {
 
   const { data, error } = await supabase
     .from('quotations')
-    .select('id,doc_no,customer_name,customer_phone,customer_address,customer_lat,customer_lng,items,subtotal,discount,delivery_fee,total,note,status,delivered_at,delivery_photo_url,delivery_signature_url')
+    .select('id,doc_no,customer_name,customer_phone,customer_address,customer_lat,customer_lng,items,subtotal,discount,delivery_fee,total,note,status,delivered_at,delivery_photo_url,delivery_signature_url,customer_signature_url')
     .eq('delivery_token', token)
     .eq('doc_type', 'delivery_invoice')
     .maybeSingle()
@@ -48,7 +48,7 @@ export async function POST(req) {
 // PATCH /api/delivery — บันทึกยืนยันการส่ง
 export async function PATCH(req) {
   try {
-    const { token, photo_url, signature_url } = await req.json()
+    const { token, photo_url, signature_url, customer_signature_url } = await req.json()
     if (!token) return Response.json({ error: 'ไม่ระบุ token' }, { status: 400 })
 
     const { data: doc } = await supabase
@@ -60,6 +60,7 @@ export async function PATCH(req) {
       delivered_at: new Date().toISOString(),
       delivery_photo_url: photo_url || null,
       delivery_signature_url: signature_url || null,
+      customer_signature_url: customer_signature_url || null,
       status: 'delivered',
     }).eq('id', doc.id)
 

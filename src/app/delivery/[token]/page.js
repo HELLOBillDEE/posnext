@@ -18,9 +18,11 @@ export default function DeliveryPage({ params }) {
   const [photo, setPhoto] = useState(null)
   const [photoPreview, setPhotoPreview] = useState(null)
   const [submitting, setSubmitting] = useState(false)
-  const canvasRef = useRef(null)
+  const canvasRef = useRef(null)   // ลายเซ็นผู้ส่ง
+  const canvasRef2 = useRef(null)  // ลายเซ็นลูกค้า
   const drawing = useRef(false)
   const lastPos = useRef(null)
+  const activeCanvas = useRef(null)
 
   useEffect(() => {
     fetch(`/api/delivery?token=${token}`)
@@ -51,11 +53,11 @@ export default function DeliveryPage({ params }) {
     const src = e.touches ? e.touches[0] : e
     return { x: (src.clientX - rect.left) * (canvas.width / rect.width), y: (src.clientY - rect.top) * (canvas.height / rect.height) }
   }
-  function startDraw(e) { e.preventDefault(); drawing.current = true; lastPos.current = getPos(e, canvasRef.current) }
+  function startDraw(e, ref) { e.preventDefault(); activeCanvas.current = ref.current; drawing.current = true; lastPos.current = getPos(e, ref.current) }
   function draw(e) {
     e.preventDefault()
-    if (!drawing.current) return
-    const canvas = canvasRef.current
+    if (!drawing.current || !activeCanvas.current) return
+    const canvas = activeCanvas.current
     const ctx = canvas.getContext('2d')
     const pos = getPos(e, canvas)
     ctx.beginPath(); ctx.moveTo(lastPos.current.x, lastPos.current.y)
@@ -63,7 +65,12 @@ export default function DeliveryPage({ params }) {
     lastPos.current = pos
   }
   function endDraw(e) { e.preventDefault(); drawing.current = false }
-  function clearSig() { canvasRef.current.getContext('2d').clearRect(0, 0, canvasRef.current.width, canvasRef.current.height) }
+  function clearSig(ref) { ref.current.getContext('2d').clearRect(0, 0, ref.current.width, ref.current.height) }
+  function isBlank(canvas) {
+    const blank = document.createElement('canvas')
+    blank.width = canvas.width; blank.height = canvas.height
+    return canvas.toDataURL() === blank.toDataURL()
+  }
 
   function onPhotoChange(e) {
     const file = e.target.files?.[0]
@@ -79,23 +86,27 @@ export default function DeliveryPage({ params }) {
   }
 
   async function handleSubmit() {
-    const canvas = canvasRef.current
-    const blank = document.createElement('canvas')
-    blank.width = canvas.width; blank.height = canvas.height
-    if (canvas.toDataURL() === blank.toDataURL()) { alert('กรุณาเซ็นชื่อก่อนยืนยัน'); return }
+    if (isBlank(canvasRef.current)) { alert('กรุณาเซ็นชื่อผู้ส่งก่อนยืนยัน'); return }
+    if (isBlank(canvasRef2.current)) { alert('กรุณาเซ็นชื่อลูกค้าก่อนยืนยัน'); return }
     setSubmitting(true)
     try {
-      let photo_url = null, signature_url = null
+      let photo_url = null, signature_url = null, customer_signature_url = null
       if (photo) photo_url = await uploadFile(photo, `${token}/photo_${Date.now()}.jpg`)
       await new Promise((resolve, reject) => {
-        canvas.toBlob(async blob => {
-          try { signature_url = await uploadFile(blob, `${token}/signature.png`); resolve() }
+        canvasRef.current.toBlob(async blob => {
+          try { signature_url = await uploadFile(blob, `${token}/signature_staff.png`); resolve() }
+          catch(e) { reject(e) }
+        }, 'image/png')
+      })
+      await new Promise((resolve, reject) => {
+        canvasRef2.current.toBlob(async blob => {
+          try { customer_signature_url = await uploadFile(blob, `${token}/signature_customer.png`); resolve() }
           catch(e) { reject(e) }
         }, 'image/png')
       })
       const res = await fetch('/api/delivery', {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, photo_url, signature_url }),
+        body: JSON.stringify({ token, photo_url, signature_url, customer_signature_url }),
       })
       const result = await res.json()
       if (!res.ok) throw new Error(result.error)
@@ -126,18 +137,26 @@ export default function DeliveryPage({ params }) {
       <h2 className="text-xl font-bold text-slate-700 mb-1">ส่งของเรียบร้อยแล้ว</h2>
       <p className="text-slate-500 text-sm mb-1">{doc.doc_no} · {doc.customer_name}</p>
       {doc.delivered_at && <p className="text-slate-400 text-xs mb-4">{new Date(doc.delivered_at).toLocaleString('th-TH')}</p>}
-      {doc.delivery_signature_url && (
-        <div className="bg-white rounded-xl p-3 shadow-sm mb-6 w-full max-w-xs">
-          <p className="text-xs text-slate-400 mb-2 text-center">ลายเซ็น</p>
-          <img src={doc.delivery_signature_url} alt="ลายเซ็น" className="w-full rounded" />
-        </div>
-      )}
-      {doc.delivery_photo_url && (
-        <div className="bg-white rounded-xl p-3 shadow-sm mb-6 w-full max-w-xs">
-          <p className="text-xs text-slate-400 mb-2 text-center">รูปหลักฐาน</p>
-          <img src={doc.delivery_photo_url} alt="รูปหลักฐาน" className="w-full rounded" />
-        </div>
-      )}
+      <div className="w-full max-w-xs space-y-3 mb-6">
+        {doc.delivery_signature_url && (
+          <div className="bg-white rounded-xl p-3 shadow-sm">
+            <p className="text-xs text-slate-400 mb-2 text-center">ลายเซ็นผู้ส่ง</p>
+            <img src={doc.delivery_signature_url} alt="ลายเซ็นผู้ส่ง" className="w-full rounded" />
+          </div>
+        )}
+        {doc.customer_signature_url && (
+          <div className="bg-white rounded-xl p-3 shadow-sm">
+            <p className="text-xs text-slate-400 mb-2 text-center">ลายเซ็นลูกค้า</p>
+            <img src={doc.customer_signature_url} alt="ลายเซ็นลูกค้า" className="w-full rounded" />
+          </div>
+        )}
+        {doc.delivery_photo_url && (
+          <div className="bg-white rounded-xl p-3 shadow-sm">
+            <p className="text-xs text-slate-400 mb-2 text-center">รูปหลักฐาน</p>
+            <img src={doc.delivery_photo_url} alt="รูปหลักฐาน" className="w-full rounded" />
+          </div>
+        )}
+      </div>
       <a href="/delivery"
         className="px-6 py-3 rounded-xl font-bold text-white text-sm"
         style={{background:'#C72C41'}}>
@@ -236,19 +255,34 @@ export default function DeliveryPage({ params }) {
           )}
         </div>
 
-        {/* ลายเซ็น */}
+        {/* ลายเซ็นผู้ส่ง */}
         <div className="bg-white rounded-xl shadow-sm p-4">
           <div className="flex items-center justify-between mb-3">
             <p className="text-sm font-semibold text-slate-700">✍️ ลายเซ็นผู้ส่ง</p>
-            <button onClick={clearSig} className="text-xs text-slate-400 border border-slate-200 rounded px-2 py-1">ล้าง</button>
+            <button onClick={() => clearSig(canvasRef)} className="text-xs text-slate-400 border border-slate-200 rounded px-2 py-1">ล้าง</button>
           </div>
-          <canvas ref={canvasRef} width={600} height={200}
+          <canvas ref={canvasRef} width={600} height={180}
             className="w-full border-2 border-slate-200 rounded-xl bg-slate-50 touch-none"
             style={{touchAction:'none'}}
-            onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
-            onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw}
+            onMouseDown={e=>startDraw(e,canvasRef)} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
+            onTouchStart={e=>startDraw(e,canvasRef)} onTouchMove={draw} onTouchEnd={endDraw}
           />
-          <p className="text-xs text-slate-400 text-center mt-2">เซ็นชื่อในกล่องด้านบน</p>
+          <p className="text-xs text-slate-400 text-center mt-1.5">ลายเซ็นผู้จัดส่ง</p>
+        </div>
+
+        {/* ลายเซ็นลูกค้า */}
+        <div className="bg-white rounded-xl shadow-sm p-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-semibold text-slate-700">✍️ ลายเซ็นผู้รับ (ลูกค้า)</p>
+            <button onClick={() => clearSig(canvasRef2)} className="text-xs text-slate-400 border border-slate-200 rounded px-2 py-1">ล้าง</button>
+          </div>
+          <canvas ref={canvasRef2} width={600} height={180}
+            className="w-full border-2 border-slate-200 rounded-xl bg-slate-50 touch-none"
+            style={{touchAction:'none'}}
+            onMouseDown={e=>startDraw(e,canvasRef2)} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
+            onTouchStart={e=>startDraw(e,canvasRef2)} onTouchMove={draw} onTouchEnd={endDraw}
+          />
+          <p className="text-xs text-slate-400 text-center mt-1.5">ลายเซ็นลูกค้า</p>
         </div>
       </div>
 
