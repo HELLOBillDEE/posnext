@@ -10,18 +10,21 @@ function fmtDate(s) {
 }
 
 export default function DeliveryListPage() {
-  const [docs, setDocs] = useState(null)
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState('pending') // pending | done
+
+  const [pending, setPending] = useState([])
+  const [done, setDone] = useState([])
 
   async function load() {
     setLoading(true)
     try {
       const res = await fetch('/api/delivery/list', { cache: 'no-store' })
       const data = await res.json()
-      setDocs(data || [])
+      setPending(data.pending || [])
+      setDone(data.done || [])
     } catch {
-      setDocs([])
+      setPending([]); setDone([])
     } finally { setLoading(false) }
   }
 
@@ -31,9 +34,6 @@ export default function DeliveryListPage() {
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [])
-
-  const pending = (docs||[]).filter(d => !d.delivered_at && d.status !== 'delivered' && d.status !== 'cancelled')
-  const done    = (docs||[]).filter(d => !!d.delivered_at || d.status === 'delivered')
 
   const list = tab === 'pending' ? pending : done
 
@@ -52,7 +52,7 @@ export default function DeliveryListPage() {
             className="flex-1 py-3 text-sm font-semibold transition-colors"
             style={{color: tab===t ? '#C72C41' : '#94a3b8', borderBottom: tab===t ? '2px solid #C72C41' : '2px solid transparent'}}>
             {l}
-            {t==='pending' && docs && pending.length > 0 && (
+            {t==='pending' && pending.length > 0 && (
               <span className="ml-1.5 bg-red-100 text-red-600 text-xs font-bold px-1.5 py-0.5 rounded-full">{pending.length}</span>
             )}
           </button>
