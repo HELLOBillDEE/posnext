@@ -51,18 +51,18 @@ export async function PATCH(req) {
     const { token, photo_url, signature_url, customer_signature_url } = await req.json()
     if (!token) return Response.json({ error: 'ไม่ระบุ token' }, { status: 400 })
 
-    const { data: doc } = await supabase
-      .from('quotations').select('id,delivered_at').eq('delivery_token', token).maybeSingle()
-    if (!doc) return Response.json({ error: 'ไม่พบใบส่งของ' }, { status: 404 })
-    if (doc.delivered_at) return Response.json({ error: 'ส่งของเรียบร้อยแล้ว' }, { status: 409 })
+    const { data: result, error: rpcErr } = await supabase.rpc('confirm_delivery', {
+      p_token: token,
+      p_photo_url: photo_url || null,
+      p_signature_url: signature_url || null,
+      p_customer_signature_url: customer_signature_url || null,
+    })
 
-    await supabase.from('quotations').update({
-      delivered_at: new Date().toISOString(),
-      delivery_photo_url: photo_url || null,
-      delivery_signature_url: signature_url || null,
-      customer_signature_url: customer_signature_url || null,
-      status: 'delivered',
-    }).eq('id', doc.id)
+    if (rpcErr) {
+      console.error('[delivery confirm] rpc error:', rpcErr.message)
+      return Response.json({ error: rpcErr.message }, { status: 500 })
+    }
+    if (result?.error) return Response.json({ error: result.error }, { status: 409 })
 
     return Response.json({ ok: true })
   } catch (e) {
