@@ -738,15 +738,15 @@ export default function EmployeesPage() {
     setPendingLoading(true)
     try {
       const [{ data: leaves }, { data: advances }, { data: drawers }, { data: expenseReqs }] = await Promise.all([
-        supabase.from('leave_requests').select('id,employee_name,date_from,date_to,period,leave_type,note,created_at').eq('status','pending').order('created_at',{ascending:false}),
-        supabase.from('salary_advances').select('id,employee_name,amount,note,created_at').eq('status','pending').order('created_at',{ascending:false}),
-        supabase.from('drawer_requests').select('id,employee_name,note,amount,created_at').eq('status','pending').order('created_at',{ascending:false}),
+        supabase.from('leave_requests').select('id,employee_id,employees(name),date_from,date_to,leave_period,leave_type,note,requested_at').eq('status','pending').order('requested_at',{ascending:false}),
+        supabase.from('salary_advances').select('id,employee_id,employees(name),amount,note,requested_at').eq('status','pending').order('requested_at',{ascending:false}),
+        supabase.from('drawer_requests').select('id,employee_id,note,amount,requested_at').eq('status','pending').order('requested_at',{ascending:false}),
         supabase.from('expenses').select('id,paid_by_name,description,amount,expense_date,category,note,created_at').eq('status','pending').order('created_at',{ascending:false}),
       ])
       const items = [
-        ...(leaves      ||[]).map(r=>({...r,_type:'leave'})),
-        ...(advances    ||[]).map(r=>({...r,_type:'advance'})),
-        ...(drawers     ||[]).map(r=>({...r,_type:'drawer'})),
+        ...(leaves      ||[]).map(r=>({...r,employee_name:r.employees?.name||'ไม่ระบุ',period:r.leave_period,created_at:r.requested_at,_type:'leave'})),
+        ...(advances    ||[]).map(r=>({...r,employee_name:r.employees?.name||'ไม่ระบุ',created_at:r.requested_at,_type:'advance'})),
+        ...(drawers     ||[]).map(r=>({...r,employee_name:'ไม่ระบุ',created_at:r.requested_at,_type:'drawer'})),
         ...(expenseReqs ||[]).map(r=>({...r,_type:'expense', employee_name: r.paid_by_name||'ไม่ระบุ'})),
       ].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))
       setPendingItems(items)
@@ -759,15 +759,15 @@ export default function EmployeesPage() {
       const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30)
       const cutoffStr = cutoff.toISOString()
       const [{ data: leaves }, { data: advances }, { data: drawers }, { data: expenseReqs }] = await Promise.all([
-        supabase.from('leave_requests').select('id,employee_name,date_from,date_to,period,leave_type,note,created_at,status').in('status',['approved','rejected']).gte('created_at',cutoffStr).order('created_at',{ascending:false}).limit(50),
-        supabase.from('salary_advances').select('id,employee_name,amount,note,created_at,status').in('status',['approved','rejected']).gte('created_at',cutoffStr).order('created_at',{ascending:false}).limit(50),
-        supabase.from('drawer_requests').select('id,employee_name,note,amount,created_at,status').in('status',['approved','rejected']).gte('created_at',cutoffStr).order('created_at',{ascending:false}).limit(50),
+        supabase.from('leave_requests').select('id,employee_id,employees(name),date_from,date_to,leave_period,leave_type,note,requested_at,status').in('status',['approved','rejected']).gte('requested_at',cutoffStr).order('requested_at',{ascending:false}).limit(50),
+        supabase.from('salary_advances').select('id,employee_id,employees(name),amount,note,requested_at,status').in('status',['approved','rejected']).gte('requested_at',cutoffStr).order('requested_at',{ascending:false}).limit(50),
+        supabase.from('drawer_requests').select('id,employee_id,note,amount,requested_at,status').in('status',['approved','rejected']).gte('requested_at',cutoffStr).order('requested_at',{ascending:false}).limit(50),
         supabase.from('expenses').select('id,paid_by_name,description,amount,expense_date,category,note,created_at,status').in('status',['approved','rejected']).gte('created_at',cutoffStr).order('created_at',{ascending:false}).limit(50),
       ])
       const items = [
-        ...(leaves      ||[]).map(r=>({...r,_type:'leave'})),
-        ...(advances    ||[]).map(r=>({...r,_type:'advance'})),
-        ...(drawers     ||[]).map(r=>({...r,_type:'drawer'})),
+        ...(leaves      ||[]).map(r=>({...r,employee_name:r.employees?.name||'ไม่ระบุ',period:r.leave_period,created_at:r.requested_at,_type:'leave'})),
+        ...(advances    ||[]).map(r=>({...r,employee_name:r.employees?.name||'ไม่ระบุ',created_at:r.requested_at,_type:'advance'})),
+        ...(drawers     ||[]).map(r=>({...r,employee_name:'ไม่ระบุ',created_at:r.requested_at,_type:'drawer'})),
         ...(expenseReqs ||[]).map(r=>({...r,_type:'expense',employee_name:r.paid_by_name||'ไม่ระบุ'})),
       ].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))
       setHistoryItems(items)
