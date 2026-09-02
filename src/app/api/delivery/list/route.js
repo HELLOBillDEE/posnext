@@ -5,7 +5,10 @@ export const dynamic = 'force-dynamic'
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-  { db: { schema: 'pos' } }
+  {
+    db: { schema: 'pos' },
+    global: { fetch: (url, opts = {}) => fetch(url, { ...opts, cache: 'no-store' }) },
+  }
 )
 
 export async function GET() {
