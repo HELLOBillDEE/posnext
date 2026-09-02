@@ -13,7 +13,8 @@ export async function GET() {
     supabase.from('quotations')
       .select('id,doc_no,customer_name,customer_address,delivery_fee,total,created_at,delivery_token,status')
       .eq('doc_type', 'delivery_invoice')
-      .not('status', 'in', '("cancelled","delivered")')
+      .neq('status', 'cancelled')
+      .neq('status', 'delivered')
       .order('created_at', { ascending: false })
       .limit(100),
     supabase.from('quotations')
