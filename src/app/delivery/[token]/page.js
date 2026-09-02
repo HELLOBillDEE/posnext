@@ -173,7 +173,7 @@ export default function DeliveryPage({ params }) {
     <div className="min-h-screen bg-slate-50 pb-24" style={{fontFamily:'system-ui,sans-serif'}}>
       {/* Header */}
       <div style={{background:'#C72C41'}} className="text-white px-4 pt-10 pb-4">
-        <a href="/delivery" className="text-xs opacity-75 mb-2 block">← รายการส่งของ</a>
+        <button onClick={() => { window.location.href = '/delivery' }} className="text-xs opacity-75 mb-2 block text-left">← รายการส่งของ</button>
         <h1 className="text-lg font-bold">{doc.doc_no}</h1>
         <p className="text-sm opacity-90 mt-0.5">{doc.customer_name}</p>
         {doc.customer_phone && <p className="text-xs opacity-75">{doc.customer_phone}</p>}
