@@ -32,8 +32,8 @@ export default function DeliveryListPage() {
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [])
 
-  const pending = (docs||[]).filter(d => !d.delivered_at && d.status !== 'cancelled')
-  const done    = (docs||[]).filter(d => !!d.delivered_at)
+  const pending = (docs||[]).filter(d => !d.delivered_at && d.status !== 'delivered' && d.status !== 'cancelled')
+  const done    = (docs||[]).filter(d => !!d.delivered_at || d.status === 'delivered')
 
   const list = tab === 'pending' ? pending : done
 
