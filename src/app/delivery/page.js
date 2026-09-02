@@ -17,7 +17,7 @@ export default function DeliveryListPage() {
   async function load() {
     setLoading(true)
     try {
-      const res = await fetch('/api/delivery/list')
+      const res = await fetch('/api/delivery/list', { cache: 'no-store' })
       const data = await res.json()
       setDocs(data || [])
     } catch {

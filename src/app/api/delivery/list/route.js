@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 
+export const dynamic = 'force-dynamic'
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
@@ -15,5 +17,7 @@ export async function GET() {
     .order('created_at', { ascending: false })
     .limit(100)
 
-  return Response.json(data || [])
+  return Response.json(data || [], {
+    headers: { 'Cache-Control': 'no-store' }
+  })
 }
