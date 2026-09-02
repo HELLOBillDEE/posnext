@@ -9,6 +9,21 @@ const supabaseStorage = createClient(
 
 function fmt(n) { return Number(n||0).toLocaleString('th-TH') }
 
+function GoBackButton() {
+  const [counting, setCounting] = useState(false)
+  function go() {
+    setCounting(true)
+    setTimeout(() => { window.location.href = '/delivery' }, 1500)
+  }
+  return (
+    <button onClick={go} disabled={counting}
+      className="px-6 py-3 rounded-xl font-bold text-white text-sm"
+      style={{background: counting ? '#aaa' : '#C72C41'}}>
+      {counting ? '⏳ กำลังอัพเดต...' : '← กลับรายการส่งของ'}
+    </button>
+  )
+}
+
 export default function DeliveryPage({ params }) {
   const { token } = params
   const [doc, setDoc] = useState(null)
@@ -157,11 +172,7 @@ export default function DeliveryPage({ params }) {
           </div>
         )}
       </div>
-      <button onClick={() => { window.location.href = '/delivery' }}
-        className="px-6 py-3 rounded-xl font-bold text-white text-sm"
-        style={{background:'#C72C41'}}>
-        ← กลับรายการส่งของ
-      </button>
+      <GoBackButton />
     </div>
   )
 
