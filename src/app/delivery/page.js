@@ -25,7 +25,12 @@ export default function DeliveryListPage() {
     } finally { setLoading(false) }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+    const onVisible = () => { if (document.visibilityState === 'visible') load() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [])
 
   const pending = (docs||[]).filter(d => !d.delivered_at && d.status !== 'cancelled')
   const done    = (docs||[]).filter(d => !!d.delivered_at)

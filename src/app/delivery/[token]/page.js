@@ -157,11 +157,11 @@ export default function DeliveryPage({ params }) {
           </div>
         )}
       </div>
-      <a href="/delivery"
+      <button onClick={() => { window.location.href = '/delivery' }}
         className="px-6 py-3 rounded-xl font-bold text-white text-sm"
         style={{background:'#C72C41'}}>
         ← กลับรายการส่งของ
-      </a>
+      </button>
     </div>
   )
 
