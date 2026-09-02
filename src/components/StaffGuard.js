@@ -9,7 +9,7 @@ export default function StaffGuard() {
   useEffect(() => {
     try {
       const session = localStorage.getItem('staff_session')
-      if (session && pathname !== '/staff' && !pathname.startsWith('/emp')) {
+      if (session && pathname !== '/staff' && !pathname.startsWith('/emp') && !pathname.startsWith('/delivery')) {
         router.replace('/staff')
       }
     } catch {}

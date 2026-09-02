@@ -100,7 +100,7 @@ export default function AuthProvider({ children }) {
   useEffect(() => {
     if (user === undefined) return
     if (path === '/display') return  // public kiosk — no auth required
-    const publicPaths = ['/login', '/checkin', '/staff', '/leave', '/advance', '/my', '/emp']
+    const publicPaths = ['/login', '/checkin', '/staff', '/leave', '/advance', '/my', '/emp', '/delivery']
     if (!user && !empMode && !publicPaths.some(p => path === p || path.startsWith(p + '/'))) {
       router.replace('/login'); return
     }
