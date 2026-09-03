@@ -2650,7 +2650,7 @@ function DeliveryDetailInHistory({ doc: initialDoc, settings, onBack, onUpdated 
         )}
         <button onClick={() => reprint(doc)}
           className="w-full bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold py-3 rounded-2xl text-sm transition-colors">
-          🖨️ {isDelivered ? 'รายงานการส่งของ' : 'พิมพ์ใบส่งของ'}
+          🖨️ พิมพ์ใบส่งของ
         </button>
         {!isCancelled && !isDelivered && (
           <button onClick={startEdit}
