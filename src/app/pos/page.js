@@ -58,6 +58,16 @@ async function getServerUsb() {
 // true = มีเครื่องพิมพ์ (IP หรือ USB)
 function canPrintReceipt(cfg) { return !!(cfg.ip || cfg.usb_mode || cfg.usb_port) }
 
+function speakTH(text) {
+  try {
+    window.speechSynthesis.cancel()
+    const utt = new SpeechSynthesisUtterance(text)
+    utt.lang = 'th-TH'
+    utt.rate = 0.9
+    window.speechSynthesis.speak(utt)
+  } catch {}
+}
+
 // ส่ง bytes ไปเครื่องพิมพ์ตาม mode
 async function printReceiptBytes(cfg, bytes) {
   if (cfg.usb_mode && cfg.usb_port) return printViaUSB(bytes, cfg.usb_port)
@@ -807,6 +817,8 @@ export default function POSPage() {
         dispChRef.current?.send({ type: 'broadcast', event: 'pos', payload: { status: 'paid', total, pay_method: saveMethod, pay_amount: saveAmount, pay_change: saveChange, mix_cash: payMode === 'mixed' ? (parseFloat(mixCash)||0) : 0, mix_transfer: payMode === 'mixed' ? (parseFloat(mixTransfer)||0) : 0, mix_credit: payMode === 'mixed' ? (parseFloat(mixCredit)||0) : 0 } }).catch(() => {})
         setCart([]); setBillDiscount(''); setPayAmount(''); setNote(''); setCustomer(null)
         setShowPay(false)
+        if (saveMethod === 'cash' && saveChange > 0) speakTH('โปรดตรวจสอบเงินทอน กรุณารับใบเสร็จจากพนักงานทุกครั้ง')
+        else speakTH('กรุณารับใบเสร็จจากพนักงานทุกครั้ง')
         setSaving(false)
         return
       }
@@ -955,6 +967,8 @@ export default function POSPage() {
       setPayMode('single'); setPayMethod('cash'); setMixAmounts({ cash:'', transfer:'', credit:'', govt:'' })
       setSelectedQrAcct(null); setGeneratedQr(null)
       setShowPay(false)
+      if (saveChange > 0) speakTH('โปรดตรวจสอบเงินทอน กรุณารับใบเสร็จจากพนักงานทุกครั้ง')
+      else speakTH('กรุณารับใบเสร็จจากพนักงานทุกครั้ง')
       // แสดงหน้าเงินทอน (เฉพาะจ่ายเงินสด)
       if (saveMethod === 'cash' && saveChange > 0) {
         setChangeDisplay({ change: saveChange, total, payAmount: saveAmount })
