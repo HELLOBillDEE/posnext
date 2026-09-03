@@ -503,20 +503,23 @@ function speakPayment(st) {
   const chg = st.pay_change || 0
   const fmtN = n => Number(n||0).toLocaleString('th-TH',{minimumFractionDigits:0,maximumFractionDigits:0})
   let text = ''
+  const tail = chg > 0
+    ? ' โปรดตรวจสอบเงินทอน กรุณารับใบเสร็จจากพนักงานทุกครั้ง ขอบคุณครับ'
+    : ' กรุณารับใบเสร็จจากพนักงานทุกครั้ง ขอบคุณครับ'
   if (m === 'cash') {
-    text = 'รับ ' + fmtN(amt) + ' บาท' + (chg > 0 ? ' ทอน ' + fmtN(chg) + ' บาท' : '')
+    text = 'รับ ' + fmtN(amt) + ' บาท' + (chg > 0 ? ' ทอน ' + fmtN(chg) + ' บาท' : '') + tail
   } else if (m === 'transfer' || m.startsWith('transfer')) {
-    text = 'รับเงินโอนเรียบร้อย'
+    text = 'รับเงินโอนเรียบร้อย' + tail
   } else if (m === 'mixed') {
     const parts = []
     if (st.mix_transfer > 0) parts.push('โอน ' + fmtN(st.mix_transfer) + ' บาท')
     if (st.mix_cash > 0)     parts.push('เงินสด ' + fmtN(st.mix_cash) + ' บาท')
     if (chg > 0)             parts.push('ทอน ' + fmtN(chg) + ' บาท')
-    text = parts.join(' ')
+    text = parts.join(' ') + tail
   } else if (m === 'credit') {
     text = 'ลงบิลเชื่อเรียบร้อย'
   } else if (m && m.startsWith('govt')) {
-    text = 'รับเงินโครงการรัฐเรียบร้อย'
+    text = 'รับเงินโครงการรัฐเรียบร้อย' + tail
   }
   if (!text) return
 
