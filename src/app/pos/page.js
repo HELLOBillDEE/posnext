@@ -2427,6 +2427,7 @@ function DeliveryDetailInHistory({ doc: initialDoc, settings, onBack, onUpdated 
   const [editNote, setEditNote]       = useState('')
 
   const isCancelled = doc.status === 'cancelled'
+  const isDelivered = doc.status === 'delivered'
 
   function startEdit() {
     setCustName(doc.customer_name || '')
@@ -2601,6 +2602,7 @@ function DeliveryDetailInHistory({ doc: initialDoc, settings, onBack, onUpdated 
             <p className="font-bold text-blue-700">{doc.doc_no}</p>
             <p className="text-xs text-slate-400">{new Date(doc.created_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}</p>
             {isCancelled && <span className="text-xs font-semibold text-red-400">ยกเลิกแล้ว</span>}
+            {isDelivered && <span className="text-xs font-semibold text-green-600">✅ ส่งแล้ว</span>}
           </div>
           <span className={`font-bold text-lg ${isCancelled ? 'text-slate-300 line-through' : 'text-blue-600'}`}>฿{fmt(doc.total)}</span>
         </div>
@@ -2629,33 +2631,35 @@ function DeliveryDetailInHistory({ doc: initialDoc, settings, onBack, onUpdated 
         ))}
       </div>
       <div className="px-4 py-3 border-t border-gray-100 shrink-0 space-y-2">
-        <button onClick={async () => {
-          let deliveryToken = doc.delivery_token
-          if (!deliveryToken) {
-            const res = await fetch('/api/delivery', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ id: doc.id }) })
-            const result = await res.json()
-            deliveryToken = result.token
-          }
-          const link = `${window.location.origin}/delivery/${deliveryToken}`
-          try { await navigator.clipboard.writeText(link); alert('คัดลอก Link แล้ว!\n' + link) }
-          catch { alert('Link: ' + link) }
-        }}
-          className="w-full font-bold py-3 rounded-2xl text-sm transition-colors active:scale-[0.98]"
-          style={{background:'rgba(199,44,65,0.08)',color:'#C72C41'}}>
-          🔗 คัดลอก Link ส่งให้พนักงาน
-        </button>
+        {!isDelivered && (
+          <button onClick={async () => {
+            let deliveryToken = doc.delivery_token
+            if (!deliveryToken) {
+              const res = await fetch('/api/delivery', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ id: doc.id }) })
+              const result = await res.json()
+              deliveryToken = result.token
+            }
+            const link = `${window.location.origin}/delivery/${deliveryToken}`
+            try { await navigator.clipboard.writeText(link); alert('คัดลอก Link แล้ว!\n' + link) }
+            catch { alert('Link: ' + link) }
+          }}
+            className="w-full font-bold py-3 rounded-2xl text-sm transition-colors active:scale-[0.98]"
+            style={{background:'rgba(199,44,65,0.08)',color:'#C72C41'}}>
+            🔗 คัดลอก Link ส่งให้พนักงาน
+          </button>
+        )}
         <button onClick={() => reprint(doc)}
           className="w-full bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold py-3 rounded-2xl text-sm transition-colors">
           🖨️ พิมพ์ใบส่งของ
         </button>
-        {!isCancelled && (
+        {!isCancelled && !isDelivered && (
           <button onClick={startEdit}
             className="w-full font-bold py-3 rounded-2xl text-sm transition-colors active:scale-[0.98]"
             style={{ background: 'rgba(124,58,237,0.08)', color: '#7c3aed' }}>
             ✏️ แก้ไขใบส่งของ
           </button>
         )}
-        {!isCancelled && (
+        {!isCancelled && !isDelivered && (
           <button onClick={cancelDoc}
             className="w-full bg-red-50 hover:bg-red-100 text-red-500 font-bold py-3 rounded-2xl text-sm transition-colors active:scale-[0.98]">
             🚫 ยกเลิกใบส่งของ
