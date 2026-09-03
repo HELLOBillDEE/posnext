@@ -62,8 +62,10 @@ function speakTH(text) {
   try {
     window.speechSynthesis.cancel()
     const utt = new SpeechSynthesisUtterance(text)
-    utt.lang = 'th-TH'
     utt.rate = 0.9
+    const voices = window.speechSynthesis.getVoices()
+    const thVoice = voices.find(v => v.lang.startsWith('th'))
+    if (thVoice) { utt.voice = thVoice; utt.lang = 'th-TH' }
     window.speechSynthesis.speak(utt)
   } catch {}
 }
