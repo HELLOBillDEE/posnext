@@ -63,10 +63,14 @@ function speakTH(text) {
     window.speechSynthesis.cancel()
     const utt = new SpeechSynthesisUtterance(text)
     utt.lang = 'th-TH'
-    utt.rate = 0.9
+    utt.rate = 0.6
+    utt.volume = 1
+    utt.pitch = 1.6
     const voices = window.speechSynthesis.getVoices()
-    const thVoice = voices.find(v => v.lang.startsWith('th'))
-    if (thVoice) utt.voice = thVoice
+    const thFemale = voices.find(v => v.lang.startsWith('th') && /female|woman|girl|thipsuda|pattara|kanya|กันยา/i.test(v.name))
+    const thAny = voices.find(v => v.lang.startsWith('th'))
+    if (thFemale) utt.voice = thFemale
+    else if (thAny) utt.voice = thAny
     window.speechSynthesis.speak(utt)
   } catch {}
 }
