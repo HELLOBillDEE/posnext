@@ -2631,23 +2631,21 @@ function DeliveryDetailInHistory({ doc: initialDoc, settings, onBack, onUpdated 
         ))}
       </div>
       <div className="px-4 py-3 border-t border-gray-100 shrink-0 space-y-2">
-        {!isDelivered && (
-          <button onClick={async () => {
-            let deliveryToken = doc.delivery_token
-            if (!deliveryToken) {
-              const res = await fetch('/api/delivery', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ id: doc.id }) })
-              const result = await res.json()
-              deliveryToken = result.token
-            }
-            const link = `${window.location.origin}/delivery/${deliveryToken}`
-            try { await navigator.clipboard.writeText(link); alert('คัดลอก Link แล้ว!\n' + link) }
-            catch { alert('Link: ' + link) }
-          }}
-            className="w-full font-bold py-3 rounded-2xl text-sm transition-colors active:scale-[0.98]"
-            style={{background:'rgba(199,44,65,0.08)',color:'#C72C41'}}>
-            🔗 คัดลอก Link ส่งให้พนักงาน
-          </button>
-        )}
+        <button onClick={async () => {
+          let deliveryToken = doc.delivery_token
+          if (!deliveryToken) {
+            const res = await fetch('/api/delivery', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ id: doc.id }) })
+            const result = await res.json()
+            deliveryToken = result.token
+          }
+          const link = `${window.location.origin}/delivery/${deliveryToken}`
+          try { await navigator.clipboard.writeText(link); alert('คัดลอก Link แล้ว!\n' + link) }
+          catch { alert('Link: ' + link) }
+        }}
+          className="w-full font-bold py-3 rounded-2xl text-sm transition-colors active:scale-[0.98]"
+          style={{background:'rgba(199,44,65,0.08)',color:'#C72C41'}}>
+          {isDelivered ? '🔍 ตรวจสอบการส่งของ' : '🔗 คัดลอก Link ส่งให้พนักงาน'}
+        </button>
         <button onClick={() => reprint(doc)}
           className="w-full bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold py-3 rounded-2xl text-sm transition-colors">
           🖨️ พิมพ์ใบส่งของ
