@@ -60,18 +60,23 @@ function canPrintReceipt(cfg) { return !!(cfg.ip || cfg.usb_mode || cfg.usb_port
 
 function speakTH(text) {
   try {
-    window.speechSynthesis.cancel()
-    const utt = new SpeechSynthesisUtterance(text)
-    utt.lang = 'th-TH'
-    utt.rate = 0.6
-    utt.volume = 1
-    utt.pitch = 1.6
+    const say = () => {
+      window.speechSynthesis.cancel()
+      const utt = new SpeechSynthesisUtterance(text)
+      utt.lang = 'th-TH'
+      utt.rate = 0.6
+      utt.volume = 1
+      utt.pitch = 1.6
+      const voices = window.speechSynthesis.getVoices()
+      const thFemale = voices.find(v => v.lang.startsWith('th') && /female|woman|girl|thipsuda|pattara|kanya|กันยา/i.test(v.name))
+      const thAny = voices.find(v => v.lang.startsWith('th'))
+      if (thFemale) utt.voice = thFemale
+      else if (thAny) utt.voice = thAny
+      window.speechSynthesis.speak(utt)
+    }
     const voices = window.speechSynthesis.getVoices()
-    const thFemale = voices.find(v => v.lang.startsWith('th') && /female|woman|girl|thipsuda|pattara|kanya|กันยา/i.test(v.name))
-    const thAny = voices.find(v => v.lang.startsWith('th'))
-    if (thFemale) utt.voice = thFemale
-    else if (thAny) utt.voice = thAny
-    window.speechSynthesis.speak(utt)
+    if (voices.length > 0) { say() }
+    else { window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.onvoiceschanged = null; say() } }
   } catch {}
 }
 
