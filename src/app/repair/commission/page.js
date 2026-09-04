@@ -16,6 +16,7 @@ export default function CommissionPage() {
   const [loading, setLoading] = useState(false)
   const [techData, setTechData] = useState([])  // [{ emp, laborTotal, commission, jobs }]
   const [expanded, setExpanded] = useState(null) // tech_id
+  const [repairSummary, setRepairSummary] = useState(null) // { tagged, untagged }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -23,6 +24,23 @@ export default function CommissionPage() {
     try {
       const startDate = new Date(year, month - 1, 1).toISOString()
       const endDate   = new Date(year, month, 1).toISOString()
+
+      // 0. ยอดรวมค่าซ่อม (ติดแท็ก vs ไม่ติดแท็ก)
+      const { data: summaryRows } = await supabase
+        .from('repair_orders')
+        .select('technician_id, sales!inner(total, status, created_at)')
+        .neq('sales.status', 'voided')
+        .gte('sales.created_at', startDate)
+        .lt('sales.created_at', endDate)
+
+      if (summaryRows) {
+        const tagged   = summaryRows.filter(r => r.technician_id)
+        const untagged = summaryRows.filter(r => !r.technician_id)
+        setRepairSummary({
+          tagged:   { count: tagged.length,   total: tagged.reduce((s, r)   => s + parseFloat(r.sales?.total || 0), 0) },
+          untagged: { count: untagged.length, total: untagged.reduce((s, r) => s + parseFloat(r.sales?.total || 0), 0) },
+        })
+      }
 
       // 1. Fetch everything in parallel — join sale_items → sales to avoid large .in() lists
       const [
@@ -165,6 +183,31 @@ export default function CommissionPage() {
             ))}
           </select>
         </div>
+
+        {/* ยอดรวมค่าซ่อมรายเดือน */}
+        {repairSummary && (
+          <div className="rounded-2xl p-4 mb-4 space-y-3"
+            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>
+            <p className="text-xs font-semibold text-white/50 uppercase tracking-wider">📊 ยอดรวมค่าซ่อมเดือนนี้</p>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="rounded-xl p-3 text-center" style={{ background: 'rgba(34,197,94,0.1)' }}>
+                <p className="text-xs text-green-400/70 mb-1">ติดแท็กช่าง</p>
+                <p className="text-lg font-bold text-green-400">฿{fmt(repairSummary.tagged.total)}</p>
+                <p className="text-xs text-white/30">{repairSummary.tagged.count} งาน</p>
+              </div>
+              <div className="rounded-xl p-3 text-center" style={{ background: 'rgba(251,191,36,0.1)' }}>
+                <p className="text-xs text-yellow-400/70 mb-1">ไม่ติดแท็กช่าง</p>
+                <p className="text-lg font-bold text-yellow-400">฿{fmt(repairSummary.untagged.total)}</p>
+                <p className="text-xs text-white/30">{repairSummary.untagged.count} งาน</p>
+              </div>
+              <div className="rounded-xl p-3 text-center" style={{ background: 'rgba(139,92,246,0.15)' }}>
+                <p className="text-xs text-violet-300/70 mb-1">รวมทั้งหมด</p>
+                <p className="text-lg font-bold text-violet-300">฿{fmt(repairSummary.tagged.total + repairSummary.untagged.total)}</p>
+                <p className="text-xs text-white/30">{repairSummary.tagged.count + repairSummary.untagged.count} งาน</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {loading ? (
           <div className="text-center py-20 text-white/40">กำลังโหลด...</div>
