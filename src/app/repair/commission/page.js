@@ -186,25 +186,15 @@ export default function CommissionPage() {
 
         {/* ยอดรวมค่าซ่อมรายเดือน */}
         {repairSummary && (
-          <div className="rounded-2xl p-4 mb-4 space-y-3"
+          <div className="rounded-2xl p-4 mb-4 flex justify-between items-center"
             style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>
-            <p className="text-xs font-semibold text-white/50 uppercase tracking-wider">📊 ยอดรวมค่าซ่อมเดือนนี้</p>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="rounded-xl p-3 text-center" style={{ background: 'rgba(34,197,94,0.1)' }}>
-                <p className="text-xs text-green-400/70 mb-1">ติดแท็กช่าง</p>
-                <p className="text-lg font-bold text-green-400">฿{fmt(repairSummary.tagged.total)}</p>
-                <p className="text-xs text-white/30">{repairSummary.tagged.count} งาน</p>
-              </div>
-              <div className="rounded-xl p-3 text-center" style={{ background: 'rgba(251,191,36,0.1)' }}>
-                <p className="text-xs text-yellow-400/70 mb-1">ไม่ติดแท็กช่าง</p>
-                <p className="text-lg font-bold text-yellow-400">฿{fmt(repairSummary.untagged.total)}</p>
-                <p className="text-xs text-white/30">{repairSummary.untagged.count} งาน</p>
-              </div>
-              <div className="rounded-xl p-3 text-center" style={{ background: 'rgba(139,92,246,0.15)' }}>
-                <p className="text-xs text-violet-300/70 mb-1">รวมทั้งหมด</p>
-                <p className="text-lg font-bold text-violet-300">฿{fmt(repairSummary.tagged.total + repairSummary.untagged.total)}</p>
-                <p className="text-xs text-white/30">{repairSummary.tagged.count + repairSummary.untagged.count} งาน</p>
-              </div>
+            <div>
+              <p className="text-xs text-white/40">📊 ยอดรวมค่าซ่อมเดือนนี้</p>
+              <p className="text-2xl font-bold text-white">฿{fmt(repairSummary.tagged.total + repairSummary.untagged.total)}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-white/40">จำนวนงาน</p>
+              <p className="text-xl font-bold text-white/80">{repairSummary.tagged.count + repairSummary.untagged.count} งาน</p>
             </div>
           </div>
         )}
