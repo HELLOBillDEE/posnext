@@ -292,6 +292,7 @@ function renderMedia() {
   if (_cycleTimer) { clearInterval(_cycleTimer); _cycleTimer = null }
   if (_ytPlayer) { try{_ytPlayer.destroy()}catch(e){}; _ytPlayer=null }
   const _pd=document.getElementById('ytPlayerDiv'); if(_pd){_pd.innerHTML='';_pd.style.display='none'}
+  if(window._ytPlMsgH){window.removeEventListener('message',window._ytPlMsgH);window._ytPlMsgH=null}
   _ytBaseSrc2=''
 
   if (items.length > 0) {
@@ -343,40 +344,17 @@ function setupVid(items, muteBtn) {
   if (!items.length) return
   const ytItems = items.filter(i=>i.yt), dirItems = items.filter(i=>!i.yt)
   function showBtn(show){ if(muteBtn){muteBtn.style.display=show?'flex':'none';muteBtn.textContent=_ytMuted2?'🔇':'🔊'} }
-  // Playlist URL — ใช้ YT IFrame API เพื่อให้ nextVideo() ได้
+  // Playlist URL — plain iframe controls=1 ให้ YouTube จัดการ advance เอง
   const plItem=items.find(i=>i.playlist)
   if(plItem){
     if(v)v.style.display='none'
-    if(f){f.src='about:blank';f.style.display='none'}
-    _ytBaseSrc2='__ytplayer__'
-    function doSetupPlaylist(){
-      const pd=document.getElementById('ytPlayerDiv')
-      if(!pd)return
-      if(_ytPlayer){try{_ytPlayer.destroy()}catch(e){}; _ytPlayer=null; pd.innerHTML=''}
-      pd.style.display='block'
-      _ytPlayer=new YT.Player(pd,{
-        width:'100%',height:'100%',
-        videoId:plItem.id||undefined,
-        playerVars:{list:plItem.listId,listType:'playlist',autoplay:1,controls:1,rel:0,modestbranding:1,mute:_ytMuted2?1:0,origin:location.origin},
-        events:{
-          onReady:function(e){e.target.playVideo()},
-          onStateChange:function(e){
-            if(e.data===1){
-              // playing — set timer fallback เผื่อ ENDED ไม่ fire (Chrome controls:0)
-              if(_ytAdvTimer)clearTimeout(_ytAdvTimer)
-              try{const dur=e.target.getDuration();if(dur>0)_ytAdvTimer=setTimeout(()=>{try{_ytPlayer.nextVideo()}catch(x){}},dur*1000+2000)}catch(x){}
-            } else if(e.data===0){
-              if(_ytAdvTimer)clearTimeout(_ytAdvTimer);_ytAdvTimer=null
-              try{_ytPlayer.nextVideo()}catch(x){}
-            } else if(e.data===-1){
-              setTimeout(()=>{try{_ytPlayer.playVideo()}catch(x){}},300)
-            }
-          }
-        }
-      })
+    const pd=document.getElementById('ytPlayerDiv'); if(pd)pd.style.display='none'
+    if(f){
+      const vid=plItem.id
+      _ytBaseSrc2='https://www.youtube.com/embed/'+(vid||'videoseries')
+        +'?list='+plItem.listId+'&autoplay=1&controls=1&rel=0&modestbranding=1'
+      f.src=ytSrc2(_ytBaseSrc2); f.style.display='block'
     }
-    if(_ytAPIReady) doSetupPlaylist()
-    else _ytPendingSetup=doSetupPlaylist
     showBtn(true);return
   }
   if (ytItems.length && !dirItems.length) {
@@ -422,8 +400,7 @@ function toggleMute() {
   const b = document.getElementById('muteBtn')
   _ytMuted2 = !_ytMuted2
   if (b) b.textContent = _ytMuted2 ? '🔇' : '🔊'
-  if (_ytPlayer) { try{_ytMuted2?_ytPlayer.mute():_ytPlayer.unMute()}catch(e){} }
-  else if (f && f.style.display !== 'none' && _ytBaseSrc2) f.src = ytSrc2(_ytBaseSrc2)
+  if (f && f.style.display !== 'none' && _ytBaseSrc2) f.src = ytSrc2(_ytBaseSrc2)
   if (v && v.style.display !== 'none') v.muted = _ytMuted2
 }
 
@@ -572,8 +549,7 @@ function speakPayment(st) {
   const frm = document.getElementById('ytFrame2')
   const wasVidMuted = vid ? vid.muted : true
   if (vid && !vid.paused) vid.muted = true
-  if (_ytPlayer) { try{_ytPlayer.mute()}catch(e){} }
-  else if (frm && frm.style.display !== 'none' && _ytBaseSrc2) { frm.src = _ytBaseSrc2 + '&mute=1' }
+  if (frm && frm.style.display !== 'none' && _ytBaseSrc2) { frm.src = _ytBaseSrc2 + '&mute=1' }
 
   speechSynthesis.cancel()
   const utt = new SpeechSynthesisUtterance(text)
@@ -591,8 +567,7 @@ function speakPayment(st) {
   utt.onend = utt.onerror = () => {
     // คืนเสียงวิดีโอหลังพูดจบ
     if (vid) vid.muted = wasVidMuted
-    if (_ytPlayer && !_ytMuted2) { try{_ytPlayer.unMute()}catch(e){} }
-    else if (frm && frm.style.display !== 'none' && _ytBaseSrc2) { frm.src = ytSrc2(_ytBaseSrc2) }
+    if (frm && frm.style.display !== 'none' && _ytBaseSrc2) { frm.src = ytSrc2(_ytBaseSrc2) }
   }
   speechSynthesis.speak(utt)
 }
