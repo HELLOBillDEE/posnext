@@ -345,45 +345,15 @@ function setupVid(items, muteBtn) {
   const ytItems = items.filter(i=>i.yt), dirItems = items.filter(i=>!i.yt)
   function showBtn(show){ if(muteBtn){muteBtn.style.display=show?'flex':'none';muteBtn.textContent=_ytMuted2?'🔇':'🔊'} }
   // Playlist URL — plain iframe controls=1 ให้ YouTube จัดการ advance เอง
+  // Playlist URL
   const plItem=items.find(i=>i.playlist)
   if(plItem){
     if(v)v.style.display='none'
-    if(f){f.src='about:blank';f.style.display='none'}
-    _ytBaseSrc2='__ytplayer__'
-    function startPollAdv(){
-      if(_ytAdvTimer)clearInterval(_ytAdvTimer)
-      _ytAdvTimer=setInterval(()=>{
-        if(!_ytPlayer)return
-        try{
-          const st=_ytPlayer.getPlayerState()
-          if(st===1){
-            const cur=_ytPlayer.getCurrentTime(), dur=_ytPlayer.getDuration()
-            if(dur>0&&cur>=dur-1.5){_ytPlayer.nextVideo()}
-          } else if(st===0){_ytPlayer.nextVideo()}
-        }catch(x){}
-      },2000)
+    const pd=document.getElementById('ytPlayerDiv'); if(pd)pd.style.display='none'
+    if(f){
+      _ytBaseSrc2='https://www.youtube.com/embed?list='+plItem.listId+'&autoplay=1&controls=0&rel=0&modestbranding=1'
+      f.src=ytSrc2(_ytBaseSrc2); f.style.display='block'
     }
-    function doSetupPlaylist(){
-      const pd=document.getElementById('ytPlayerDiv')
-      if(!pd)return
-      if(_ytPlayer){try{_ytPlayer.destroy()}catch(e){}; _ytPlayer=null; pd.innerHTML=''}
-      if(_ytAdvTimer){clearInterval(_ytAdvTimer);_ytAdvTimer=null}
-      pd.style.display='block'
-      _ytPlayer=new YT.Player('ytPlayerDiv',{
-        playerVars:{autoplay:1,controls:1,rel:0,modestbranding:1,mute:_ytMuted2?1:0,origin:location.origin},
-        events:{
-          onReady:function(e){
-            e.target.loadPlaylist({list:plItem.listId,listType:'playlist',index:0,startSeconds:0})
-            startPollAdv()
-          },
-          onStateChange:function(e){
-            if(e.data===0){try{_ytPlayer.nextVideo()}catch(x){}}
-          }
-        }
-      })
-    }
-    if(_ytAPIReady) doSetupPlaylist()
-    else _ytPendingSetup=doSetupPlaylist
     showBtn(true);return
   }
   if (ytItems.length && !dirItems.length) {
