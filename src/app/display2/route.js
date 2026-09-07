@@ -37,6 +37,7 @@ body{font-family:'Kanit',sans-serif;}
 .no-media .logo-wrap img{max-width:140px;max-height:140px;object-fit:contain;}
 .no-media .wlc{font-size:22px;color:rgba(255,255,255,0.7);}
 .med-mute{position:absolute;bottom:12px;right:12px;background:rgba(0,0,0,0.5);color:#fff;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:18px;cursor:pointer;user-select:none;z-index:20;}
+#ytPlayerDiv iframe{position:absolute;inset:0;width:100%!important;height:100%!important;border:none;}
 
 /* ── PROMO PANEL ── */
 #med-promo{position:absolute;inset:0;opacity:0;transition:opacity 0.8s;pointer-events:none;
@@ -352,11 +353,13 @@ function setupVid(items, muteBtn) {
       if(_ytPlayer){try{_ytPlayer.destroy()}catch(e){}; _ytPlayer=null; pd.innerHTML=''}
       pd.style.display='block'
       _ytPlayer=new YT.Player(pd,{
+        width:'100%',height:'100%',
         videoId:plItem.id||undefined,
-        playerVars:{list:plItem.listId,listType:'playlist',autoplay:1,controls:0,rel:0,modestbranding:1,mute:_ytMuted2?1:0},
+        playerVars:{list:plItem.listId,listType:'playlist',autoplay:1,controls:0,rel:0,modestbranding:1,mute:_ytMuted2?1:0,origin:location.origin},
         events:{
+          onReady:function(e){e.target.playVideo()},
           onStateChange:function(e){
-            if(e.data===YT.PlayerState.ENDED){try{_ytPlayer.nextVideo()}catch(err){}}
+            if(e.data===0){try{_ytPlayer.nextVideo()}catch(err){}}
           }
         }
       })
