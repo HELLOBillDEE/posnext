@@ -353,19 +353,32 @@ function setupVid(items, muteBtn) {
     if(pd){pd.style.display='block';pd.innerHTML='<div id="_ytInner" style="width:100%;height:100%"></div>'}
     _ytBaseSrc2='ytplayer'
     function _setupYT(){
+      var _advCooldown=false
+      function _doNext(){
+        if(_advCooldown)return; _advCooldown=true
+        if(_ytAdvTimer){clearTimeout(_ytAdvTimer);_ytAdvTimer=null}
+        try{_ytPlayer.nextVideo()}catch(x){}
+        setTimeout(function(){_advCooldown=false},4000)
+      }
+      function _scheduleNext(){
+        if(_ytAdvTimer){clearTimeout(_ytAdvTimer);_ytAdvTimer=null}
+        var _poll=setInterval(function(){
+          if(!_ytPlayer)return clearInterval(_poll)
+          try{var d=_ytPlayer.getDuration();if(d>2){clearInterval(_poll);var c=_ytPlayer.getCurrentTime();var rem=Math.max((d-c-0.5)*1000,500);_ytAdvTimer=setTimeout(_doNext,rem)}}catch(x){clearInterval(_poll)}
+        },500)
+      }
       var _ytOpts={
         playerVars:{list:plItem.listId,listType:'playlist',autoplay:1,controls:1,rel:0,modestbranding:1,mute:_ytMuted2?1:0},
         events:{
-          onStateChange:function(e){if(e.data===0){try{_ytPlayer.nextVideo()}catch(x){}}},
-          onError:function(){setTimeout(function(){try{_ytPlayer.nextVideo()}catch(x){}},3000)}
+          onStateChange:function(e){
+            if(e.data===1){_scheduleNext()} // playing — schedule advance at end
+            if(e.data===0){_doNext()} // ended
+          },
+          onError:function(){if(_ytAdvTimer){clearTimeout(_ytAdvTimer);_ytAdvTimer=null};setTimeout(function(){try{_ytPlayer.nextVideo()}catch(x){}},3000)}
         }
       }
       if(plItem.id)_ytOpts.videoId=plItem.id
       _ytPlayer=new YT.Player('_ytInner',_ytOpts)
-      _ytAdvTimer=setInterval(function(){
-        if(!_ytPlayer)return
-        try{var d=_ytPlayer.getDuration(),c=_ytPlayer.getCurrentTime();if(d>2&&c>0&&d-c<1.5)_ytPlayer.nextVideo()}catch(x){}
-      },1000)
     }
     if(_ytAPIReady){_setupYT()}else{_ytPendingSetup=_setupYT}
     showBtn(true);return
