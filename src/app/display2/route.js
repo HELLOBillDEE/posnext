@@ -356,9 +356,8 @@ function setupVid(items, muteBtn) {
       _ytPlayer=new YT.Player('_ytInner',{
         playerVars:{list:plItem.listId,listType:'playlist',autoplay:1,controls:0,rel:0,modestbranding:1,mute:_ytMuted2?1:0},
         events:{
-          onReady:function(e){if(plItem.id){try{e.target.loadVideoById({videoId:plItem.id,list:plItem.listId})}catch(x){}}},
           onStateChange:function(e){if(e.data===0){try{_ytPlayer.nextVideo()}catch(x){}}},
-          onError:function(){setTimeout(function(){try{_ytPlayer.nextVideo()}catch(x){}},2000)}
+          onError:function(){setTimeout(function(){try{_ytPlayer.nextVideo()}catch(x){}},3000)}
         }
       })
       _ytAdvTimer=setInterval(function(){
