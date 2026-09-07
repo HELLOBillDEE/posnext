@@ -360,6 +360,7 @@ function setupVid(items, muteBtn) {
           onReady:function(e){e.target.playVideo()},
           onStateChange:function(e){
             if(e.data===0){try{_ytPlayer.nextVideo()}catch(err){}}
+            else if(e.data===-1){setTimeout(()=>{try{_ytPlayer.playVideo()}catch(err){}},300)}
           }
         }
       })
