@@ -344,17 +344,29 @@ function setupVid(items, muteBtn) {
   if (!items.length) return
   const ytItems = items.filter(i=>i.yt), dirItems = items.filter(i=>!i.yt)
   function showBtn(show){ if(muteBtn){muteBtn.style.display=show?'flex':'none';muteBtn.textContent=_ytMuted2?'🔇':'🔊'} }
-  // Playlist URL — plain iframe controls=1 ให้ YouTube จัดการ advance เอง
-  // Playlist URL
+  // Playlist — ใช้ YT.Player API เพื่อจับ ENDED แล้ว nextVideo() (Chrome ไม่ advance เอง)
   const plItem=items.find(i=>i.playlist)
   if(plItem){
     if(v)v.style.display='none'
-    const pd=document.getElementById('ytPlayerDiv'); if(pd)pd.style.display='none'
-    if(f){
-      const _vidSeg=plItem.id||'videoseries'
-      _ytBaseSrc2='https://www.youtube.com/embed/'+_vidSeg+'?list='+plItem.listId+'&autoplay=1&controls=1&rel=0&modestbranding=1'
-      f.src=ytSrc2(_ytBaseSrc2); f.style.display='block'
+    if(f){f.src='about:blank';f.style.display='none'}
+    const pd=document.getElementById('ytPlayerDiv')
+    if(pd){pd.style.display='block';pd.innerHTML='<div id="_ytInner" style="width:100%;height:100%"></div>'}
+    _ytBaseSrc2='ytplayer'
+    function _setupYT(){
+      _ytPlayer=new YT.Player('_ytInner',{
+        playerVars:{list:plItem.listId,listType:'playlist',autoplay:1,controls:0,rel:0,modestbranding:1,mute:_ytMuted2?1:0},
+        events:{
+          onReady:function(e){if(plItem.id){try{e.target.loadVideoById({videoId:plItem.id,list:plItem.listId})}catch(x){}}},
+          onStateChange:function(e){if(e.data===0){try{_ytPlayer.nextVideo()}catch(x){}}},
+          onError:function(){setTimeout(function(){try{_ytPlayer.nextVideo()}catch(x){}},2000)}
+        }
+      })
+      _ytAdvTimer=setInterval(function(){
+        if(!_ytPlayer)return
+        try{var d=_ytPlayer.getDuration(),c=_ytPlayer.getCurrentTime();if(d>2&&c>0&&d-c<1.5)_ytPlayer.nextVideo()}catch(x){}
+      },1000)
     }
+    if(_ytAPIReady){_setupYT()}else{_ytPendingSetup=_setupYT}
     showBtn(true);return
   }
   if (ytItems.length && !dirItems.length) {
@@ -401,7 +413,7 @@ function toggleMute() {
   _ytMuted2 = !_ytMuted2
   if (b) b.textContent = _ytMuted2 ? '🔇' : '🔊'
   if (_ytPlayer) { try{_ytMuted2?_ytPlayer.mute():_ytPlayer.unMute()}catch(e){} }
-  else if (f && f.style.display !== 'none' && _ytBaseSrc2) f.src = ytSrc2(_ytBaseSrc2)
+  else if (f && f.style.display !== 'none' && _ytBaseSrc2 && _ytBaseSrc2!=='ytplayer') f.src = ytSrc2(_ytBaseSrc2)
   if (v && v.style.display !== 'none') v.muted = _ytMuted2
 }
 
@@ -550,7 +562,8 @@ function speakPayment(st) {
   const frm = document.getElementById('ytFrame2')
   const wasVidMuted = vid ? vid.muted : true
   if (vid && !vid.paused) vid.muted = true
-  if (frm && frm.style.display !== 'none' && _ytBaseSrc2) { frm.src = _ytBaseSrc2 + '&mute=1' }
+  if (_ytPlayer) { try{_ytPlayer.mute()}catch(e){} }
+  else if (frm && frm.style.display !== 'none' && _ytBaseSrc2 && _ytBaseSrc2!=='ytplayer') { frm.src = _ytBaseSrc2 + '&mute=1' }
 
   speechSynthesis.cancel()
   const utt = new SpeechSynthesisUtterance(text)
@@ -568,7 +581,8 @@ function speakPayment(st) {
   utt.onend = utt.onerror = () => {
     // คืนเสียงวิดีโอหลังพูดจบ
     if (vid) vid.muted = wasVidMuted
-    if (frm && frm.style.display !== 'none' && _ytBaseSrc2) { frm.src = ytSrc2(_ytBaseSrc2) }
+    if (_ytPlayer) { try{if(!_ytMuted2)_ytPlayer.unMute()}catch(e){} }
+    else if (frm && frm.style.display !== 'none' && _ytBaseSrc2 && _ytBaseSrc2!=='ytplayer') { frm.src = ytSrc2(_ytBaseSrc2) }
   }
   speechSynthesis.speak(utt)
 }
