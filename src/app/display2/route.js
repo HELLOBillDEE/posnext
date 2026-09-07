@@ -351,7 +351,7 @@ function setupVid(items, muteBtn) {
     const pd=document.getElementById('ytPlayerDiv'); if(pd)pd.style.display='none'
     if(f){
       const vid=plItem.id
-      _ytBaseSrc2='https://www.youtube.com/embed/'+(vid||'videoseries')
+      _ytBaseSrc2='https://www.youtube.com/embed/videoseries'
         +'?list='+plItem.listId+'&autoplay=1&controls=1&rel=0&modestbranding=1'
       f.src=ytSrc2(_ytBaseSrc2); f.style.display='block'
     }
