@@ -39,7 +39,7 @@ body{font-family:'Kanit',sans-serif;}
 .med-mute{position:absolute;bottom:12px;right:12px;background:rgba(0,0,0,0.5);color:#fff;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:18px;cursor:pointer;user-select:none;z-index:20;}
 #ytPlayerDiv{overflow:hidden;}
 #ytPlayerDiv iframe{position:absolute;left:0;width:100%!important;border:none;
-  top:-48px!important;height:calc(100% + 96px)!important;}
+  top:-60px!important;height:calc(100% + 120px)!important;}
 
 /* ── PROMO PANEL ── */
 #med-promo{position:absolute;inset:0;opacity:0;transition:opacity 0.8s;pointer-events:none;
@@ -354,7 +354,7 @@ function setupVid(items, muteBtn) {
     _ytBaseSrc2='ytplayer'
     function _setupYT(){
       var _ytOpts={
-        playerVars:{list:plItem.listId,listType:'playlist',autoplay:1,controls:0,rel:0,modestbranding:1,mute:_ytMuted2?1:0},
+        playerVars:{list:plItem.listId,listType:'playlist',autoplay:1,controls:1,rel:0,modestbranding:1,mute:_ytMuted2?1:0},
         events:{
           onStateChange:function(e){if(e.data===0){try{_ytPlayer.nextVideo()}catch(x){}}},
           onError:function(){setTimeout(function(){try{_ytPlayer.nextVideo()}catch(x){}},3000)}
