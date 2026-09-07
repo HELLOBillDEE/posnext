@@ -370,10 +370,12 @@ function setupVid(items, muteBtn) {
       if(_ytAdvTimer){clearInterval(_ytAdvTimer);_ytAdvTimer=null}
       pd.style.display='block'
       _ytPlayer=new YT.Player('ytPlayerDiv',{
-        videoId:plItem.id||undefined,
-        playerVars:{list:plItem.listId,autoplay:1,controls:1,rel:0,modestbranding:1,mute:_ytMuted2?1:0,origin:location.origin},
+        playerVars:{autoplay:1,controls:1,rel:0,modestbranding:1,mute:_ytMuted2?1:0,origin:location.origin},
         events:{
-          onReady:function(e){e.target.playVideo();startPollAdv()},
+          onReady:function(e){
+            e.target.loadPlaylist({list:plItem.listId,listType:'playlist',index:0,startSeconds:0})
+            startPollAdv()
+          },
           onStateChange:function(e){
             if(e.data===0){try{_ytPlayer.nextVideo()}catch(x){}}
           }
