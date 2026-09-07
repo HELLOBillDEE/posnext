@@ -153,7 +153,7 @@ let stB = {status:'idle',items:[],subtotal:0,discount:0,total:0}
 let _slideTimer = null, _slideIdx = 0, _ytTimer2 = null, _ytMuted2 = true, _ytBaseSrc2 = ''
 let _timerA = null, _timerB = null
 let _promos = [], _promoPage = 0, _cycleTimer = null, _showPromo = false
-let _ytPlayer = null, _ytAPIReady = false, _ytPendingSetup = null
+let _ytPlayer = null, _ytAPIReady = false, _ytPendingSetup = null, _ytAdvTimer = null
 
 window.onYouTubeIframeAPIReady = function() {
   _ytAPIReady = true
@@ -359,8 +359,16 @@ function setupVid(items, muteBtn) {
         events:{
           onReady:function(e){e.target.playVideo()},
           onStateChange:function(e){
-            if(e.data===0){try{_ytPlayer.nextVideo()}catch(err){}}
-            else if(e.data===-1){setTimeout(()=>{try{_ytPlayer.playVideo()}catch(err){}},300)}
+            if(e.data===1){
+              // playing — set timer fallback เผื่อ ENDED ไม่ fire (Chrome controls:0)
+              if(_ytAdvTimer)clearTimeout(_ytAdvTimer)
+              try{const dur=e.target.getDuration();if(dur>0)_ytAdvTimer=setTimeout(()=>{try{_ytPlayer.nextVideo()}catch(x){}},dur*1000+2000)}catch(x){}
+            } else if(e.data===0){
+              if(_ytAdvTimer)clearTimeout(_ytAdvTimer);_ytAdvTimer=null
+              try{_ytPlayer.nextVideo()}catch(x){}
+            } else if(e.data===-1){
+              setTimeout(()=>{try{_ytPlayer.playVideo()}catch(x){}},300)
+            }
           }
         }
       })
