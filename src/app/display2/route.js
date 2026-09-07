@@ -298,7 +298,7 @@ function renderMedia() {
   if (items.length > 0) {
     const muteBtn = document.getElementById('muteBtn')
     bg.innerHTML = '<video id="vid" muted autoplay playsinline style="width:100%;height:100%;object-fit:cover;position:absolute;inset:0;display:none"></video>'
-      + '<iframe id="ytFrame2" style="width:100%;height:100%;border:none;position:absolute;inset:0;display:none" allow="autoplay;encrypted-media" allowfullscreen></iframe>'
+      + '<iframe id="ytFrame2" style="width:100%;height:100%;border:none;position:absolute;inset:0;display:none" allow="autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>'
     if (muteBtn) muteBtn.style.display = 'none'
     setupVid(items, muteBtn)
   } else if (imgs.length > 0) {
@@ -353,7 +353,7 @@ function setupVid(items, muteBtn) {
       const vid=plItem.id
       const _startVid=plItem.id
       _ytBaseSrc2='https://www.youtube.com/embed/'+(_startVid||'videoseries')
-        +'?list='+plItem.listId+'&autoplay=1&loop=1&controls=1&rel=0&modestbranding=1'
+        +'?list='+plItem.listId+'&autoplay=1&controls=1&rel=0&modestbranding=1'
       f.src=ytSrc2(_ytBaseSrc2); f.style.display='block'
     }
     showBtn(true);return
