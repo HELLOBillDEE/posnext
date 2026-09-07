@@ -353,13 +353,15 @@ function setupVid(items, muteBtn) {
     if(pd){pd.style.display='block';pd.innerHTML='<div id="_ytInner" style="width:100%;height:100%"></div>'}
     _ytBaseSrc2='ytplayer'
     function _setupYT(){
-      _ytPlayer=new YT.Player('_ytInner',{
+      var _ytOpts={
         playerVars:{list:plItem.listId,listType:'playlist',autoplay:1,controls:0,rel:0,modestbranding:1,mute:_ytMuted2?1:0},
         events:{
           onStateChange:function(e){if(e.data===0){try{_ytPlayer.nextVideo()}catch(x){}}},
           onError:function(){setTimeout(function(){try{_ytPlayer.nextVideo()}catch(x){}},3000)}
         }
-      })
+      }
+      if(plItem.id)_ytOpts.videoId=plItem.id
+      _ytPlayer=new YT.Player('_ytInner',_ytOpts)
       _ytAdvTimer=setInterval(function(){
         if(!_ytPlayer)return
         try{var d=_ytPlayer.getDuration(),c=_ytPlayer.getCurrentTime();if(d>2&&c>0&&d-c<1.5)_ytPlayer.nextVideo()}catch(x){}
