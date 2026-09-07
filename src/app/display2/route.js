@@ -351,7 +351,8 @@ function setupVid(items, muteBtn) {
     if(v)v.style.display='none'
     const pd=document.getElementById('ytPlayerDiv'); if(pd)pd.style.display='none'
     if(f){
-      _ytBaseSrc2='https://www.youtube.com/embed?list='+plItem.listId+'&autoplay=1&controls=0&rel=0&modestbranding=1'
+      const _vidSeg=plItem.id||'videoseries'
+      _ytBaseSrc2='https://www.youtube.com/embed/'+_vidSeg+'?list='+plItem.listId+'&autoplay=1&controls=1&rel=0&modestbranding=1'
       f.src=ytSrc2(_ytBaseSrc2); f.style.display='block'
     }
     showBtn(true);return
