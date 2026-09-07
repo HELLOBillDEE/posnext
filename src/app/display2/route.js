@@ -335,7 +335,7 @@ function setupVid(items, muteBtn) {
     if(v)v.style.display='none'
     if(f){
       const _plVid=plItem.id;const _plPath=_plVid?'/embed/'+_plVid:'/embed'
-      _ytBaseSrc2='https://www.youtube.com'+_plPath+'?list='+plItem.listId+'&autoplay=1&controls=0&rel=0&modestbranding=1'
+      _ytBaseSrc2='https://www.youtube.com'+_plPath+'?list='+plItem.listId+'&autoplay=1&controls=1&rel=0&modestbranding=1'
       f.src=ytSrc2(_ytBaseSrc2);f.style.display='block'
     }
     showBtn(true);return
