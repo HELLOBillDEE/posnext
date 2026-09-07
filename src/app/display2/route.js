@@ -14,6 +14,7 @@ export function GET(request) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Dual Customer Display</title>
 <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -151,7 +152,7 @@ let _timerA = null, _timerB = null
 let _promos = [], _promoPage = 0, _cycleTimer = null, _showPromo = false
 
 function isYT(u){return!!u&&(u.includes('youtube.com')||u.includes('youtu.be'))}
-function isPlaylist(u){try{const p=new URL(u);return isYT(u)&&p.pathname==='/playlist'&&!!p.searchParams.get('list')}catch{return false}}
+function isPlaylist(u){try{const p=new URL(u);return isYT(u)&&!!p.searchParams.get('list')}catch{return false}}
 function playlistId(u){try{return new URL(u).searchParams.get('list')||''}catch{return ''}}
 function ytId(u){try{const p=new URL(u);if(p.hostname==='youtu.be')return p.pathname.slice(1).split('?')[0];if(p.pathname.startsWith('/shorts/'))return p.pathname.split('/')[2]||'';return p.searchParams.get('v')||''}catch{return ''}}
 function ytSrc2(base){return base+(_ytMuted2?'&mute=1':'')}
@@ -333,7 +334,7 @@ function setupVid(items, muteBtn) {
   if(plItem){
     if(v)v.style.display='none'
     if(f){
-      _ytBaseSrc2='https://www.youtube.com/embed?listType=playlist&list='+plItem.listId+'&autoplay=1&loop=1&controls=0&rel=0&modestbranding=1'
+      _ytBaseSrc2='https://www.youtube.com/embed?list='+plItem.listId+'&autoplay=1&controls=0&rel=0&modestbranding=1'
       f.src=ytSrc2(_ytBaseSrc2);f.style.display='block'
     }
     showBtn(true);return
@@ -363,7 +364,9 @@ function setupVid(items, muteBtn) {
       if (f) { f.src = 'about:blank'; f.style.display = 'none'; _ytBaseSrc2='' }
       if (_ytTimer2) { clearTimeout(_ytTimer2); _ytTimer2 = null }
       if (v) {
-        v.style.display = 'block'; v.src = it.url
+        v.style.display = 'block'
+        v.muted = true
+        v.src = it.url
         v.onended = () => { idx=(idx+1)%items.length; show(idx) }
         v.play().catch(()=>{})
       }

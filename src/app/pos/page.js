@@ -3405,6 +3405,17 @@ function ShiftModal({ mode, currentShift, empMode, settings, terminalId, termina
     if (error) return alert('เกิดข้อผิดพลาด: ' + error.message)
     const timeCam = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
     stopShiftRec(`🟢 เปิดกะเรียบร้อย 🕐 ${timeCam}`)
+    fetch('/api/notify-shift-open', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        terminalId: terminalId || null,
+        cashierName: terminalName || empMode?.name || '',
+        shopName: settings?.shop_name || 'ร้านค้า',
+        openingCash: totalCash,
+        openingBreakdown: qtys,
+      }),
+    }).catch(() => {})
     onOpened(data)
   }
 

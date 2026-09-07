@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { convertThaiBarcode } from '@/lib/utils'
 import { buildLabelTSPL, printViaBridge } from '@/lib/printBridge'
@@ -1354,9 +1355,21 @@ function SendToPOSTab({ empName }) {
   const scannerRef = useRef(null)
 
   useEffect(() => {
-    supabase.from('products').select('id, name, barcode, price, stock, unit')
-      .eq('active', true).order('name').range(0, 999)
-      .then(({ data }) => setProducts(data || []))
+    async function loadAll() {
+      const all = [], PAGE = 1000
+      let from = 0
+      while (true) {
+        const { data } = await supabase.from('products')
+          .select('id, name, barcode, price, stock, unit')
+          .eq('active', true).order('name').range(from, from + PAGE - 1)
+        if (!data || data.length === 0) break
+        all.push(...data)
+        if (data.length < PAGE) break
+        from += PAGE
+      }
+      setProducts(all)
+    }
+    loadAll()
   }, [])
 
   const filtered = search.trim()
@@ -1470,7 +1483,7 @@ function SendToPOSTab({ empName }) {
 
       {/* Product list */}
       <div className="flex-1 overflow-y-auto px-3 space-y-1.5 pb-2">
-        {filtered.slice(0, 60).map(p => {
+        {filtered.map(p => {
           const inCart = cart.find(c => c.id === p.id)
           return (
             <div key={p.id} className="flex items-center gap-3 bg-white rounded-xl px-3 py-2.5 border border-slate-100 shadow-sm">
@@ -1554,13 +1567,19 @@ export default function EmpPortalPage() {
   const [activeTab, setActiveTab] = useState('products')
   const [printerCfg, setPrinterCfg] = useState(null)
 
+  const router = useRouter()
+
   // Restore session from sessionStorage
+  // ถ้าเป็น admin (มี Supabase session) → ไป /pos แทน
   useEffect(() => {
-    try {
-      const saved = sessionStorage.getItem('emp_portal_session')
-      if (saved) { setSession(JSON.parse(saved)); setPhase('portal') }
-      else setPhase('pin')
-    } catch { setPhase('pin') }
+    supabase.auth.getSession().then(({ data }) => {
+      if (data?.session?.user) { router.replace('/pos'); return }
+      try {
+        const saved = sessionStorage.getItem('emp_portal_session')
+        if (saved) { setSession(JSON.parse(saved)); setPhase('portal') }
+        else setPhase('pin')
+      } catch { setPhase('pin') }
+    })
   }, [])
 
   // Load shared printer config from Supabase once logged in

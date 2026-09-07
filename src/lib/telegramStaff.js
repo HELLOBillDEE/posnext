@@ -261,6 +261,53 @@ export async function notifyShiftClose({ cashierName, shopName, terminalId, open
   await sendMessage(cfg.telegram_bot_token, cfg.telegram_chat_id, lines.join('\n'))
 }
 
+/* ── แจ้งเตือนเปิดกะ + เทียบยอดเงินคงเหลือจากกะก่อน ── */
+export async function notifyShiftOpen({ cashierName, shopName, terminalId, openingCash, openingBreakdown, prevShift }) {
+  const cfg = await getTelegramSettings()
+  if (!cfg) return
+
+  const f = n => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+  const timeStr = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
+  const termLabel = terminalId ? ` [${terminalId.toUpperCase()}]` : ''
+
+  const lines = [
+    `🟢 <b>เปิดกะ${termLabel}</b>${cashierName ? ` — ${cashierName}` : ''}`,
+    `🏪 ${shopName || 'ร้านค้า'}  |  🕐 ${timeStr}`,
+    ``,
+    `💵 <b>เงินนับตอนเปิดกะ: ฿${f(openingCash)}</b>`,
+  ]
+
+  // เทียบยอดจากกะที่แล้ว
+  if (prevShift) {
+    const prevRemaining = Number(prevShift.cash_remaining || 0)
+    const diff = Number(openingCash) - prevRemaining
+    const prevTime = prevShift.closed_at
+      ? new Date(prevShift.closed_at).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
+      : '-'
+    const prevDate = prevShift.closed_at
+      ? new Date(prevShift.closed_at).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'short' })
+      : '-'
+    const prevName = prevShift.cashier_name ? ` (${prevShift.cashier_name})` : ''
+
+    lines.push(``)
+    lines.push(`📋 <b>เทียบกะก่อน</b>${prevName} — ${prevDate} ${prevTime}`)
+    lines.push(`   เงินคงเหลือปิดกะ: ฿${f(prevRemaining)}`)
+    lines.push(`   เงินนับตอนเปิดกะ: ฿${f(openingCash)}`)
+
+    if (diff === 0) {
+      lines.push(`   ✅ ตรงกัน — ไม่มีเงินหาย`)
+    } else if (diff > 0) {
+      lines.push(`   ℹ️ เพิ่มขึ้น +฿${f(Math.abs(diff))} (อาจมีเงินเพิ่มในลิ้นชัก)`)
+    } else {
+      lines.push(`   ⚠️ <b>หายไป −฿${f(Math.abs(diff))}</b> — ตรวจสอบด้วย`)
+    }
+  } else {
+    lines.push(`   ℹ️ ไม่พบกะก่อนหน้าเพื่อเทียบยอด`)
+  }
+
+  await sendMessage(cfg.telegram_bot_token, cfg.telegram_chat_id, lines.join('\n'))
+}
+
 /* ── แจ้งเตือนพนักงานให้ส่วนลด/แก้ราคา ── */
 export async function notifyDiscount({ empName, receiptNo, discItems, billDisc, tierName, tierDisc, totalDisc, total, shopName }) {
   const cfg = await getTelegramSettings()
