@@ -17,6 +17,7 @@ export function GET(request) {
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Dual Customer Display</title>
+<script src="https://www.youtube.com/iframe_api"></script>
 <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -131,6 +132,7 @@ body{font-family:'Kanit',sans-serif;}
   <div id="p1" class="pos"></div>
   <div id="med" class="med">
     <div id="med-bg"></div>
+    <div id="ytPlayerDiv" style="position:absolute;inset:0;display:none;z-index:5;"></div>
     <div id="med-promo"></div>
     <div class="med-mute" id="muteBtn" onclick="toggleMute()" style="display:none">🔇</div>
   </div>
@@ -150,6 +152,12 @@ let stB = {status:'idle',items:[],subtotal:0,discount:0,total:0}
 let _slideTimer = null, _slideIdx = 0, _ytTimer2 = null, _ytMuted2 = true, _ytBaseSrc2 = ''
 let _timerA = null, _timerB = null
 let _promos = [], _promoPage = 0, _cycleTimer = null, _showPromo = false
+let _ytPlayer = null, _ytAPIReady = false, _ytPendingSetup = null
+
+window.onYouTubeIframeAPIReady = function() {
+  _ytAPIReady = true
+  if (_ytPendingSetup) { _ytPendingSetup(); _ytPendingSetup = null }
+}
 
 function isYT(u){return!!u&&(u.includes('youtube.com')||u.includes('youtu.be'))}
 function isPlaylist(u){try{const p=new URL(u);return isYT(u)&&!!p.searchParams.get('list')}catch{return false}}
@@ -279,6 +287,9 @@ function renderMedia() {
 
   if (_slideTimer) { clearInterval(_slideTimer); _slideTimer = null }
   if (_cycleTimer) { clearInterval(_cycleTimer); _cycleTimer = null }
+  if (_ytPlayer) { try{_ytPlayer.destroy()}catch(e){}; _ytPlayer=null }
+  const _pd=document.getElementById('ytPlayerDiv'); if(_pd){_pd.innerHTML='';_pd.style.display='none'}
+  _ytBaseSrc2=''
 
   if (items.length > 0) {
     const muteBtn = document.getElementById('muteBtn')
@@ -329,15 +340,29 @@ function setupVid(items, muteBtn) {
   if (!items.length) return
   const ytItems = items.filter(i=>i.yt), dirItems = items.filter(i=>!i.yt)
   function showBtn(show){ if(muteBtn){muteBtn.style.display=show?'flex':'none';muteBtn.textContent=_ytMuted2?'🔇':'🔊'} }
-  // Playlist URL
+  // Playlist URL — ใช้ YT IFrame API เพื่อให้ nextVideo() ได้
   const plItem=items.find(i=>i.playlist)
   if(plItem){
     if(v)v.style.display='none'
-    if(f){
-      const _plVid=plItem.id;const _plPath=_plVid?'/embed/'+_plVid:'/embed'
-      _ytBaseSrc2='https://www.youtube.com'+_plPath+'?list='+plItem.listId+'&autoplay=1&controls=1&rel=0&modestbranding=1'
-      f.src=ytSrc2(_ytBaseSrc2);f.style.display='block'
+    if(f){f.src='about:blank';f.style.display='none'}
+    _ytBaseSrc2='__ytplayer__'
+    function doSetupPlaylist(){
+      const pd=document.getElementById('ytPlayerDiv')
+      if(!pd)return
+      if(_ytPlayer){try{_ytPlayer.destroy()}catch(e){}; _ytPlayer=null; pd.innerHTML=''}
+      pd.style.display='block'
+      _ytPlayer=new YT.Player(pd,{
+        videoId:plItem.id||undefined,
+        playerVars:{list:plItem.listId,listType:'playlist',autoplay:1,controls:0,rel:0,modestbranding:1,mute:_ytMuted2?1:0},
+        events:{
+          onStateChange:function(e){
+            if(e.data===YT.PlayerState.ENDED){try{_ytPlayer.nextVideo()}catch(err){}}
+          }
+        }
+      })
     }
+    if(_ytAPIReady) doSetupPlaylist()
+    else _ytPendingSetup=doSetupPlaylist
     showBtn(true);return
   }
   if (ytItems.length && !dirItems.length) {
@@ -383,7 +408,8 @@ function toggleMute() {
   const b = document.getElementById('muteBtn')
   _ytMuted2 = !_ytMuted2
   if (b) b.textContent = _ytMuted2 ? '🔇' : '🔊'
-  if (f && f.style.display !== 'none' && _ytBaseSrc2) f.src = ytSrc2(_ytBaseSrc2)
+  if (_ytPlayer) { try{_ytMuted2?_ytPlayer.mute():_ytPlayer.unMute()}catch(e){} }
+  else if (f && f.style.display !== 'none' && _ytBaseSrc2) f.src = ytSrc2(_ytBaseSrc2)
   if (v && v.style.display !== 'none') v.muted = _ytMuted2
 }
 
@@ -532,9 +558,8 @@ function speakPayment(st) {
   const frm = document.getElementById('ytFrame2')
   const wasVidMuted = vid ? vid.muted : true
   if (vid && !vid.paused) vid.muted = true
-  if (frm && frm.style.display !== 'none' && _ytBaseSrc2) {
-    frm.src = _ytBaseSrc2 + '&mute=1'
-  }
+  if (_ytPlayer) { try{_ytPlayer.mute()}catch(e){} }
+  else if (frm && frm.style.display !== 'none' && _ytBaseSrc2) { frm.src = _ytBaseSrc2 + '&mute=1' }
 
   speechSynthesis.cancel()
   const utt = new SpeechSynthesisUtterance(text)
@@ -552,9 +577,8 @@ function speakPayment(st) {
   utt.onend = utt.onerror = () => {
     // คืนเสียงวิดีโอหลังพูดจบ
     if (vid) vid.muted = wasVidMuted
-    if (frm && frm.style.display !== 'none' && _ytBaseSrc2) {
-      frm.src = ytSrc2(_ytBaseSrc2)
-    }
+    if (_ytPlayer && !_ytMuted2) { try{_ytPlayer.unMute()}catch(e){} }
+    else if (frm && frm.style.display !== 'none' && _ytBaseSrc2) { frm.src = ytSrc2(_ytBaseSrc2) }
   }
   speechSynthesis.speak(utt)
 }
