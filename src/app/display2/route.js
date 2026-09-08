@@ -344,9 +344,10 @@ function setupVid(items, muteBtn) {
   if (!items.length) return
   const ytItems = items.filter(i=>i.yt), dirItems = items.filter(i=>!i.yt)
   function showBtn(show){ if(muteBtn){muteBtn.style.display=show?'flex':'none';muteBtn.textContent=_ytMuted2?'🔇':'🔊'} }
-  // Playlist — ใช้ YT.Player API เพื่อจับ ENDED แล้ว nextVideo() (Chrome ไม่ advance เอง)
+  // YT videos (playlist URL หรือ multi-video) — ใช้ YT.Player API เพื่อ advance บน Chrome
   const plItem=items.find(i=>i.playlist)
-  if(plItem){
+  const ytIds=ytItems.map(i=>i.id).filter(Boolean)
+  if(plItem||(ytItems.length&&!dirItems.length&&ytIds.length)){
     if(v)v.style.display='none'
     if(f){f.src='about:blank';f.style.display='none'}
     const pd=document.getElementById('ytPlayerDiv')
@@ -367,30 +368,25 @@ function setupVid(items, muteBtn) {
           try{var d=_ytPlayer.getDuration();if(d>2){clearInterval(_poll);var c=_ytPlayer.getCurrentTime();var rem=Math.max((d-c-0.5)*1000,500);_ytAdvTimer=setTimeout(_doNext,rem)}}catch(x){clearInterval(_poll)}
         },500)
       }
+      var _pv=plItem
+        ?{list:plItem.listId,listType:'playlist',autoplay:1,controls:1,rel:0,modestbranding:1,mute:_ytMuted2?1:0}
+        :{playlist:ytIds.join(','),loop:1,autoplay:1,controls:1,rel:0,modestbranding:1,mute:_ytMuted2?1:0}
+      var _startId=plItem?plItem.id:ytIds[0]
       var _ytOpts={
-        playerVars:{list:plItem.listId,listType:'playlist',autoplay:1,controls:1,rel:0,modestbranding:1,mute:_ytMuted2?1:0},
+        videoId:_startId,
+        playerVars:_pv,
         events:{
           onStateChange:function(e){
-            if(e.data===1){_scheduleNext()} // playing — schedule advance at end
-            if(e.data===0){_doNext()} // ended
+            if(e.data===1){_scheduleNext()}
+            if(e.data===0){_doNext()}
           },
           onError:function(){if(_ytAdvTimer){clearTimeout(_ytAdvTimer);_ytAdvTimer=null};setTimeout(function(){try{_ytPlayer.nextVideo()}catch(x){}},3000)}
         }
       }
-      if(plItem.id)_ytOpts.videoId=plItem.id
       _ytPlayer=new YT.Player('_ytInner',_ytOpts)
     }
     if(_ytAPIReady){_setupYT()}else{_ytPendingSetup=_setupYT}
     showBtn(true);return
-  }
-  if (ytItems.length && !dirItems.length) {
-    if (v) v.style.display = 'none'
-    if (f) {
-      const ids = ytItems.map(i=>i.id).filter(Boolean)
-      _ytBaseSrc2='https://www.youtube.com/embed/'+ids[0]+'?autoplay=1&loop=1&playlist='+ids.join(',')+'&controls=0&rel=0&modestbranding=1'
-      f.src = ytSrc2(_ytBaseSrc2); f.style.display = 'block'
-    }
-    showBtn(true); return
   }
   let idx = 0
   function show(i) {
