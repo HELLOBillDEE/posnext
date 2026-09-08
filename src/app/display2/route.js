@@ -371,9 +371,8 @@ function setupVid(items, muteBtn) {
       var _pv=plItem
         ?{list:plItem.listId,listType:'playlist',autoplay:1,controls:1,rel:0,modestbranding:1,mute:_ytMuted2?1:0}
         :{playlist:ytIds.join(','),loop:1,autoplay:1,controls:1,rel:0,modestbranding:1,mute:_ytMuted2?1:0}
-      var _startId=plItem?plItem.id:ytIds[0]
       var _ytOpts={
-        videoId:_startId,
+        videoId:plItem?(plItem.id||undefined):undefined,
         playerVars:_pv,
         events:{
           onStateChange:function(e){
