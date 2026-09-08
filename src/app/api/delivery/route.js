@@ -7,7 +7,7 @@ const supabase = createClient(
   { db: { schema: 'pos' } }
 )
 
-// GET /api/delivery?token=xxx — ดึงข้อมูลใบส่งของ (public)
+// GET /api/delivery?token=xxx
 export async function GET(req) {
   const token = new URL(req.url).searchParams.get('token')
   if (!token) return Response.json({ error: 'ไม่ระบุ token' }, { status: 400 })
@@ -20,22 +20,27 @@ export async function GET(req) {
     .maybeSingle()
 
   if (error || !data) return Response.json({ error: 'ไม่พบใบส่งของ' }, { status: 404 })
-  return Response.json(data)
+
+  // ดึงประวัติการส่งทุกรอบ
+  const { data: trips } = await supabase
+    .from('delivery_trips')
+    .select('id,delivered_at,items_delivered,photo_url,signature_url,customer_signature_url')
+    .eq('quotation_id', data.id)
+    .order('delivered_at', { ascending: true })
+
+  return Response.json({ ...data, delivery_trips: trips || [] })
 }
 
-// POST /api/delivery/token — สร้าง token สำหรับใบส่งของ
+// POST — สร้าง token
 export async function POST(req) {
   try {
     const { id } = await req.json()
     if (!id) return Response.json({ error: 'ไม่ระบุ id' }, { status: 400 })
 
-    // ตรวจว่ามี token แล้วหรือยัง
     const { data: existing } = await supabase
       .from('quotations').select('delivery_token').eq('id', id).maybeSingle()
 
-    if (existing?.delivery_token) {
-      return Response.json({ token: existing.delivery_token })
-    }
+    if (existing?.delivery_token) return Response.json({ token: existing.delivery_token })
 
     const token = randomBytes(16).toString('hex')
     await supabase.from('quotations').update({ delivery_token: token }).eq('id', id)
@@ -45,26 +50,86 @@ export async function POST(req) {
   }
 }
 
-// PATCH /api/delivery — บันทึกยืนยันการส่ง
+// PUT — แก้ไขพิกัด
+export async function PUT(req) {
+  try {
+    const { token, lat, lng } = await req.json()
+    if (!token) return Response.json({ error: 'ไม่ระบุ token' }, { status: 400 })
+    if (!lat || !lng) return Response.json({ error: 'ไม่ระบุพิกัด' }, { status: 400 })
+
+    const { error } = await supabase
+      .from('quotations')
+      .update({ customer_lat: lat, customer_lng: lng })
+      .eq('delivery_token', token)
+      .eq('doc_type', 'delivery_invoice')
+
+    if (error) return Response.json({ error: error.message }, { status: 500 })
+    return Response.json({ ok: true })
+  } catch (e) {
+    return Response.json({ error: e.message }, { status: 500 })
+  }
+}
+
+// PATCH — ยืนยันส่งของ (รองรับส่งบางรายการ)
 export async function PATCH(req) {
   try {
-    const { token, photo_url, signature_url, customer_signature_url } = await req.json()
+    const { token, items_delivered, photo_url, signature_url, customer_signature_url } = await req.json()
     if (!token) return Response.json({ error: 'ไม่ระบุ token' }, { status: 400 })
 
-    const { data: result, error: rpcErr } = await supabase.rpc('confirm_delivery', {
-      p_token: token,
-      p_photo_url: photo_url || null,
-      p_signature_url: signature_url || null,
-      p_customer_signature_url: customer_signature_url || null,
+    // ดึง quotation ปัจจุบัน
+    const { data: doc, error: fetchErr } = await supabase
+      .from('quotations')
+      .select('id,items,status')
+      .eq('delivery_token', token)
+      .eq('doc_type', 'delivery_invoice')
+      .maybeSingle()
+
+    if (fetchErr || !doc) return Response.json({ error: 'ไม่พบใบส่งของ' }, { status: 404 })
+    if (doc.status === 'delivered') return Response.json({ error: 'ส่งของครบแล้ว' }, { status: 409 })
+
+    // อัพเดต delivered_qty ต่อ item
+    const updatedItems = (doc.items || []).map((item, idx) => {
+      const d = (items_delivered || []).find(x => x.idx === idx)
+      if (!d) return item
+      const prev = Number(item.delivered_qty || 0)
+      const add  = Number(d.qty_delivered || 0)
+      return { ...item, delivered_qty: Math.min(prev + add, Number(item.qty || 1)) }
     })
 
-    if (rpcErr) {
-      console.error('[delivery confirm] rpc error:', rpcErr.message)
-      return Response.json({ error: rpcErr.message }, { status: 500 })
-    }
-    if (result?.error) return Response.json({ error: result.error }, { status: 409 })
+    // ตรวจว่าครบทุกรายการหรือยัง
+    const allDone = updatedItems.every(item =>
+      Number(item.delivered_qty || 0) >= Number(item.qty || 1)
+    )
 
-    return Response.json({ ok: true })
+    const now = new Date().toISOString()
+
+    // อัพเดต quotation
+    const updatePayload = { items: updatedItems }
+    if (allDone) {
+      updatePayload.delivered_at = now
+      updatePayload.status = 'delivered'
+      if (photo_url) updatePayload.delivery_photo_url = photo_url
+      if (signature_url) updatePayload.delivery_signature_url = signature_url
+      if (customer_signature_url) updatePayload.customer_signature_url = customer_signature_url
+    }
+
+    const { error: updErr } = await supabase
+      .from('quotations').update(updatePayload).eq('id', doc.id)
+    if (updErr) return Response.json({ error: updErr.message }, { status: 500 })
+
+    // บันทึก delivery_trip
+    const { error: tripErr } = await supabase
+      .from('delivery_trips').insert({
+        quotation_id: doc.id,
+        delivered_at: now,
+        items_delivered: items_delivered || [],
+        photo_url: photo_url || null,
+        signature_url: signature_url || null,
+        customer_signature_url: customer_signature_url || null,
+      })
+    if (tripErr) console.error('[delivery_trip insert]', tripErr.message)
+
+    return Response.json({ ok: true, all_done: allDone })
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 })
   }
