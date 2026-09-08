@@ -354,11 +354,16 @@ function setupVid(items, muteBtn) {
     if(pd){pd.style.display='block';pd.innerHTML='<div id="_ytInner" style="width:100%;height:100%"></div>'}
     _ytBaseSrc2='ytplayer'
     function _setupYT(){
-      var _advCooldown=false
+      var _advCooldown=false,_ytIdx=0
+      var _ytList=plItem?null:ytIds
+      function _advance(){
+        if(_ytAdvTimer){clearTimeout(_ytAdvTimer);_ytAdvTimer=null}
+        if(_ytList){_ytIdx=(_ytIdx+1)%_ytList.length;try{_ytPlayer.loadVideoById(_ytList[_ytIdx])}catch(x){}}
+        else{try{_ytPlayer.nextVideo()}catch(x){}}
+      }
       function _doNext(){
         if(_advCooldown)return; _advCooldown=true
-        if(_ytAdvTimer){clearTimeout(_ytAdvTimer);_ytAdvTimer=null}
-        try{_ytPlayer.nextVideo()}catch(x){}
+        _advance()
         setTimeout(function(){_advCooldown=false},4000)
       }
       function _scheduleNext(){
@@ -370,19 +375,15 @@ function setupVid(items, muteBtn) {
       }
       var _pv=plItem
         ?{list:plItem.listId,listType:'playlist',autoplay:1,controls:1,rel:0,modestbranding:1,mute:_ytMuted2?1:0}
-        :{playlist:ytIds.join(','),loop:1,autoplay:1,controls:1,rel:0,modestbranding:1,mute:_ytMuted2?1:0}
-      var _ytOpts={
-        videoId:plItem?(plItem.id||undefined):undefined,
+        :{autoplay:1,controls:1,rel:0,modestbranding:1,mute:_ytMuted2?1:0}
+      _ytPlayer=new YT.Player('_ytInner',{
+        videoId:plItem?(plItem.id||ytIds[0]):ytIds[0],
         playerVars:_pv,
         events:{
-          onStateChange:function(e){
-            if(e.data===1){_scheduleNext()}
-            if(e.data===0){_doNext()}
-          },
-          onError:function(){if(_ytAdvTimer){clearTimeout(_ytAdvTimer);_ytAdvTimer=null};setTimeout(function(){try{_ytPlayer.nextVideo()}catch(x){}},3000)}
+          onStateChange:function(e){if(e.data===1){_scheduleNext()}if(e.data===0){_doNext()}},
+          onError:function(){if(_ytAdvTimer){clearTimeout(_ytAdvTimer);_ytAdvTimer=null};setTimeout(_advance,3000)}
         }
-      }
-      _ytPlayer=new YT.Player('_ytInner',_ytOpts)
+      })
     }
     if(_ytAPIReady){_setupYT()}else{_ytPendingSetup=_setupYT}
     showBtn(true);return
