@@ -66,6 +66,24 @@ const CSC_PATHS = [
 
 let _exeReady = null  // null=unknown, true=ready, false=unavailable
 
+// Serial queue — ป้องกัน USB bytes ชนกันเมื่อพิมพ์พร้อมกัน
+// retry 1 ครั้งหลัง 400ms ถ้าล้มเหลว (USB หลับ/ตัดการเชื่อมต่อ)
+let _printQueue = Promise.resolve()
+function queuePrint(port, b64) {
+  _printQueue = _printQueue.then(async () => {
+    try {
+      await printViaExe(port, b64)
+    } catch (e) {
+      console.error('[wprint] retry after fail:', e.message)
+      await new Promise(r => setTimeout(r, 150))
+      await printViaExe(port, b64).catch(e2 => console.error('[wprint] retry failed:', e2.message))
+    }
+  })
+}
+
+// ESC @ (printer init) — ใช้ wake USB หลังจาก idle
+const ESC_INIT_B64 = Buffer.from([0x1b, 0x40]).toString('base64')
+
 function findCsc() {
   for (const p of CSC_PATHS) if (existsSync(p)) return p
   return null
@@ -138,11 +156,10 @@ export async function GET(req) {
   if (!_exeReady) ensureExe()
   if (!_exeReady) return Response.json({ ok: false, error: 'csc not found' })
 
-  // Warmup: do a dry-run open/close of the printer handle
-  // We send empty data — printer ignores it
+  // Warmup: ส่ง ESC @ (printer init) เพื่อ wake USB หลัง idle — ไม่ใช่ empty
   try {
-    await printViaExe(port, btoa(''))
-  } catch {}  // ok to fail on empty doc
+    await printViaExe(port, ESC_INIT_B64)
+  } catch {}  // ok to fail
   return Response.json({ ok: true })
 }
 
@@ -160,8 +177,8 @@ export async function POST(req) {
     if (!_exeReady) ensureExe()
     if (!_exeReady) return Response.json({ error: 'wprint.exe ยังไม่พร้อม' }, { status: 503 })
 
-    // Fire-and-forget: ส่งให้ EXE พิมพ์ แล้ว return ทันที
-    printViaExe(port, data).catch(e => console.error('[wprint]', e.message))
+    // Queue: รัน EXE ทีละงาน + retry ถ้า USB หลับ
+    queuePrint(port, data)
     return Response.json({ ok: true })
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 })

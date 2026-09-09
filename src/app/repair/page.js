@@ -12,7 +12,7 @@ async function getServerUsb() {
 async function printReceiptCfg(cfg, bytes) {
   if (cfg.usb_mode && cfg.usb_port) return printViaUSB(bytes, cfg.usb_port)
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
-  return printViaBridge(cfg.bridge_url || origin, cfg.ip, cfg.port || 9100, bytes)
+  return printViaBridge(origin, cfg.ip, cfg.port || 9100, bytes)
 }
 import { cacheSet, cacheGet, addToQueue, genOfflineRepairNo } from '@/lib/offlineQueue'
 

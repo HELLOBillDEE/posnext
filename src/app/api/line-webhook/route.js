@@ -15,21 +15,33 @@ const sbService = createClient(
 )
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
+/* ── Trigger texts จากปุ่ม Quick Reply ── */
+const T_BUY      = '__buy__'
+const T_REPAIR   = '__repair__'
+const T_DELIVERY = '__delivery__'
+// marker ที่บอทฝังใน history เพื่อรู้ว่ารอข้อมูลส่งของ
+const DELIVERY_PENDING_MARKER = '__awaiting_delivery_info__'
+
 function fmt(n) {
   return Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 }
-const fmtDate = d => d
-  ? new Date(d + 'T00:00:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })
-  : ''
+function fmtD(d) {
+  return d ? new Date(d.includes('T') ? d : d + 'T00:00:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' }) : ''
+}
 
-const STATUS_LABEL = {
+const REPAIR_STATUS = {
   pending:       'รอรับเครื่อง / รอตรวจสอบ',
   diagnosing:    'กำลังตรวจสอบอาการเสีย',
   waiting_parts: 'รออะไหล่',
   in_progress:   'ช่างกำลังซ่อม',
-  done:          'ซ่อมเสร็จแล้ว รอรับเครื่อง',
+  done:          'ซ่อมเสร็จแล้ว — พร้อมรับเครื่อง',
   delivered:     'ส่งคืนลูกค้าแล้ว',
   cancelled:     'ยกเลิก',
+}
+const DELIVERY_STATUS = {
+  pending:   'รอจัดส่ง 📦',
+  delivered: 'ส่งแล้ว ✅',
+  cancelled: 'ยกเลิก',
 }
 
 /* ── Settings ── */
@@ -50,203 +62,197 @@ async function saveMsg(lineUserId, role, content) {
 }
 async function getHistory(lineUserId) {
   const { data } = await sbService
-    .from('line_conversations')
-    .select('role,content')
+    .from('line_conversations').select('role,content')
     .eq('line_user_id', lineUserId)
-    .order('created_at', { ascending: false })
-    .limit(12)
+    .order('created_at', { ascending: false }).limit(12)
   return (data || []).reverse()
 }
 
-/* ── search_product: ตัดคำแต่ละคำ OR ค้นทุก field ── */
-async function searchProducts(text) {
-  const words = text.split(/\s+/).filter(w => w.length >= 2)
-  if (!words.length) return []
-  const orParts = words.flatMap(w => [`name.ilike.%${w}%`, `search_tags.ilike.%${w}%`])
-  const { data } = await supabase
-    .from('products')
-    .select('id,name,price,online_price,stock,unit,categories(name)')
-    .eq('active', true)
-    .or(orParts.join(','))
-    .order('stock', { ascending: false })
-    .limit(8)
-  return data || []
-}
-
-/* ── check_repair_status: ค้นด้วย lineUserId / เบอร์ / repair_no ── */
-async function checkRepairStatus(lineUserId, text) {
-  const results = []
-  const seen = new Set()
-
-  const add = (items) => {
-    for (const r of (items || [])) {
-      if (!seen.has(r.repair_no)) { seen.add(r.repair_no); results.push(r) }
-    }
-  }
-
-  const sel = 'repair_no,customer_name,device,description,status,appointment_date,appointment_time,note,technician_name,price,deposit'
-
-  // 1. ค้นด้วย LINE user ID อัตโนมัติ
-  const { data: byUser } = await supabase
-    .from('repair_orders').select(sel)
-    .eq('line_user_id', lineUserId)
-    .order('created_at', { ascending: false }).limit(3)
-  add(byUser)
-
-  // 2. ค้นด้วยเบอร์โทรที่อยู่ในข้อความ
-  const phones = text.match(/0\d{8,9}/g) || []
-  for (const phone of phones) {
-    const { data } = await supabase.from('repair_orders').select(sel)
-      .eq('phone', phone).order('created_at', { ascending: false }).limit(3)
-    add(data)
-  }
-
-  // 3. ค้นด้วย repair_no / เลขที่บิลในข้อความ
-  const codes = text.match(/[A-Za-z0-9]{5,}/g) || []
-  for (const code of codes) {
-    const { data } = await supabase.from('repair_orders').select(sel)
-      .ilike('repair_no', `%${code}%`).limit(2)
-    add(data)
-  }
-
-  return results.slice(0, 5)
-}
-
-function repairToText(r) {
-  const status = STATUS_LABEL[r.status] || r.status || 'ไม่ระบุ'
-  const lines = [
-    `📋 บิลซ่อม: ${r.repair_no}`,
-    `🔧 อุปกรณ์: ${r.device || '-'}`,
-    `📝 อาการ: ${r.description || '-'}`,
-    `🔴 สถานะ: ${status}`,
-  ]
-  if (r.technician_name) lines.push(`👨‍🔧 ช่าง: ${r.technician_name}`)
-  if (r.appointment_date) lines.push(`📅 นัดรับ: ${fmtDate(r.appointment_date)}${r.appointment_time ? ` เวลา ${r.appointment_time}` : ''}`)
-  if (r.note) lines.push(`💬 หมายเหตุ: ${r.note}`)
-  if (r.price) lines.push(`💰 ค่าซ่อม: ฿${fmt(r.price)}${r.deposit ? ` (มัดจำแล้ว ฿${fmt(r.deposit)})` : ''}`)
-  return lines.join('\n')
-}
-
-/* ── Claude Haiku ── */
-async function askClaude({ text, history, products, repairOrders, shopCfg, botCfg }) {
-  const shopName = shopCfg?.shop_name || 'ร้านเชิดชัย'
-  const botName  = botCfg?.line_bot_name || 'แอดมิน'
-  const persona  = botCfg?.line_bot_persona || 'ผู้ช่วยขายของร้าน ตอบภาษาไทยสั้นกระชับ เป็นกันเอง'
-  const appUrl   = process.env.NEXT_PUBLIC_APP_URL || ''
-
-  const productSection = products.length > 0
-    ? `[ฐานข้อมูลสินค้าที่เกี่ยวข้อง]\n` + products.map(p => {
-        const price = p.online_price != null ? p.online_price : p.price
-        return `- ${p.name} ราคา ฿${fmt(price)}/${p.unit || 'ชิ้น'}${p.categories?.name ? ` (${p.categories.name})` : ''}`
-      }).join('\n')
-    : '[ฐานข้อมูลสินค้า] ไม่พบสินค้าที่ตรงกับคำถาม'
-
-  const repairSection = repairOrders.length > 0
-    ? `[ฐานข้อมูลคิวซ่อม]\n` + repairOrders.map(repairToText).join('\n\n')
-    : '[ฐานข้อมูลคิวซ่อม] ไม่พบงานซ่อมในระบบ (ยังไม่ได้ให้เบอร์โทรหรือเลขบิล)'
-
-  const systemPrompt = `ชื่อคุณคือ "${botName}"
-${persona}
-ร้าน: ${shopName} โทร: ${shopCfg?.shop_phone || ''} ที่ตั้ง: ${shopCfg?.shop_address || ''}
-ลิงก์ดูสินค้าออนไลน์: ${appUrl}/shop
-
-${productSection}
-
-${repairSection}
-
-กฎการทำงาน:
-1. อ่านเจตนาลูกค้าก่อนว่าต้องการ "ซื้อสินค้า/สอบถามสเปก" หรือ "ติดตามงานซ่อม/ปรึกษาอาการเสีย"
-2. ถามสินค้า → แนะนำจาก [ฐานข้อมูลสินค้า] อธิบายจุดเด่น บอกราคา ห้ามยัดเยียดถ้าลูกค้าไม่ได้ถาม
-3. ถามงานซ่อม → ดูข้อมูลจาก [ฐานข้อมูลคิวซ่อม] ก่อน ถ้าไม่พบให้ถามเบอร์โทรหรือเลขบิลซ่อม อย่าแต่งสถานะขึ้นมาเอง
-4. ถ้าลูกค้าเล่าอาการเสีย → ให้ความเห็นเบื้องต้นได้ แต่ชวนนำเครื่องมาให้ช่างตรวจ
-5. ถ้าข้อมูลไม่มีในระบบ → พูดว่า "เดี๋ยวขออนุญาตเช็คกับช่าง/หลังร้านให้สักครู่นะครับ" แล้วตอบว่า [ESCALATE]
-6. ถ้าลูกค้าต้องการคุยกับเจ้าของร้านหรือแอดมินโดยตรง → ตอบว่า [ESCALATE] แล้วบอกว่าจะแจ้งให้
-7. ตอบสั้นๆ เป็นธรรมชาติ ไม่เกิน 4-5 ประโยค ลงท้ายด้วย ครับ/ค่ะ เสมอ`
-
-  const messages = [
-    ...history.map(h => ({ role: h.role, content: h.content })),
-    { role: 'user', content: text },
-  ]
-
-  const res = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 500,
-    system: systemPrompt,
-    messages,
-  })
-
-  return res.content[0]?.text || ''
-}
-
-/* ── Flex Carousel สินค้า ── */
-async function replyProducts(replyToken, lineToken, products, shopName, appUrl) {
-  const bubbles = products.slice(0, 10).map(p => {
-    const displayPrice = p.online_price != null ? p.online_price : p.price
-    const hasDiscount  = p.online_price != null && p.online_price < p.price
-    const contents = [
-      { type: 'text', text: p.name, weight: 'bold', size: 'sm', wrap: true, color: '#1e293b' },
-      {
-        type: 'text',
-        text: `฿${fmt(displayPrice)} / ${p.unit || 'ชิ้น'}${hasDiscount ? `  (ลดจาก ฿${fmt(p.price)})` : ''}`,
-        size: 'lg', weight: 'bold', color: '#C72C41', margin: 'sm',
-      },
-    ]
-    if (p.categories?.name) {
-      contents.push({ type: 'text', text: `🏷 ${p.categories.name}`, size: 'xs', color: '#64748b', margin: 'xs' })
-    }
-    const bubble = {
-      type: 'bubble', size: 'micro',
-      body: { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '14px', contents },
-      footer: {
-        type: 'box', layout: 'vertical', paddingAll: '10px',
-        contents: [{
-          type: 'button', style: 'primary', color: '#C72C41', height: 'sm',
-          action: { type: 'message', label: '🛒 สนใจสินค้านี้', text: `สนใจสินค้า: ${p.name} ราคา ฿${fmt(displayPrice)}` },
-        }],
-      },
-    }
-    if (p.image_url) {
-      bubble.hero = { type: 'image', url: p.image_url, size: 'full', aspectRatio: '1:1', aspectMode: 'cover' }
-    }
-    return bubble
-  })
-
-  const messages = [
-    { type: 'flex', altText: `พบสินค้า ${products.length} รายการ`, contents: bubbles.length === 1 ? bubbles[0] : { type: 'carousel', contents: bubbles } },
-  ]
-  if (appUrl) messages.push({ type: 'text', text: `ดูสินค้าทั้งหมด: ${appUrl}/shop` })
-
+/* ── LINE reply helpers ── */
+async function lineReply(replyToken, lineToken, messages) {
   return fetch('https://api.line.me/v2/bot/message/reply', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${lineToken}` },
     body: JSON.stringify({ replyToken, messages }),
   })
 }
+async function linePush(lineUserId, lineToken, messages) {
+  return fetch('https://api.line.me/v2/bot/message/push', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${lineToken}` },
+    body: JSON.stringify({ to: lineUserId, messages }),
+  })
+}
 
-const fmtDateShort = d => d
-  ? new Date(d + 'T00:00:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })
-  : ''
+/* ── ส่งเมนู Quick Reply ── */
+async function sendMenu(replyToken, lineToken, shopName) {
+  return lineReply(replyToken, lineToken, [{
+    type: 'text',
+    text: `สวัสดีครับ 👋 ยินดีต้อนรับสู่ ${shopName || 'ร้านเชิดชัย'}\nต้องการสอบถามเรื่องใดครับ?`,
+    quickReply: {
+      items: [
+        { type: 'action', action: { type: 'message', label: '🛒 สั่งซื้อสินค้า', text: T_BUY } },
+        { type: 'action', action: { type: 'message', label: '🔧 คิวซ่อม',        text: T_REPAIR } },
+        { type: 'action', action: { type: 'message', label: '🚚 คิวส่งของ',      text: T_DELIVERY } },
+      ],
+    },
+  }])
+}
 
-/* ════════════════════════════════════════ */
+/* ── check_repair_status ── */
+async function checkRepairByUser(lineUserId) {
+  const sel = 'repair_no,customer_name,device,description,status,appointment_date,appointment_time,note,technician_name,price,deposit'
+  const { data } = await supabase.from('repair_orders').select(sel)
+    .eq('line_user_id', lineUserId)
+    .order('created_at', { ascending: false }).limit(5)
+  return data || []
+}
+async function checkRepairByText(text) {
+  const sel = 'repair_no,customer_name,device,description,status,appointment_date,appointment_time,note,technician_name,price,deposit'
+  const results = []
+  const seen = new Set()
+  const add = (items) => { for (const r of (items||[])) { if (!seen.has(r.repair_no)) { seen.add(r.repair_no); results.push(r) } } }
+  const phones = text.match(/0\d{8,9}/g) || []
+  for (const ph of phones) {
+    const { data } = await supabase.from('repair_orders').select(sel).eq('phone', ph).limit(3)
+    add(data)
+  }
+  const words = text.split(/\s+/).filter(w => w.length >= 2 && !/^\d+$/.test(w))
+  for (const w of words.slice(0,3)) {
+    const { data } = await supabase.from('repair_orders').select(sel).ilike('customer_name', `%${w}%`).limit(3)
+    add(data)
+  }
+  const codes = text.match(/[A-Z0-9]{5,}/gi) || []
+  for (const c of codes.slice(0,2)) {
+    const { data } = await supabase.from('repair_orders').select(sel).ilike('repair_no', `%${c}%`).limit(2)
+    add(data)
+  }
+  return results.slice(0, 5)
+}
+
+function repairMsg(repairs) {
+  if (!repairs.length) return null
+  return repairs.map(r => {
+    const status = REPAIR_STATUS[r.status] || r.status || '-'
+    const lines = [
+      `📋 บิล: ${r.repair_no}`,
+      `🔧 ${r.device || '-'} — ${r.description || '-'}`,
+      `🔴 สถานะ: ${status}`,
+    ]
+    if (r.technician_name) lines.push(`👨‍🔧 ช่าง: ${r.technician_name}`)
+    if (r.appointment_date) lines.push(`📅 นัด: ${fmtD(r.appointment_date)}${r.appointment_time ? ` ${r.appointment_time}` : ''}`)
+    if (r.note) lines.push(`💬 ${r.note}`)
+    if (r.price > 0) {
+      const remain = (r.price || 0) - (r.deposit || 0)
+      lines.push(`💰 ค่าซ่อม ฿${fmt(r.price)}${r.deposit > 0 ? ` (มัดจำ ฿${fmt(r.deposit)} คงเหลือ ฿${fmt(remain)})` : ''}`)
+    }
+    return lines.join('\n')
+  }).join('\n\n─────────────\n\n')
+}
+
+/* ── check_delivery_status ── */
+async function checkDelivery(text) {
+  const sel = 'doc_no,customer_name,customer_phone,customer_address,items,total,delivery_fee,status,delivered_at,created_at,delivery_token'
+  const orParts = []
+  const phones = text.match(/0\d{8,9}/g) || []
+  phones.forEach(p => orParts.push(`customer_phone.eq.${p}`))
+  const words = text.replace(/0\d{8,9}/g, '').split(/\s+/).filter(w => w.length >= 2)
+  words.slice(0,3).forEach(w => orParts.push(`customer_name.ilike.%${w}%`))
+  if (!orParts.length) return []
+  const { data } = await supabase.from('quotations').select(sel)
+    .eq('doc_type', 'delivery_invoice').neq('status', 'cancelled')
+    .or(orParts.join(',')).order('created_at', { ascending: false }).limit(5)
+  return data || []
+}
+
+function deliveryMsg(docs, appUrl) {
+  if (!docs.length) return null
+  return docs.map(d => {
+    const items = (d.items || []).map(i => `  • ${i.name} x${i.qty || 1}`).join('\n')
+    const status = DELIVERY_STATUS[d.status] || d.status || '-'
+    const lines = [
+      `📋 บิล: ${d.doc_no}`,
+      `👤 ${d.customer_name} | 📞 ${d.customer_phone || '-'}`,
+      `📍 ${d.customer_address || '-'}`,
+      `📦 รายการ:\n${items}`,
+      `💰 ยอดรวม ฿${fmt(d.total)}${d.delivery_fee > 0 ? ` (ค่าส่ง ฿${fmt(d.delivery_fee)})` : ''}`,
+      `🚚 สถานะ: ${status}`,
+    ]
+    if (d.delivered_at) lines.push(`✅ ส่งเมื่อ: ${fmtD(d.delivered_at)}`)
+    if (d.delivery_token && appUrl) lines.push(`🔗 ติดตาม: ${appUrl}/delivery/${d.delivery_token}`)
+    return lines.join('\n')
+  }).join('\n\n─────────────\n\n')
+}
+
+/* ── search_product ── */
+async function searchProducts(text) {
+  const words = text.split(/\s+/).filter(w => w.length >= 2)
+  if (!words.length) return []
+  const orParts = words.flatMap(w => [`name.ilike.%${w}%`, `search_tags.ilike.%${w}%`])
+  const { data } = await supabase.from('products')
+    .select('id,name,price,online_price,stock,unit,categories(name)')
+    .eq('active', true).or(orParts.join(','))
+    .order('stock', { ascending: false }).limit(8)
+  return data || []
+}
+
+/* ── Claude Haiku: สำหรับข้อความทั่วไป ── */
+async function askClaude({ text, history, products, shopCfg, botCfg }) {
+  const shopName = shopCfg?.shop_name || 'ร้านเชิดชัย'
+  const botName  = botCfg?.line_bot_name || 'แอดมิน'
+  const persona  = botCfg?.line_bot_persona || 'ผู้ช่วยขายของร้าน ตอบภาษาไทยสั้นกระชับ เป็นกันเอง'
+  const appUrl   = process.env.NEXT_PUBLIC_APP_URL || ''
+
+  const productSection = products.length > 0
+    ? `[ฐานข้อมูลสินค้า]\n` + products.map(p => {
+        const price = p.online_price ?? p.price
+        return `- ${p.name} ฿${fmt(price)}/${p.unit||'ชิ้น'}${p.categories?.name ? ` (${p.categories.name})` : ''}`
+      }).join('\n')
+    : '[ฐานข้อมูลสินค้า] ไม่พบสินค้าที่ตรงกับคำถาม'
+
+  const system = `ชื่อคุณคือ "${botName}" — ${persona}
+ร้าน: ${shopName} โทร: ${shopCfg?.shop_phone||''} ที่ตั้ง: ${shopCfg?.shop_address||''}
+ลิงก์สินค้าออนไลน์: ${appUrl}/shop
+
+${productSection}
+
+กฎ:
+1. ถามสินค้า → แนะนำจาก [ฐานข้อมูลสินค้า] บอกราคา จุดเด่น ห้ามแต่งข้อมูล
+2. ถามงานซ่อม/งานส่ง/ต้องการแอดมิน/ข้อมูลไม่อยู่ในระบบ → ตอบ [ESCALATE]
+3. ไม่รู้เจตนาลูกค้า หรือข้อความทักทายทั่วไป → ตอบ [MENU]
+4. ตอบภาษาไทย สั้นๆ เป็นธรรมชาติ ลงท้าย ครับ/ค่ะ`
+
+  const res = await anthropic.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 400,
+    system,
+    messages: [
+      ...history.map(h => ({ role: h.role, content: h.content })),
+      { role: 'user', content: text },
+    ],
+  })
+  return res.content[0]?.text || ''
+}
+
+/* ════════════════ MAIN HANDLER ════════════════ */
 export async function POST(req) {
   try {
-    const body = await req.json()
+    const body  = await req.json()
     const events = body.events || []
 
     const [lineCfg, botCfg, shopCfg] = await Promise.all([
-      getLineSettings(),
-      getBotSettings(),
-      getShopSettings(),
+      getLineSettings(), getBotSettings(), getShopSettings(),
     ])
-
     if (!lineCfg) return new Response('OK', { status: 200 })
-    const lineToken = lineCfg.line_channel_token
+
+    const lineToken  = lineCfg.line_channel_token
     const botEnabled = botCfg?.line_bot_enabled !== 'false'
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || ''
+    const appUrl     = process.env.NEXT_PUBLIC_APP_URL || ''
+    const shopName   = shopCfg?.shop_name || 'ร้านเชิดชัย'
 
     for (const event of events) {
 
-      /* ── Postback: staff group อนุมัติ/ปฏิเสธ ── */
+      /* ── Postback: staff อนุมัติ/ปฏิเสธ ── */
       if (event.type === 'postback') {
         const replyToken = event.replyToken
         const data = event.postback?.data || ''
@@ -255,41 +261,39 @@ export async function POST(req) {
         if (!id || isNaN(id)) continue
 
         if (action === 'approve_leave' || action === 'reject_leave') {
-          const status = action === 'approve_leave' ? 'approved' : 'rejected'
-          const { data: leave } = await supabase.from('leave_requests').update({ status }).eq('id', id)
+          const s = action === 'approve_leave' ? 'approved' : 'rejected'
+          const { data: r } = await supabase.from('leave_requests').update({ status: s }).eq('id', id)
             .select('date_from,date_to,employees(nickname,name)').single()
-          if (leave) {
-            const name = leave.employees?.nickname || leave.employees?.name || '?'
-            const dateStr = leave.date_from === leave.date_to ? fmtDateShort(leave.date_from) : `${fmtDateShort(leave.date_from)}–${fmtDateShort(leave.date_to)}`
-            await replyText(replyToken, lineToken, `${status === 'approved' ? '✅' : '❌'} คำขอลา — ${name} (${dateStr})\n${status === 'approved' ? 'อนุมัติแล้ว' : 'ไม่อนุมัติ'}`)
+          if (r) {
+            const name = r.employees?.nickname || r.employees?.name || '?'
+            const ds = r.date_from === r.date_to ? fmtD(r.date_from) : `${fmtD(r.date_from)}–${fmtD(r.date_to)}`
+            await replyText(replyToken, lineToken, `${s==='approved'?'✅':'❌'} คำขอลา — ${name} (${ds})\n${s==='approved'?'อนุมัติแล้ว':'ไม่อนุมัติ'}`)
           }
-        }
-        else if (action === 'approve_advance' || action === 'reject_advance') {
-          const status = action === 'approve_advance' ? 'approved' : 'rejected'
-          const { data: adv } = await supabase.from('salary_advances').update({ status }).eq('id', id)
+        } else if (action === 'approve_advance' || action === 'reject_advance') {
+          const s = action === 'approve_advance' ? 'approved' : 'rejected'
+          const { data: r } = await supabase.from('salary_advances').update({ status: s }).eq('id', id)
             .select('amount,employees(nickname,name)').single()
-          if (adv) {
-            const name = adv.employees?.nickname || adv.employees?.name || '?'
-            await replyText(replyToken, lineToken, `${status === 'approved' ? '✅' : '❌'} คำขอเบิก — ${name} ฿${fmt(adv.amount)}\n${status === 'approved' ? 'อนุมัติแล้ว' : 'ไม่อนุมัติ'}`)
+          if (r) {
+            const name = r.employees?.nickname || r.employees?.name || '?'
+            await replyText(replyToken, lineToken, `${s==='approved'?'✅':'❌'} คำขอเบิก — ${name} ฿${fmt(r.amount)}\n${s==='approved'?'อนุมัติแล้ว':'ไม่อนุมัติ'}`)
           }
-        }
-        else if (action === 'approve_drawer' || action === 'reject_drawer') {
-          const status = action === 'approve_drawer' ? 'approved' : 'rejected'
-          const { data: dr } = await supabase.from('drawer_requests').update({ status }).eq('id', id)
+        } else if (action === 'approve_drawer' || action === 'reject_drawer') {
+          const s = action === 'approve_drawer' ? 'approved' : 'rejected'
+          const { data: r } = await supabase.from('drawer_requests').update({ status: s }).eq('id', id)
             .select('employee_name,note').single()
-          if (dr) {
-            if (status === 'approved') {
-              await supabase.from('drawer_logs').insert({ employee_name: dr.employee_name, note: `คำขออนุมัติ${dr.note ? ` — ${dr.note}` : ''}` })
+          if (r) {
+            if (s === 'approved') {
+              await supabase.from('drawer_logs').insert({ employee_name: r.employee_name, note: `คำขออนุมัติ${r.note ? ` — ${r.note}` : ''}` })
               const now = new Date().toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' })
-              triggerDrawerVideo(`🔓 เปิดลิ้นชัก — ${dr.employee_name}  🕐 ${now}`)
+              triggerDrawerVideo(`🔓 เปิดลิ้นชัก — ${r.employee_name}  🕐 ${now}`)
             }
-            await replyText(replyToken, lineToken, `${status === 'approved' ? '✅' : '❌'} คำขอเปิดลิ้นชัก — ${dr.employee_name}\n${status === 'approved' ? 'อนุมัติแล้ว — เปิดลิ้นชักแล้ว' : 'ไม่อนุมัติ'}`)
+            await replyText(replyToken, lineToken, `${s==='approved'?'✅':'❌'} คำขอเปิดลิ้นชัก — ${r.employee_name}\n${s==='approved'?'อนุมัติแล้ว':'ไม่อนุมัติ'}`)
           }
         }
         continue
       }
 
-      /* ── Message จากลูกค้า ── */
+      /* ── Message ── */
       if (event.type !== 'message' || event.message?.type !== 'text') continue
       if (!botEnabled) continue
 
@@ -299,86 +303,129 @@ export async function POST(req) {
       if (!text) continue
 
       // ตรวจ silent keywords
-      const silentKeywords = (botCfg?.line_bot_silent_keywords || '').split(',').map(k => k.trim()).filter(Boolean)
-      if (silentKeywords.some(k => k && text.includes(k))) {
+      const silentKw = (botCfg?.line_bot_silent_keywords || '').split(',').map(k => k.trim()).filter(Boolean)
+      if (silentKw.some(k => k && text.includes(k))) {
         await saveMsg(lineUserId, 'user', text)
         continue
       }
 
-      // ดึง history + ค้นสินค้า + เช็คคิวซ่อม พร้อมกัน
-      const [history, products, repairOrders] = await Promise.all([
-        getHistory(lineUserId),
-        searchProducts(text),
-        checkRepairStatus(lineUserId, text),
-      ])
+      /* ── ปุ่ม: สั่งซื้อสินค้า ── */
+      if (text === T_BUY) {
+        await saveMsg(lineUserId, 'user', text)
+        const reply = `🛒 สั่งซื้อสินค้าได้เลยครับ!\n\nส่งรายการสินค้าที่ต้องการมาในแชทนี้ได้เลย หรือโทรมาสั่งได้ที่ ${shopCfg?.shop_phone||''} ครับ\n\nดูสินค้าทั้งหมดได้ที่:\n${appUrl}/shop`
+        await lineReply(replyToken, lineToken, [{ type: 'text', text: reply }])
+        await saveMsg(lineUserId, 'assistant', reply)
+        continue
+      }
 
+      /* ── ปุ่ม: คิวซ่อม ── */
+      if (text === T_REPAIR) {
+        await saveMsg(lineUserId, 'user', text)
+        const repairs = await checkRepairByUser(lineUserId)
+        if (repairs.length > 0) {
+          const msg = `🔧 พบงานซ่อมของคุณในระบบครับ\n\n${repairMsg(repairs)}`
+          await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
+          await saveMsg(lineUserId, 'assistant', msg)
+        } else {
+          const msg = `🔧 ยังไม่พบงานซ่อมในระบบครับ\n\nกรุณาส่ง ชื่อ, เบอร์โทร หรือ เลขที่บิลซ่อม มาในแชทนี้เลยครับ แอดมินจะเช็คให้ทันทีครับ`
+          await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
+          await saveMsg(lineUserId, 'assistant', msg)
+        }
+        continue
+      }
+
+      /* ── ปุ่ม: คิวส่ง ── */
+      if (text === T_DELIVERY) {
+        await saveMsg(lineUserId, 'user', text)
+        const msg = `🚚 เช็คสถานะการส่งของครับ\n\nกรุณาส่ง ชื่อ หรือ เบอร์โทร ที่ใช้สั่งของมาในแชทได้เลยครับ`
+        await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
+        await saveMsg(lineUserId, 'assistant', DELIVERY_PENDING_MARKER)
+        continue
+      }
+
+      /* ── ดึง history เพื่อตรวจสอบ flow ── */
+      const history = await getHistory(lineUserId)
+      const lastBot = [...history].reverse().find(h => h.role === 'assistant')
+
+      /* ── Flow คิวส่ง: รอข้อมูล ── */
+      if (lastBot?.content === DELIVERY_PENDING_MARKER || lastBot?.content?.startsWith('🚚 เช็คสถานะ')) {
+        await saveMsg(lineUserId, 'user', text)
+        const docs = await checkDelivery(text)
+        if (docs.length > 0) {
+          const msg = `🚚 พบรายการส่งของครับ\n\n${deliveryMsg(docs, appUrl)}`
+          await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
+          await saveMsg(lineUserId, 'assistant', msg)
+        } else {
+          const msg = `ขออภัยครับ ไม่พบรายการส่งของในระบบ\n\nลองตรวจสอบชื่อ-เบอร์โทรอีกครั้ง หรือติดต่อร้านได้ที่ ${shopCfg?.shop_phone||''} ครับ`
+          await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
+          await saveMsg(lineUserId, 'assistant', msg)
+        }
+        continue
+      }
+
+      /* ── ข้อความทั่วไปหลัง __repair__ รอชื่อ/เบอร์ ── */
+      if (lastBot?.content?.includes('ส่ง ชื่อ, เบอร์โทร หรือ เลขที่บิลซ่อม')) {
+        await saveMsg(lineUserId, 'user', text)
+        const repairs = await checkRepairByText(text)
+        if (repairs.length > 0) {
+          const msg = `🔧 พบงานซ่อมครับ\n\n${repairMsg(repairs)}`
+          await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
+          await saveMsg(lineUserId, 'assistant', msg)
+        } else {
+          const msg = `ขออภัยครับ ไม่พบงานซ่อมในระบบ\n\nเดี๋ยวขออนุญาตเช็คกับช่างให้สักครู่นะครับ หรือโทรถามได้เลยที่ ${shopCfg?.shop_phone||''} ครับ`
+          await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
+          await saveMsg(lineUserId, 'assistant', msg)
+        }
+        continue
+      }
+
+      /* ── Claude: สำหรับข้อความทั่วไป ── */
       await saveMsg(lineUserId, 'user', text)
-
-      const aiReply = await askClaude({ text, history, products, repairOrders, shopCfg, botCfg })
+      const products = await searchProducts(text)
+      const aiReply = await askClaude({ text, history, products, shopCfg, botCfg })
 
       if (aiReply.startsWith('[SILENT]')) continue
+
+      if (aiReply.includes('[MENU]')) {
+        await sendMenu(replyToken, lineToken, shopName)
+        await saveMsg(lineUserId, 'assistant', '[MENU]')
+        continue
+      }
 
       if (aiReply.includes('[ESCALATE]')) {
         const msg = aiReply.replace('[ESCALATE]', '').trim() ||
           `ขอโทษด้วยนะครับ เรื่องนี้จะแจ้งเจ้าของร้านให้ติดต่อกลับโดยเร็วที่สุดเลยครับ 🙏`
-        await replyText(replyToken, lineToken, msg)
+        await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
         await saveMsg(lineUserId, 'assistant', msg)
         continue
       }
 
-      // ถ้า AI พูดถึงสินค้าและมีผลลัพธ์สินค้า → ส่ง Flex ตามหลัง
-      const productMentioned = products.length > 0 &&
-        products.some(p => p.name.split(/\s+/).some(w => w.length >= 2 && aiReply.includes(w)))
-
-      await replyText(replyToken, lineToken, aiReply)
+      // ตอบปกติ + push Flex สินค้าถ้า AI พูดถึง
+      await lineReply(replyToken, lineToken, [{ type: 'text', text: aiReply }])
       await saveMsg(lineUserId, 'assistant', aiReply)
 
-      if (productMentioned) {
-        // ส่ง Flex เพิ่มเติมโดยใช้ push (replyToken ใช้ได้แค่ครั้งเดียว)
-        if (lineUserId !== 'unknown') {
-          await fetch('https://api.line.me/v2/bot/message/push', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${lineToken}` },
-            body: JSON.stringify({
-              to: lineUserId,
-              messages: [{
-                type: 'flex',
-                altText: `สินค้าที่แนะนำ ${products.length} รายการ`,
-                contents: products.length === 1 ? (() => {
-                  const p = products[0]
-                  const displayPrice = p.online_price != null ? p.online_price : p.price
-                  return {
-                    type: 'bubble', size: 'micro',
-                    body: { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '14px', contents: [
-                      { type: 'text', text: p.name, weight: 'bold', size: 'sm', wrap: true },
-                      { type: 'text', text: `฿${fmt(displayPrice)}`, size: 'xl', weight: 'bold', color: '#C72C41', margin: 'sm' },
-                    ]},
-                    footer: { type: 'box', layout: 'vertical', paddingAll: '10px', contents: [{
-                      type: 'button', style: 'primary', color: '#C72C41', height: 'sm',
-                      action: { type: 'message', label: '🛒 สนใจสินค้านี้', text: `สนใจสินค้า: ${p.name}` },
-                    }]},
-                  }
-                })() : {
-                  type: 'carousel',
-                  contents: products.slice(0, 8).map(p => {
-                    const displayPrice = p.online_price != null ? p.online_price : p.price
-                    return {
-                      type: 'bubble', size: 'micro',
-                      body: { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '14px', contents: [
-                        { type: 'text', text: p.name, weight: 'bold', size: 'sm', wrap: true },
-                        { type: 'text', text: `฿${fmt(displayPrice)}/${p.unit||'ชิ้น'}`, size: 'lg', weight: 'bold', color: '#C72C41', margin: 'sm' },
-                      ]},
-                      footer: { type: 'box', layout: 'vertical', paddingAll: '10px', contents: [{
-                        type: 'button', style: 'primary', color: '#C72C41', height: 'sm',
-                        action: { type: 'message', label: '🛒 สนใจ', text: `สนใจสินค้า: ${p.name}` },
-                      }]},
-                    }
-                  }),
-                },
-              }],
-            }),
-          })
-        }
+      const productMentioned = products.length > 0 &&
+        products.some(p => p.name.split(/\s+/).some(w => w.length >= 2 && aiReply.includes(w)))
+      if (productMentioned && lineUserId !== 'unknown') {
+        const cards = products.slice(0, 8).map(p => {
+          const dp = p.online_price ?? p.price
+          return {
+            type: 'bubble', size: 'micro',
+            body: { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '14px', contents: [
+              { type: 'text', text: p.name, weight: 'bold', size: 'sm', wrap: true, color: '#1e293b' },
+              { type: 'text', text: `฿${fmt(dp)}/${p.unit||'ชิ้น'}`, size: 'lg', weight: 'bold', color: '#C72C41', margin: 'sm' },
+            ]},
+            footer: { type: 'box', layout: 'vertical', paddingAll: '10px', contents: [{
+              type: 'button', style: 'primary', color: '#C72C41', height: 'sm',
+              action: { type: 'message', label: '🛒 สนใจ', text: `สนใจสินค้า: ${p.name}` },
+            }]},
+          }
+        })
+        await linePush(lineUserId, lineToken, [{
+          type: 'flex',
+          altText: 'สินค้าแนะนำ',
+          contents: cards.length === 1 ? cards[0] : { type: 'carousel', contents: cards },
+        }])
       }
     }
 
