@@ -189,7 +189,7 @@ function deliveryMsg(docs, appUrl) {
       `🚚 สถานะ: ${status}`,
     ]
     if (d.delivered_at) lines.push(`✅ ส่งเมื่อ: ${fmtDate(d.delivered_at)}`)
-    if (d.delivery_token && appUrl) lines.push(`🔗 ติดตาม: ${appUrl}/delivery/${d.delivery_token}`)
+    if (d.delivery_token && appUrl) lines.push(`🔗 ติดตาม: ${appUrl}/delivery/track/${d.delivery_token}`)
     return lines.join('\n')
   }).join('\n\n─────\n\n')
 }
