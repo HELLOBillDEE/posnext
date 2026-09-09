@@ -220,7 +220,7 @@ ${productSection}
 ${repairSection}
 
 กฎ:
-1. ถามสินค้า → แนะนำจาก [ฐานข้อมูลสินค้า] บอกราคา จุดเด่น ถ้าไม่มีสินค้านั้นให้บอกตรงๆ ว่าไม่มี ห้ามแต่งข้อมูล
+1. ถามสินค้า → แนะนำจาก [ฐานข้อมูลสินค้า] บอกราคา จุดเด่น ถ้าไม่พบในระบบให้ถามรายละเอียดเพิ่มหรือให้ส่งรูปสินค้า เพราะอาจเรียกชื่อต่างกัน ห้ามแต่งข้อมูล
 2. ถามงานซ่อม → ดูจาก [ฐานข้อมูลคิวซ่อม] ถ้าไม่พบให้ถามเบอร์/เลขบิล
 3. ลูกค้าต้องการคุยกับคน หรือเรื่องซับซ้อนเกินบอท → ตอบ [ESCALATE]
 4. ไม่รู้เจตนา หรือทักทายทั่วไป → ตอบ [MENU]
@@ -312,6 +312,42 @@ export async function POST(req) {
             }
             await replyText(replyToken, lineToken, `${s === 'approved' ? '✅' : '❌'} คำขอเปิดลิ้นชัก — ${r.employee_name}\n${s === 'approved' ? 'อนุมัติแล้ว' : 'ไม่อนุมัติ'}`)
           }
+        }
+        continue
+      }
+
+      /* ── Message: รูปภาพ → Gemini Vision อ่านสินค้า ── */
+      if (event.type === 'message' && event.message?.type === 'image' && botEnabled) {
+        const replyToken = event.replyToken
+        const lineUserId = event.source?.userId || 'unknown'
+        try {
+          const imgRes = await fetch(`https://api-data.line.me/v2/bot/message/${event.message.id}/content`, {
+            headers: { Authorization: `Bearer ${lineToken}` },
+          })
+          const imgBuf  = await imgRes.arrayBuffer()
+          const b64     = Buffer.from(imgBuf).toString('base64')
+          const mimeType = imgRes.headers.get('content-type') || 'image/jpeg'
+
+          const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' })
+          const result = await model.generateContent([
+            { inlineData: { data: b64, mimeType } },
+            `ดูรูปนี้แล้วบอกว่าเป็นสินค้าอะไร ใช้ทำอะไร และถ้าเห็นชื่อยี่ห้อหรือรุ่นบอกด้วย ตอบภาษาไทยสั้นๆ`,
+          ])
+          const vision = result.response.text()
+
+          const products = await searchProducts(vision)
+          let reply = `🔍 จากรูปที่ส่งมา: ${vision}`
+          if (products.length > 0) {
+            reply += `\n\n📦 สินค้าใกล้เคียงในร้าน:\n` +
+              products.map(p => `• ${p.name} ฿${fmt(p.online_price ?? p.price)}/${p.unit || 'ชิ้น'}`).join('\n')
+          } else {
+            reply += `\n\nไม่พบสินค้าชนิดนี้ในระบบครับ ถ้าต้องการสอบถามเพิ่มเติมพิมข้อความมาได้เลยครับ`
+          }
+          await lineReply(replyToken, lineToken, [{ type: 'text', text: reply }])
+          await saveMsg(lineUserId, 'user', '[รูปภาพ]')
+          await saveMsg(lineUserId, 'assistant', reply)
+        } catch (e) {
+          await lineReply(replyToken, lineToken, [{ type: 'text', text: `ขออภัยครับ อ่านรูปไม่ได้: ${e.message}` }])
         }
         continue
       }
