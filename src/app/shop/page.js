@@ -81,7 +81,10 @@ export default function ShopPage() {
                   </div>
                   <p className="text-xs text-slate-400 mt-0.5">
                     {p.categories?.name && <span className="mr-1">• {p.categories.name}</span>}
-                    คงเหลือ {fmt(p.stock)} {p.unit}
+                    {p.stock <= 0
+                      ? <span className="text-red-500 font-medium">สินค้าหมด</span>
+                      : `คงเหลือ ${fmt(p.stock)} ${p.unit}`
+                    }
                   </p>
                   <button
                     onClick={() => setQrOpen(true)}

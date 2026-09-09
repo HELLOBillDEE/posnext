@@ -16,8 +16,7 @@ export async function GET() {
       .select('id,name,price,online_price,stock,unit,image_url,search_tags,categories(name)')
       .eq('is_listed_online', true)
       .eq('active', true)
-      .gt('stock', 0)
-      .order('name'),
+      .order('stock', { ascending: false }),
     supabase
       .from('settings')
       .select('key,value')
