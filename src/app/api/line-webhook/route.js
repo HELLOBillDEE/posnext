@@ -94,9 +94,12 @@ function repairToText(r) {
   if (r.technician_name) lines.push(`👨‍🔧 ช่าง: ${r.technician_name}`)
   if (r.appointment_date) lines.push(`📅 นัด: ${fmtDate(r.appointment_date)}${r.appointment_time ? ` ${r.appointment_time}` : ''}`)
   if (r.note) lines.push(`💬 ${r.note}`)
-  if (r.price > 0) {
-    const remain = (r.price || 0) - (r.deposit || 0)
-    lines.push(`💰 ค่าซ่อม ฿${fmt(r.price)}${r.deposit > 0 ? ` (มัดจำ ฿${fmt(r.deposit)} คงเหลือ ฿${fmt(remain)})` : ''}`)
+  // ราคาจาก quotation (ถ้ามี) ให้ priority กว่า repair_orders.price
+  const price   = r.quote_total > 0 ? r.quote_total : (r.price || 0)
+  const deposit = r.deposit || 0
+  if (price > 0) {
+    const remain = price - deposit
+    lines.push(`💰 ค่าซ่อม ฿${fmt(price)}${deposit > 0 ? ` (มัดจำ ฿${fmt(deposit)} คงเหลือ ฿${fmt(remain)})` : ''}`)
   }
   return lines.join('\n')
 }
@@ -109,7 +112,7 @@ async function checkRepairStatus(lineUserId, text) {
       if (!seen.has(r.repair_no)) { seen.add(r.repair_no); results.push(r) }
     }
   }
-  const sel = 'repair_no,customer_name,device,description,status,appointment_date,appointment_time,note,technician_name,price,deposit'
+  const sel = 'id,repair_no,customer_name,device,description,status,appointment_date,appointment_time,note,technician_name,price,deposit'
   const { data: byUser } = await supabase.from('repair_orders').select(sel)
     .eq('line_user_id', lineUserId).order('created_at', { ascending: false }).limit(3)
   add(byUser)
@@ -128,13 +131,37 @@ async function checkRepairStatus(lineUserId, text) {
     const { data } = await supabase.from('repair_orders').select(sel).ilike('repair_no', `%${c}%`).limit(2)
     add(data)
   }
-  // ค้นเลขคิวสั้น เช่น "115" → ค้นหา repair_no ที่ลงท้ายด้วย 115 หรือมี 115 อยู่
+  // ค้นเลขคิวสั้น เช่น "115" → ค้นหา repair_no ที่มี 115 อยู่
   const nums = text.match(/\d{2,}/g) || []
   for (const n of nums.slice(0, 3)) {
     const { data } = await supabase.from('repair_orders').select(sel).ilike('repair_no', `%${n}%`).limit(2)
     add(data)
   }
-  return results.slice(0, 5)
+  const found = results.slice(0, 5)
+
+  // ดึงราคาจาก quotations (ใบเสนอราคาซ่อม doc_type='repair')
+  if (found.length > 0) {
+    const ids = found.map(r => r.id).filter(Boolean)
+    if (ids.length > 0) {
+      const { data: quotes } = await supabase.from('quotations')
+        .select('repair_order_id,total,deposit')
+        .in('repair_order_id', ids)
+        .eq('doc_type', 'repair')
+        .neq('status', 'cancelled')
+        .order('created_at', { ascending: false })
+      const quoteMap = {}
+      for (const q of (quotes || [])) {
+        if (!quoteMap[q.repair_order_id]) quoteMap[q.repair_order_id] = q
+      }
+      for (const r of found) {
+        if (quoteMap[r.id]) {
+          r.quote_total   = quoteMap[r.id].total || 0
+          r.deposit       = r.deposit || quoteMap[r.id].deposit || 0
+        }
+      }
+    }
+  }
+  return found
 }
 
 /* ── Delivery lookup ── */
