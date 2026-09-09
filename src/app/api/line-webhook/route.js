@@ -214,7 +214,6 @@ async function askClaude({ text, history, products, repairOrders, shopCfg, botCf
 
   const system = `ชื่อคุณคือ "${botName}" — ${persona}
 ร้าน: ${shopName} โทร: ${shopCfg?.shop_phone || ''} ที่ตั้ง: ${shopCfg?.shop_address || ''}
-ลิงก์สินค้าออนไลน์: ${appUrl}/shop
 
 ${productSection}
 
@@ -339,7 +338,7 @@ export async function POST(req) {
       /* ── Quick Reply: สั่งซื้อสินค้า ── */
       if (text === T_BUY) {
         await saveMsg(lineUserId, 'user', text)
-        const reply = `🛒 สั่งซื้อสินค้าได้เลยครับ!\n\nส่งรายการที่ต้องการมาในแชทนี้ หรือโทรมาสั่งที่ ${shopCfg?.shop_phone || ''} ครับ\n\nดูสินค้าทั้งหมด: ${appUrl}/shop`
+        const reply = `🛒 สั่งซื้อสินค้าได้เลยครับ!\n\nส่งรายการที่ต้องการมาในแชทนี้ หรือโทรมาสั่งที่ ${shopCfg?.shop_phone || ''} ครับ`
         await lineReply(replyToken, lineToken, [{ type: 'text', text: reply }])
         await saveMsg(lineUserId, 'assistant', reply)
         continue
