@@ -40,13 +40,15 @@ async function replyProducts(replyToken, lineToken, products, shopName, appUrl) 
       color: '#C72C41',
       margin: 'sm',
     })
-    contents.push({
-      type: 'text',
-      text: p.stock > 0 ? `✅ คงเหลือ ${fmt(p.stock)} ${p.unit || 'ชิ้น'}` : '❌ สินค้าหมด',
-      size: 'xs',
-      color: p.stock > 0 ? '#16a34a' : '#dc2626',
-      margin: 'xs',
-    })
+    if (p.stock <= 0) {
+      contents.push({
+        type: 'text',
+        text: '❌ สินค้าหมด',
+        size: 'xs',
+        color: '#dc2626',
+        margin: 'xs',
+      })
+    }
     if (p.categories?.name) {
       contents.push({
         type: 'text',
