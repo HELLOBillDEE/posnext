@@ -13,7 +13,7 @@ const LABEL_SIZES = [
   { id:'40x25',    label:'40×25 mm · 1 ดวง/แถว',  pw:40,  ph:25, cols:1, lw:36, hGap:0, vGap:2, mx:2, my:2 },
 ]
 
-const EMPTY_PROD = { barcode:'', name:'', category_id:'', unit:'ชิ้น', cost:'', price:'', stock:'', min_stock:'5', search_tags:'', active:true }
+const EMPTY_PROD = { barcode:'', name:'', category_id:'', unit:'ชิ้น', cost:'', price:'', stock:'', min_stock:'5', search_tags:'', active:true, is_listed_online:false }
 
 const invalidatePosCache = () => fetch('/api/pos-data/invalidate?key=products', { method: 'POST' }).catch(() => {})
 
@@ -165,7 +165,7 @@ export default function ProductsPage() {
     setModal('add')
   }
   function openEdit(p) {
-    setForm({ barcode: p.barcode||'', name: p.name, category_id: String(p.category_id||''), unit: p.unit||'ชิ้น', cost: String(p.cost||''), price: String(p.price||''), stock: String(p.stock||''), min_stock: String(p.min_stock||5), search_tags: p.search_tags||'', active: p.active })
+    setForm({ barcode: p.barcode||'', name: p.name, category_id: String(p.category_id||''), unit: p.unit||'ชิ้น', cost: String(p.cost||''), price: String(p.price||''), stock: String(p.stock||''), min_stock: String(p.min_stock||5), search_tags: p.search_tags||'', active: p.active, is_listed_online: p.is_listed_online||false })
     setModal({ type:'edit', id: p.id })
   }
 
@@ -183,6 +183,7 @@ export default function ProductsPage() {
       min_stock: parseFloat(form.min_stock) || 5,
       search_tags: form.search_tags?.trim() || null,
       active: form.active,
+      is_listed_online: form.is_listed_online || false,
     }
     try {
       if (modal === 'add') {
@@ -610,7 +611,10 @@ export default function ProductsPage() {
                     <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleSelect(p.id)} className="w-4 h-4 accent-brand" />
                   </td>
                   <td className="px-3 py-2.5">
-                    <p className="font-semibold text-slate-800 leading-tight">{p.name}</p>
+                    <p className="font-semibold text-slate-800 leading-tight">
+                      {p.name}
+                      {p.is_listed_online && <span className="ml-1.5 text-[9px] font-bold px-1 py-0.5 rounded" style={{background:'#06C755',color:'#fff'}}>🛒ออนไลน์</span>}
+                    </p>
                     <p className="text-[10px] text-slate-400 md:hidden">{p.barcode || '—'}</p>
                   </td>
                   <td className="px-3 py-2.5 text-slate-400 text-xs hidden md:table-cell font-mono">{p.barcode || '—'}</td>
@@ -819,6 +823,10 @@ export default function ProductsPage() {
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <input type="checkbox" checked={form.active} onChange={e => setForm(p=>({...p,active:e.target.checked}))} className="w-4 h-4 accent-brand" />
                 แสดงในหน้าขาย
+              </label>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" checked={form.is_listed_online||false} onChange={e => setForm(p=>({...p,is_listed_online:e.target.checked}))} className="w-4 h-4" style={{accentColor:'#06C755'}} />
+                🛒 ลงขายออนไลน์ (แสดงในหน้าร้าน + ตอบ LINE อัตโนมัติ)
               </label>
               <div className="flex gap-2 pt-1">
                 <button onClick={() => setModal(null)} className="flex-1 btn-secondary">ยกเลิก</button>
