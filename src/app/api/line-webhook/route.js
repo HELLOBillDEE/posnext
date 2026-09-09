@@ -436,6 +436,25 @@ export async function POST(req) {
   }
 }
 
-export async function GET() {
+export async function GET(req) {
+  const { searchParams } = new URL(req.url)
+  if (searchParams.get('debug') === '1') {
+    try {
+      const lineCfg = await getLineSettings()
+      const botCfg  = await getBotSettings()
+      const { data: convCount } = await supabase.from('line_conversations').select('id', { count: 'exact', head: true })
+      return Response.json({
+        ok: true,
+        hasLineToken: !!(lineCfg?.line_channel_token),
+        hasGroupId:   !!(lineCfg?.line_group_id),
+        botEnabled:   botCfg?.line_bot_enabled,
+        botName:      botCfg?.line_bot_name,
+        hasAnthropicKey: !!(process.env.ANTHROPIC_API_KEY),
+        appUrl:       process.env.NEXT_PUBLIC_APP_URL,
+      })
+    } catch (e) {
+      return Response.json({ ok: false, error: e.message })
+    }
+  }
   return new Response('LINE webhook OK', { status: 200 })
 }
