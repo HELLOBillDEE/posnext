@@ -16,7 +16,6 @@
     "clsx": "^2.1.1",
     "html5-qrcode": "^2.3.8",
     "jsbarcode": "^3.11.6",
-    "koffi": "^3.1.5",
     "leaflet": "^1.9.4",
     "next": "14.2.5",
     "promptpay-qr": "^0.5.0",
