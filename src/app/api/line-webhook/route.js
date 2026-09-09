@@ -243,11 +243,14 @@ ${repairSection}
     parts: [{ text: h.content }],
   }))
 
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-1.5-flash',
-    systemInstruction: system,
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+  const chat = model.startChat({
+    history: [
+      { role: 'user', parts: [{ text: system }] },
+      { role: 'model', parts: [{ text: 'เข้าใจครับ พร้อมช่วยเหลือลูกค้า' }] },
+      ...geminiHistory,
+    ],
   })
-  const chat = model.startChat({ history: geminiHistory })
   const result = await chat.sendMessage(text)
   return result.response.text()
 }
