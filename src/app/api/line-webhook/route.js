@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
-import { replyText, getLineSettings } from '@/lib/lineStaff'
+import { replyText } from '@/lib/lineStaff'
 import { triggerDrawerVideo } from '@/lib/cameraRecord'
 
 const supabase = createClient(
@@ -42,6 +42,14 @@ const DELIVERY_STATUS = {
   pending:   'รอจัดส่ง 📦',
   delivered: 'ส่งแล้ว ✅',
   cancelled: 'ยกเลิก',
+}
+
+/* ── LINE Token (ดึงแค่ line_channel_token ไม่ต้องการ line_group_id) ── */
+async function getLineToken() {
+  const { data } = await supabase.from('settings').select('key,value')
+    .in('key', ['line_channel_token'])
+  if (!data?.length) return null
+  return data.find(r => r.key === 'line_channel_token')?.value || null
 }
 
 /* ── Settings ── */
@@ -240,12 +248,10 @@ export async function POST(req) {
     const body  = await req.json()
     const events = body.events || []
 
-    const [lineCfg, botCfg, shopCfg] = await Promise.all([
-      getLineSettings(), getBotSettings(), getShopSettings(),
+    const [lineToken, botCfg, shopCfg] = await Promise.all([
+      getLineToken(), getBotSettings(), getShopSettings(),
     ])
-    if (!lineCfg) return new Response('OK', { status: 200 })
-
-    const lineToken  = lineCfg.line_channel_token
+    if (!lineToken) return new Response('OK', { status: 200 })
     const botEnabled = botCfg?.line_bot_enabled !== 'false'
     const appUrl     = process.env.NEXT_PUBLIC_APP_URL || ''
     const shopName   = shopCfg?.shop_name || 'ร้านเชิดชัย'
