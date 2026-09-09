@@ -326,14 +326,15 @@ export async function POST(req) {
       const text = (event.message.text || '').trim()
       if (!text) continue
 
-      // ตรวจ silent keywords
+      const lastBotMsg = await getLastBotMsg(lineUserId)
+
+      // ตรวจ silent keywords (ยกเว้นถ้าเป็น repair keyword หรืออยู่ใน AWAIT_REPAIR state)
       const silentKw = (botCfg?.line_bot_silent_keywords || '').split(',').map(k => k.trim()).filter(Boolean)
-      if (silentKw.some(k => k && text.includes(k))) {
+      const isRepairRelated = REPAIR_KEYWORDS.some(k => text.includes(k)) || lastBotMsg === AWAIT_REPAIR
+      if (!isRepairRelated && silentKw.some(k => k && text.includes(k))) {
         await saveMsg(lineUserId, 'user', text)
         continue
       }
-
-      const lastBotMsg = await getLastBotMsg(lineUserId)
 
       /* ── Quick Reply: สั่งซื้อสินค้า ── */
       if (text === T_BUY) {
