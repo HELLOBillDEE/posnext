@@ -128,6 +128,12 @@ async function checkRepairStatus(lineUserId, text) {
     const { data } = await supabase.from('repair_orders').select(sel).ilike('repair_no', `%${c}%`).limit(2)
     add(data)
   }
+  // ค้นเลขคิวสั้น เช่น "115" → ค้นหา repair_no ที่ลงท้ายด้วย 115 หรือมี 115 อยู่
+  const nums = text.match(/\d{2,}/g) || []
+  for (const n of nums.slice(0, 3)) {
+    const { data } = await supabase.from('repair_orders').select(sel).ilike('repair_no', `%${n}%`).limit(2)
+    add(data)
+  }
   return results.slice(0, 5)
 }
 
@@ -219,9 +225,15 @@ ${productSection}
 
 ${repairSection}
 
+นโยบายการจัดส่ง:
+- พื้นที่เขตเทศบาล: ส่งฟรี เมื่อซื้อขั้นต่ำ 2,000 บาทขึ้นไป
+- เขตอื่นๆ: มีค่าจัดส่งเริ่มต้น 150-200 บาท ขึ้นอยู่กับระยะทางและจำนวนรอบรถ
+- การจัดส่งอาจต้องรอคิว เพราะส่วนใหญ่มีคิวก่อนหน้า และบางรายการต้องใช้เวลาเตรียม
+- หากต้องการด่วน สามารถสั่งไว้แล้วมารับหน้าร้านได้เลย
+
 กฎ:
 1. ถามสินค้า → แนะนำจาก [ฐานข้อมูลสินค้า] บอกราคา จุดเด่น ถ้าไม่พบในระบบ ห้ามบอกว่า "ไม่มี" — ให้ถามรายละเอียดเพิ่มก่อน เช่น ใช้ทำอะไร ยี่ห้อ หรือขอรูปสินค้า เพราะอาจเรียกชื่อต่างกัน แล้วตอบ [ESCALATE] ต่อท้ายเพื่อแจ้งให้แอดมินมาช่วยต่อ
-2. ถามงานซ่อม → ดูจาก [ฐานข้อมูลคิวซ่อม] ถ้าไม่พบให้ถามเบอร์/เลขบิล
+2. ถามงานซ่อม → ดูจาก [ฐานข้อมูลคิวซ่อม] ถ้าไม่พบให้ถามเบอร์/เลขบิล ถ้าลูกค้าถามต่อเนื่องเรื่องซ่อม (ราคา สถานะ ฯลฯ) ให้ตอบจาก context สนทนา
 3. ลูกค้าต้องการคุยกับคน หรือเรื่องซับซ้อนเกินบอท → ตอบ [ESCALATE]
 4. ไม่รู้เจตนา หรือทักทายทั่วไป → ตอบ [MENU]
 5. ตอบภาษาไทย สั้นๆ เป็นธรรมชาติ ลงท้าย ครับ/ค่ะ`
@@ -387,21 +399,14 @@ export async function POST(req) {
       /* ── Quick Reply: คิวซ่อม ── */
       if (text === T_REPAIR) {
         await saveMsg(lineUserId, 'user', text)
-        const repairs = await checkRepairStatus(lineUserId, '')
-        if (repairs.length > 0) {
-          const msg = `🔧 พบงานซ่อมของคุณในระบบครับ\n\n${repairs.map(repairToText).join('\n\n─────\n\n')}`
-          await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
-          await saveMsg(lineUserId, 'assistant', msg)
-        } else {
-          const msg = `🔧 ยังไม่พบงานซ่อมในระบบครับ\n\nกรุณาส่ง ชื่อ, เบอร์โทร หรือ เลขที่บิลซ่อม มาได้เลยครับ`
-          await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
-          await saveMsg(lineUserId, 'assistant', AWAIT_REPAIR)
-        }
+        const msg = `🔧 เช็คสถานะงานซ่อมได้เลยครับ!\n\nกรุณาส่ง เลขคิวซ่อม หรือ เบอร์โทรศัพท์ ที่ใช้ฝากซ่อมมาได้เลยครับ 🙏`
+        await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
+        await saveMsg(lineUserId, 'assistant', AWAIT_REPAIR)
         continue
       }
 
       /* ── ตรวจสอบ flow คิวซ่อม: รอข้อมูลลูกค้า ── */
-      if (lastBotMsg === AWAIT_REPAIR || REPAIR_KEYWORDS.some(k => text.includes(k))) {
+      if (lastBotMsg === AWAIT_REPAIR) {
         await saveMsg(lineUserId, 'user', text)
         const repairs = await checkRepairStatus(lineUserId, text)
         if (repairs.length > 0) {
