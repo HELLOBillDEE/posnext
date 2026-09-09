@@ -13,7 +13,7 @@ const LABEL_SIZES = [
   { id:'40x25',    label:'40×25 mm · 1 ดวง/แถว',  pw:40,  ph:25, cols:1, lw:36, hGap:0, vGap:2, mx:2, my:2 },
 ]
 
-const EMPTY_PROD = { barcode:'', name:'', category_id:'', unit:'ชิ้น', cost:'', price:'', stock:'', min_stock:'5', search_tags:'', active:true, is_listed_online:false }
+const EMPTY_PROD = { barcode:'', name:'', category_id:'', unit:'ชิ้น', cost:'', price:'', stock:'', min_stock:'5', search_tags:'', active:true, is_listed_online:false, online_price:'' }
 
 const invalidatePosCache = () => fetch('/api/pos-data/invalidate?key=products', { method: 'POST' }).catch(() => {})
 
@@ -165,7 +165,7 @@ export default function ProductsPage() {
     setModal('add')
   }
   function openEdit(p) {
-    setForm({ barcode: p.barcode||'', name: p.name, category_id: String(p.category_id||''), unit: p.unit||'ชิ้น', cost: String(p.cost||''), price: String(p.price||''), stock: String(p.stock||''), min_stock: String(p.min_stock||5), search_tags: p.search_tags||'', active: p.active, is_listed_online: p.is_listed_online||false })
+    setForm({ barcode: p.barcode||'', name: p.name, category_id: String(p.category_id||''), unit: p.unit||'ชิ้น', cost: String(p.cost||''), price: String(p.price||''), stock: String(p.stock||''), min_stock: String(p.min_stock||5), search_tags: p.search_tags||'', active: p.active, is_listed_online: p.is_listed_online||false, online_price: p.online_price != null ? String(p.online_price) : '' })
     setModal({ type:'edit', id: p.id })
   }
 
@@ -184,6 +184,7 @@ export default function ProductsPage() {
       search_tags: form.search_tags?.trim() || null,
       active: form.active,
       is_listed_online: form.is_listed_online || false,
+      online_price: form.online_price !== '' ? parseFloat(form.online_price) : null,
     }
     try {
       if (modal === 'add') {
@@ -208,6 +209,22 @@ export default function ProductsPage() {
 
   function toggleSelect(id) {
     setSelected(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  }
+
+  const [onlineModal, setOnlineModal] = useState(false)
+  const [onlineSaving, setOnlineSaving] = useState(false)
+
+  async function bulkListOnline(list) {
+    setOnlineSaving(true)
+    try {
+      await Promise.all(list.map(({ id, online_price }) =>
+        supabase.from('products').update({ is_listed_online: true, online_price: online_price != null ? online_price : null }).eq('id', id)
+      ))
+      setSelected(new Set())
+      setOnlineModal(false)
+      load()
+      invalidatePosCache()
+    } catch (e) { alert('ข้อผิดพลาด: ' + e.message) } finally { setOnlineSaving(false) }
   }
 
   function openPrint() {
@@ -486,11 +503,14 @@ export default function ProductsPage() {
       <div className="flex items-center justify-between mb-5 flex-wrap gap-2">
         <h1 className="font-heading font-bold text-xl text-slate-800">📦 จัดการสินค้า</h1>
         <div className="flex gap-2 flex-wrap">
-          {!bulkMode && selected.size > 0 && (
+          {!bulkMode && selected.size > 0 && (<>
             <button onClick={openPrint} className="bg-amber-500 text-white px-3 py-2 rounded-xl text-sm font-semibold shadow active:scale-95 transition-transform">
               🖨️ ปริ้นบาร์โค้ด ({selected.size})
             </button>
-          )}
+            <button onClick={() => setOnlineModal(true)} className="text-white px-3 py-2 rounded-xl text-sm font-semibold shadow active:scale-95 transition-transform" style={{background:'#06C755'}}>
+              🛒 ลงออนไลน์ ({selected.size})
+            </button>
+          </>)}
           {!bulkMode && <>
             <button onClick={() => importRef.current?.click()}
               className="btn-secondary text-sm px-3 py-2">📥 นำเข้า CSV</button>
@@ -828,6 +848,9 @@ export default function ProductsPage() {
                 <input type="checkbox" checked={form.is_listed_online||false} onChange={e => setForm(p=>({...p,is_listed_online:e.target.checked}))} className="w-4 h-4" style={{accentColor:'#06C755'}} />
                 🛒 ลงขายออนไลน์ (แสดงในหน้าร้าน + ตอบ LINE อัตโนมัติ)
               </label>
+              {form.is_listed_online && (
+                <Field label="ราคาออนไลน์ (ปล่อยว่างถ้าใช้ราคาปกติ)" value={form.online_price} onChange={v => setForm(p=>({...p,online_price:v}))} type="number" placeholder={`ราคาปกติ: ฿${form.price||0}`} />
+              )}
               <div className="flex gap-2 pt-1">
                 <button onClick={() => setModal(null)} className="flex-1 btn-secondary">ยกเลิก</button>
                 <button onClick={saveProduct} disabled={saving} className="flex-1 btn-primary">
@@ -838,6 +861,54 @@ export default function ProductsPage() {
           </div>
         </div>
       )}
+
+      {/* ── Bulk Online Modal ── */}
+      {onlineModal && (() => {
+        const selProducts = products.filter(p => selected.has(p.id))
+        const rows = selProducts.map(p => ({
+          id: p.id, name: p.name, price: p.price,
+          online_price: p.online_price != null ? p.online_price : p.price,
+        }))
+        return (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-end md:items-center justify-center p-3">
+            <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden max-h-[85vh] flex flex-col fade-in">
+              <div className="text-white px-4 py-3.5 flex justify-between items-center" style={{background:'#06C755'}}>
+                <h2 className="font-heading font-bold">🛒 ลงขายออนไลน์ {selProducts.length} รายการ</h2>
+                <button onClick={() => setOnlineModal(false)} className="text-2xl opacity-70 leading-none">×</button>
+              </div>
+              <div className="overflow-y-auto flex-1 p-4 space-y-2">
+                <p className="text-xs text-slate-500 mb-3">ตั้งราคาออนไลน์แต่ละรายการ (ปล่อยว่างถ้าใช้ราคาปกติ)</p>
+                {rows.map((p, i) => (
+                  <div key={p.id} className="flex items-center gap-3 bg-slate-50 rounded-xl px-3 py-2.5">
+                    <p className="text-sm flex-1 font-medium text-slate-800 leading-tight">{p.name}</p>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <span className="text-xs text-slate-400">฿</span>
+                      <input
+                        type="number"
+                        defaultValue={p.online_price}
+                        onChange={e => { rows[i].online_price = e.target.value !== '' ? parseFloat(e.target.value) : null }}
+                        placeholder={String(p.price)}
+                        className="w-24 border border-slate-200 rounded-lg px-2 py-1.5 text-sm text-right focus:border-green-400 outline-none"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="p-4 border-t border-slate-100 flex gap-2">
+                <button onClick={() => setOnlineModal(false)} className="flex-1 btn-secondary">ยกเลิก</button>
+                <button
+                  onClick={() => bulkListOnline(rows.map(r => ({ id: r.id, online_price: r.online_price })))}
+                  disabled={onlineSaving}
+                  className="flex-1 text-white font-bold py-3 rounded-xl text-sm disabled:opacity-50 active:scale-95 transition-all shadow"
+                  style={{background:'#06C755'}}
+                >
+                  {onlineSaving ? 'กำลังบันทึก...' : `✅ ลงออนไลน์ ${selProducts.length} รายการ`}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── CSV Import Modal ── */}
       {importModal && (

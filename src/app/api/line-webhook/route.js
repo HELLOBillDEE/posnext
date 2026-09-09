@@ -29,9 +29,12 @@ async function replyProducts(replyToken, lineToken, products, shopName, appUrl) 
       wrap: true,
       color: '#1e293b',
     })
+    const displayPrice = p.online_price != null ? p.online_price : p.price
+    const hasDiscount  = p.online_price != null && p.online_price < p.price
+
     contents.push({
       type: 'text',
-      text: `฿${fmt(p.price)} / ${p.unit || 'ชิ้น'}`,
+      text: `฿${fmt(displayPrice)} / ${p.unit || 'ชิ้น'}${hasDiscount ? ` (ลดจาก ฿${fmt(p.price)})` : ''}`,
       size: 'xl',
       weight: 'bold',
       color: '#C72C41',
@@ -140,7 +143,7 @@ async function searchProducts(keyword) {
   const q = `%${keyword}%`
   const { data } = await supabase
     .from('products')
-    .select('id,name,price,stock,unit,image_url,categories(name)')
+    .select('id,name,price,online_price,stock,unit,image_url,categories(name)')
     .eq('active', true)
     .or(`name.ilike.${q},search_tags.ilike.${q}`)
     .gt('stock', 0)

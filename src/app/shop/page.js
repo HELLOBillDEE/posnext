@@ -71,7 +71,14 @@ export default function ShopPage() {
                 )}
                 <div className="p-3">
                   <p className="text-sm font-semibold text-slate-800 leading-snug line-clamp-2">{p.name}</p>
-                  <p className="text-lg font-bold mt-1" style={{ color: '#C72C41' }}>฿{fmt(p.price)}</p>
+                  <div className="mt-1 flex items-baseline gap-2 flex-wrap">
+                    <p className="text-lg font-bold" style={{ color: '#C72C41' }}>
+                      ฿{fmt(p.online_price != null ? p.online_price : p.price)}
+                    </p>
+                    {p.online_price != null && p.online_price < p.price && (
+                      <p className="text-xs text-slate-400 line-through">฿{fmt(p.price)}</p>
+                    )}
+                  </div>
                   <p className="text-xs text-slate-400 mt-0.5">
                     {p.categories?.name && <span className="mr-1">• {p.categories.name}</span>}
                     คงเหลือ {fmt(p.stock)} {p.unit}
