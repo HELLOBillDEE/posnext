@@ -19,6 +19,9 @@ const T_BUY      = '__buy__'
 const T_REPAIR   = '__repair__'
 const T_DELIVERY = '__delivery__'
 const AWAIT_DELIVERY = '__awaiting_delivery__'
+const AWAIT_REPAIR   = '__awaiting_repair__'
+
+const REPAIR_KEYWORDS = ['ซ่อม', 'repair', 'บิลซ่อม', 'คิวซ่อม', 'งานซ่อม', 'เสีย', 'แก้ไข']
 
 function fmt(n) {
   return Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
@@ -330,6 +333,8 @@ export async function POST(req) {
         continue
       }
 
+      const lastBotMsg = await getLastBotMsg(lineUserId)
+
       /* ── Quick Reply: สั่งซื้อสินค้า ── */
       if (text === T_BUY) {
         await saveMsg(lineUserId, 'user', text)
@@ -350,7 +355,23 @@ export async function POST(req) {
         } else {
           const msg = `🔧 ยังไม่พบงานซ่อมในระบบครับ\n\nกรุณาส่ง ชื่อ, เบอร์โทร หรือ เลขที่บิลซ่อม มาได้เลยครับ`
           await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
+          await saveMsg(lineUserId, 'assistant', AWAIT_REPAIR)
+        }
+        continue
+      }
+
+      /* ── ตรวจสอบ flow คิวซ่อม: รอข้อมูลลูกค้า ── */
+      if (lastBotMsg === AWAIT_REPAIR || REPAIR_KEYWORDS.some(k => text.includes(k))) {
+        await saveMsg(lineUserId, 'user', text)
+        const repairs = await checkRepairStatus(lineUserId, text)
+        if (repairs.length > 0) {
+          const msg = `🔧 พบงานซ่อมครับ\n\n${repairs.map(repairToText).join('\n\n─────\n\n')}`
+          await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
           await saveMsg(lineUserId, 'assistant', msg)
+        } else {
+          const msg = `ไม่พบงานซ่อมจากข้อมูลที่ส่งมาครับ\nลองส่งเบอร์โทร หรือ เลขบิลซ่อม อีกครั้ง หรือโทร ${shopCfg?.shop_phone || ''} ครับ`
+          await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
+          await saveMsg(lineUserId, 'assistant', AWAIT_REPAIR)
         }
         continue
       }
@@ -365,7 +386,6 @@ export async function POST(req) {
       }
 
       /* ── ตรวจสอบ flow คิวส่ง: รอข้อมูลลูกค้า ── */
-      const lastBotMsg = await getLastBotMsg(lineUserId)
       if (lastBotMsg === AWAIT_DELIVERY) {
         await saveMsg(lineUserId, 'user', text)
         const docs = await checkDelivery(text)
