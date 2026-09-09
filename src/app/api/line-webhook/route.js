@@ -308,9 +308,10 @@ ${repairSection}
 กฎ:
 1. ถามสินค้า → แนะนำจาก [ฐานข้อมูลสินค้า] บอกราคา จุดเด่น ถ้าไม่พบในระบบ ห้ามบอกว่า "ไม่มี" — ให้ถามรายละเอียดเพิ่มก่อน เช่น ใช้ทำอะไร ยี่ห้อ หรือขอรูปสินค้า เพราะอาจเรียกชื่อต่างกัน แล้วตอบ [ESCALATE] ต่อท้ายเพื่อแจ้งให้แอดมินมาช่วยต่อ
 2. ถามงานซ่อม → ดูจาก [ฐานข้อมูลคิวซ่อม] ถ้าไม่พบให้ถามเบอร์/เลขบิล ถ้าลูกค้าถามต่อเนื่องเรื่องซ่อม (ราคา สถานะ ฯลฯ) ให้ตอบจาก context สนทนา
-3. ลูกค้าต้องการคุยกับคน หรือเรื่องซับซ้อนเกินบอท → ตอบ [ESCALATE]
-4. ไม่รู้เจตนา หรือทักทายทั่วไป → ตอบ [MENU]
-5. ตอบภาษาไทย สั้นๆ เป็นธรรมชาติ ลงท้าย ครับ/ค่ะ`
+3. ถามสถานะจัดส่ง/พัสดุ หรือส่งเลขบิล (เช่น DI...) หรือเบอร์โทร → ตอบ [DELIVERY_SEARCH] ห้ามแต่งคำตอบเอง ห้ามบอกว่า "แอดมินกำลังประสานงาน"
+4. ลูกค้าต้องการคุยกับคน หรือเรื่องซับซ้อนเกินบอท → ตอบ [ESCALATE]
+5. ไม่รู้เจตนา หรือทักทายทั่วไป → ตอบ [MENU]
+6. ตอบภาษาไทย สั้นๆ เป็นธรรมชาติ ลงท้าย ครับ/ค่ะ`
 
   // กรองให้ history สลับ user/model และต้องจบด้วย model เสมอ
   const safeHistory = []
@@ -522,7 +523,7 @@ export async function POST(req) {
 
       /* ── ข้อความทั่วไป → Claude ── */
       // ตรวจว่าข้อความมีเบอร์โทร หรือเลขบิลที่น่าจะเป็น delivery inquiry
-      const looksLikeDelivery = /0\d{8,9}/.test(text) || /^[A-Z]{2,}\d{4,}/i.test(text.trim())
+      const looksLikeDelivery = /0\d{8,9}/.test(text) || /[A-Z]{2,}\d{4,}/i.test(text)
       const [history, products, repairOrders, deliveryDocs] = await Promise.all([
         getHistory(lineUserId),
         searchProducts(text),
@@ -551,6 +552,21 @@ export async function POST(req) {
       }
 
       if (aiReply.startsWith('[SILENT]')) continue
+
+      // Gemini บอกให้ค้น delivery
+      if (aiReply.includes('[DELIVERY_SEARCH]')) {
+        const docs = await checkDelivery(text)
+        if (docs.length > 0) {
+          const flexMsg = deliveryFlexMsg(docs, appUrl)
+          await lineReply(replyToken, lineToken, [flexMsg])
+          await saveMsg(lineUserId, 'assistant', `🚚 พบรายการส่งของ ${docs.length} รายการ`)
+        } else {
+          const msg = `🚚 ยังค้นไม่เจอครับ\n\nลองส่งข้อมูลอื่นได้มั้ยครับ? เช่น\n• ชื่อที่ใช้สั่ง\n• เบอร์โทร\n• เลขที่ออเดอร์/บิล\n\nหรือโทรถามได้เลยที่ ${shopCfg?.shop_phone || ''} ครับ`
+          await replyText(replyToken, lineToken, msg)
+          await saveMsg(lineUserId, 'assistant', AWAIT_DELIVERY)
+        }
+        continue
+      }
 
       if (aiReply.includes('[MENU]')) {
         await sendMenu(replyToken, lineToken, shopName)
