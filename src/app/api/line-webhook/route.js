@@ -176,22 +176,72 @@ async function checkDelivery(text) {
   return results.slice(0, 5)
 }
 
-function deliveryMsg(docs, appUrl) {
-  return docs.map(d => {
-    const items = (d.items || []).map(i => `  • ${i.name} x${i.qty || 1}`).join('\n')
-    const status = d.status === 'delivered' ? 'ส่งแล้ว ✅' : d.status === 'pending' ? 'รอจัดส่ง 📦' : d.status
-    const lines = [
-      `📋 บิล: ${d.doc_no}`,
-      `👤 ${d.customer_name} | 📞 ${d.customer_phone || '-'}`,
-      `📍 ${d.customer_address || '-'}`,
-      `📦 รายการ:\n${items}`,
-      `💰 ยอด ฿${fmt(d.total)}${d.delivery_fee > 0 ? ` (ค่าส่ง ฿${fmt(d.delivery_fee)})` : ''}`,
-      `🚚 สถานะ: ${status}`,
-    ]
-    if (d.delivered_at) lines.push(`✅ ส่งเมื่อ: ${fmtDate(d.delivered_at)}`)
-    if (d.delivery_token && appUrl) lines.push(`🔗 ติดตาม: ${appUrl}/delivery/track/${d.delivery_token}`)
-    return lines.join('\n')
-  }).join('\n\n─────\n\n')
+function deliveryFlexBubble(d, appUrl) {
+  const isDone    = d.status === 'delivered'
+  const statusTxt = isDone ? 'ส่งแล้ว ✅' : 'รอจัดส่ง 📦'
+  const statusClr = isDone ? '#16a34a' : '#d97706'
+  const itemRows  = (d.items || []).map(i => ({
+    type: 'box', layout: 'horizontal', contents: [
+      { type: 'text', text: `• ${i.name}`, size: 'sm', color: '#374151', flex: 4, wrap: true },
+      { type: 'text', text: `x${i.qty || 1}`, size: 'sm', color: '#6b7280', flex: 1, align: 'end' },
+    ],
+  }))
+
+  const bodyContents = [
+    { type: 'box', layout: 'horizontal', contents: [
+      { type: 'text', text: '🚚 สถานะการจัดส่ง', weight: 'bold', size: 'md', color: '#1e293b', flex: 1 },
+      { type: 'text', text: statusTxt, size: 'sm', color: statusClr, align: 'end' },
+    ]},
+    { type: 'separator', margin: 'md' },
+    { type: 'box', layout: 'vertical', margin: 'md', spacing: 'sm', contents: [
+      { type: 'box', layout: 'horizontal', contents: [
+        { type: 'text', text: 'เลขบิล', size: 'xs', color: '#6b7280', flex: 2 },
+        { type: 'text', text: d.doc_no || '-', size: 'xs', color: '#1e293b', flex: 3, align: 'end' },
+      ]},
+      { type: 'box', layout: 'horizontal', contents: [
+        { type: 'text', text: 'ลูกค้า', size: 'xs', color: '#6b7280', flex: 2 },
+        { type: 'text', text: d.customer_name || '-', size: 'xs', color: '#1e293b', flex: 3, align: 'end', wrap: true },
+      ]},
+      ...(d.customer_address ? [{ type: 'box', layout: 'horizontal', contents: [
+        { type: 'text', text: 'ที่อยู่', size: 'xs', color: '#6b7280', flex: 2 },
+        { type: 'text', text: d.customer_address, size: 'xs', color: '#1e293b', flex: 3, align: 'end', wrap: true },
+      ]}] : []),
+      { type: 'box', layout: 'horizontal', contents: [
+        { type: 'text', text: 'ยอดรวม', size: 'xs', color: '#6b7280', flex: 2 },
+        { type: 'text', text: `฿${fmt(d.total)}${d.delivery_fee > 0 ? ` (+ค่าส่ง ฿${fmt(d.delivery_fee)})` : ''}`, size: 'xs', color: '#C72C41', flex: 3, align: 'end', weight: 'bold' },
+      ]},
+      ...(d.delivered_at ? [{ type: 'box', layout: 'horizontal', contents: [
+        { type: 'text', text: 'ส่งเมื่อ', size: 'xs', color: '#6b7280', flex: 2 },
+        { type: 'text', text: fmtDate(d.delivered_at), size: 'xs', color: '#1e293b', flex: 3, align: 'end' },
+      ]}] : []),
+    ]},
+    { type: 'separator', margin: 'md' },
+    { type: 'text', text: 'รายการสินค้า', size: 'xs', color: '#6b7280', margin: 'md' },
+    { type: 'box', layout: 'vertical', margin: 'sm', spacing: 'xs', contents: itemRows },
+  ]
+
+  const footerContents = []
+  if (d.delivery_token && appUrl && !isDone) {
+    footerContents.push({
+      type: 'button', style: 'primary', color: '#1a73e8', height: 'sm',
+      action: { type: 'uri', label: '🗺️ ติดตามตำแหน่งคนส่ง', uri: `${appUrl}/delivery/track/${d.delivery_token}` },
+    })
+  }
+
+  return {
+    type: 'bubble',
+    body: { type: 'box', layout: 'vertical', paddingAll: '16px', contents: bodyContents },
+    ...(footerContents.length ? { footer: { type: 'box', layout: 'vertical', paddingAll: '12px', spacing: 'sm', contents: footerContents } } : {}),
+  }
+}
+
+function deliveryFlexMsg(docs, appUrl) {
+  const bubbles = docs.map(d => deliveryFlexBubble(d, appUrl))
+  return {
+    type: 'flex',
+    altText: `🚚 สถานะการจัดส่ง (${docs.length} รายการ)`,
+    contents: bubbles.length === 1 ? bubbles[0] : { type: 'carousel', contents: bubbles },
+  }
 }
 
 /* ── LINE helpers ── */
@@ -459,9 +509,9 @@ export async function POST(req) {
         await saveMsg(lineUserId, 'user', text)
         const docs = await checkDelivery(text)
         if (docs.length > 0) {
-          const msg = `🚚 พบรายการส่งของครับ\n\n${deliveryMsg(docs, appUrl)}`
-          await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
-          await saveMsg(lineUserId, 'assistant', msg)
+          const flexMsg = deliveryFlexMsg(docs, appUrl)
+          await lineReply(replyToken, lineToken, [flexMsg])
+          await saveMsg(lineUserId, 'assistant', `🚚 พบรายการส่งของ ${docs.length} รายการ`)
         } else {
           const msg = `🚚 ยังหาไม่เจอครับ\n\nลองส่งข้อมูลอื่นได้มั้ยครับ? เช่น\n• ชื่อที่ใช้สั่ง\n• เบอร์โทร\n• เลขที่ออเดอร์/บิล\n\nหรือโทรถามได้เลยที่ ${shopCfg?.shop_phone || ''} ครับ`
           await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
