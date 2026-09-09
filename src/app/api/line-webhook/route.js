@@ -220,7 +220,7 @@ ${productSection}
 ${repairSection}
 
 กฎ:
-1. ถามสินค้า → แนะนำจาก [ฐานข้อมูลสินค้า] บอกราคา จุดเด่น ถ้าไม่พบในระบบให้ถามรายละเอียดเพิ่มหรือให้ส่งรูปสินค้า เพราะอาจเรียกชื่อต่างกัน ห้ามแต่งข้อมูล
+1. ถามสินค้า → แนะนำจาก [ฐานข้อมูลสินค้า] บอกราคา จุดเด่น ถ้าไม่พบในระบบ ห้ามบอกว่า "ไม่มี" — ให้ถามรายละเอียดเพิ่มก่อน เช่น ใช้ทำอะไร ยี่ห้อ หรือขอรูปสินค้า เพราะอาจเรียกชื่อต่างกัน แล้วตอบ [ESCALATE] ต่อท้ายเพื่อแจ้งให้แอดมินมาช่วยต่อ
 2. ถามงานซ่อม → ดูจาก [ฐานข้อมูลคิวซ่อม] ถ้าไม่พบให้ถามเบอร์/เลขบิล
 3. ลูกค้าต้องการคุยกับคน หรือเรื่องซับซ้อนเกินบอท → ตอบ [ESCALATE]
 4. ไม่รู้เจตนา หรือทักทายทั่วไป → ตอบ [MENU]
@@ -340,12 +340,16 @@ export async function POST(req) {
           if (products.length > 0) {
             reply += `\n\n📦 สินค้าใกล้เคียงในร้าน:\n` +
               products.map(p => `• ${p.name} ฿${fmt(p.online_price ?? p.price)}/${p.unit || 'ชิ้น'}`).join('\n')
+            await lineReply(replyToken, lineToken, [{ type: 'text', text: reply }])
+            await saveMsg(lineUserId, 'user', '[รูปภาพ]')
+            await saveMsg(lineUserId, 'assistant', reply)
           } else {
-            reply += `\n\nไม่พบสินค้าชนิดนี้ในระบบครับ ถ้าต้องการสอบถามเพิ่มเติมพิมข้อความมาได้เลยครับ`
+            // ยังไม่พบในระบบ → ถามรายละเอียดก่อน แล้วแจ้งแอดมินมาช่วย
+            const askReply = `🔍 เห็นรูปแล้วครับ: ${vision}\n\nช่วยบอกรายละเอียดเพิ่มเติมได้มั้ยครับ? เช่น ใช้ทำอะไร ยี่ห้อ หรือสเปคที่ต้องการ ทีมงานจะช่วยหาให้โดยเร็วครับ 🙏`
+            await replyText(replyToken, lineToken, askReply)
+            await saveMsg(lineUserId, 'user', '[รูปภาพ]')
+            await saveMsg(lineUserId, 'assistant', askReply)
           }
-          await lineReply(replyToken, lineToken, [{ type: 'text', text: reply }])
-          await saveMsg(lineUserId, 'user', '[รูปภาพ]')
-          await saveMsg(lineUserId, 'assistant', reply)
         } catch (e) {
           await lineReply(replyToken, lineToken, [{ type: 'text', text: `ขออภัยครับ อ่านรูปไม่ได้: ${e.message}` }])
         }
