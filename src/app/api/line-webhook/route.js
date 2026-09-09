@@ -86,9 +86,6 @@ async function replyProducts(replyToken, lineToken, products, shopName, appUrl) 
         size: 'lg', weight: 'bold', color: '#C72C41', margin: 'sm',
       },
     ]
-    if (p.stock <= 0) {
-      contents.push({ type: 'text', text: '❌ สินค้าหมด', size: 'xs', color: '#dc2626', margin: 'xs' })
-    }
     if (p.categories?.name) {
       contents.push({ type: 'text', text: `🏷 ${p.categories.name}`, size: 'xs', color: '#64748b', margin: 'xs' })
     }
