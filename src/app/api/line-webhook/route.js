@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk'
+import { GoogleGenerativeAI } from '@google/generative-ai'
 import { createClient } from '@supabase/supabase-js'
 import { replyText, getLineSettings } from '@/lib/lineStaff'
 import { triggerDrawerVideo } from '@/lib/cameraRecord'
@@ -13,7 +13,7 @@ const sbService = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
   { db: { schema: 'pos' } }
 )
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+const genAI = new GoogleGenerativeAI(process.env.ANTHROPIC_API_KEY || process.env.GOOGLE_AI_API_KEY || '')
 
 const T_BUY      = '__buy__'
 const T_REPAIR   = '__repair__'
@@ -224,7 +224,7 @@ ${repairSection}
 4. ไม่รู้เจตนา หรือทักทายทั่วไป → ตอบ [MENU]
 5. ตอบภาษาไทย สั้นๆ เป็นธรรมชาติ ลงท้าย ครับ/ค่ะ`
 
-  // กรองให้ history สลับ user/assistant และต้องจบด้วย assistant เสมอ
+  // กรองให้ history สลับ user/model และต้องจบด้วย model เสมอ
   const safeHistory = []
   for (const m of history) {
     if (safeHistory.length === 0) {
@@ -234,21 +234,22 @@ ${repairSection}
       if (m.role !== last.role) safeHistory.push(m)
     }
   }
-  // ตัด trailing user message ออก เพราะจะเพิ่ม user message ปัจจุบันต่อท้าย
   if (safeHistory.length > 0 && safeHistory[safeHistory.length - 1].role === 'user') {
     safeHistory.pop()
   }
 
-  const res = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 500,
-    system,
-    messages: [
-      ...safeHistory.map(h => ({ role: h.role, content: h.content })),
-      { role: 'user', content: text },
-    ],
+  const geminiHistory = safeHistory.map(h => ({
+    role: h.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: h.content }],
+  }))
+
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-1.5-flash',
+    systemInstruction: system,
   })
-  return res.content[0]?.text || ''
+  const chat = model.startChat({ history: geminiHistory })
+  const result = await chat.sendMessage(text)
+  return result.response.text()
 }
 
 /* ════════════════ MAIN HANDLER ════════════════ */
@@ -457,7 +458,7 @@ export async function GET() {
       hasGroupId:   !!(lineCfg?.line_group_id),
       botEnabled:   botCfg?.line_bot_enabled,
       botName:      botCfg?.line_bot_name,
-      hasAnthropicKey: !!(process.env.ANTHROPIC_API_KEY),
+      hasGeminiKey: !!(process.env.ANTHROPIC_API_KEY || process.env.GOOGLE_AI_API_KEY),
       appUrl:       process.env.NEXT_PUBLIC_APP_URL,
     })
   } catch (e) {
