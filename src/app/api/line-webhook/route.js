@@ -144,7 +144,7 @@ async function checkRepairStatus(lineUserId, text) {
     const ids = found.map(r => r.id).filter(Boolean)
     if (ids.length > 0) {
       const { data: quotes } = await supabase.from('quotations')
-        .select('repair_order_id,total,deposit')
+        .select('repair_order_id,total,discount')
         .in('repair_order_id', ids)
         .eq('doc_type', 'repair')
         .neq('status', 'cancelled')
@@ -155,8 +155,8 @@ async function checkRepairStatus(lineUserId, text) {
       }
       for (const r of found) {
         if (quoteMap[r.id]) {
-          r.quote_total   = quoteMap[r.id].total || 0
-          r.deposit       = r.deposit || quoteMap[r.id].deposit || 0
+          r.quote_total = quoteMap[r.id].total || 0
+          r.deposit     = r.deposit || quoteMap[r.id].discount || 0  // discount = มัดจำ
         }
       }
     }
