@@ -140,16 +140,40 @@ async function checkRepairStatus(lineUserId, text) {
 /* ── Delivery lookup ── */
 async function checkDelivery(text) {
   const sel = 'doc_no,customer_name,customer_phone,customer_address,items,total,delivery_fee,status,delivered_at,delivery_token'
-  const orParts = []
-  const phones = text.match(/0\d{8,9}/g) || []
-  phones.forEach(p => orParts.push(`customer_phone.eq.${p}`))
-  const words = text.replace(/0\d{8,9}/g, '').split(/\s+/).filter(w => w.length >= 2)
-  words.slice(0, 3).forEach(w => orParts.push(`customer_name.ilike.%${w}%`))
-  if (!orParts.length) return []
-  const { data } = await supabase.from('quotations').select(sel)
+  const results = []
+  const seen = new Set()
+  const add = (items) => {
+    for (const r of (items || [])) {
+      if (!seen.has(r.doc_no)) { seen.add(r.doc_no); results.push(r) }
+    }
+  }
+  const base = supabase.from('quotations').select(sel)
     .eq('doc_type', 'delivery_invoice').neq('status', 'cancelled')
-    .or(orParts.join(',')).order('created_at', { ascending: false }).limit(5)
-  return data || []
+
+  // ค้นด้วยเบอร์โทร
+  const phones = text.match(/0\d{8,9}/g) || []
+  for (const p of phones) {
+    const { data } = await base.eq('customer_phone', p).limit(5)
+    add(data)
+  }
+  // ค้นด้วยชื่อลูกค้า
+  const words = text.replace(/0\d{8,9}/g, '').split(/\s+/).filter(w => w.length >= 2 && !/^\d+$/.test(w))
+  for (const w of words.slice(0, 3)) {
+    const { data } = await base.ilike('customer_name', `%${w}%`).limit(3)
+    add(data)
+  }
+  // ค้นด้วยเลขบิล/เลขคิว เช่น "INV-001" หรือ "001"
+  const codes = text.match(/[A-Z0-9\-]{3,}/gi) || []
+  for (const c of codes.slice(0, 3)) {
+    const { data } = await base.ilike('doc_no', `%${c}%`).limit(2)
+    add(data)
+  }
+  const nums = text.match(/\d{2,}/g) || []
+  for (const n of nums.slice(0, 3)) {
+    const { data } = await base.ilike('doc_no', `%${n}%`).limit(2)
+    add(data)
+  }
+  return results.slice(0, 5)
 }
 
 function deliveryMsg(docs, appUrl) {
@@ -439,9 +463,9 @@ export async function POST(req) {
           await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
           await saveMsg(lineUserId, 'assistant', msg)
         } else {
-          const msg = `ขออภัยครับ ไม่พบรายการส่งของในระบบ\n\nลองตรวจสอบชื่อ-เบอร์โทรอีกครั้ง หรือโทรถามที่ ${shopCfg?.shop_phone || ''} ครับ`
+          const msg = `🚚 ยังหาไม่เจอครับ\n\nลองส่งข้อมูลอื่นได้มั้ยครับ? เช่น\n• ชื่อที่ใช้สั่ง\n• เบอร์โทร\n• เลขที่ออเดอร์/บิล\n\nหรือโทรถามได้เลยที่ ${shopCfg?.shop_phone || ''} ครับ`
           await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
-          await saveMsg(lineUserId, 'assistant', msg)
+          await saveMsg(lineUserId, 'assistant', AWAIT_DELIVERY)
         }
         continue
       }
