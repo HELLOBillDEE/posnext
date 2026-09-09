@@ -224,7 +224,7 @@ ${repairSection}
 4. ไม่รู้เจตนา หรือทักทายทั่วไป → ตอบ [MENU]
 5. ตอบภาษาไทย สั้นๆ เป็นธรรมชาติ ลงท้าย ครับ/ค่ะ`
 
-  // กรองให้ history สลับ user/assistant เสมอ (ป้องกัน Anthropic error)
+  // กรองให้ history สลับ user/assistant และต้องจบด้วย assistant เสมอ
   const safeHistory = []
   for (const m of history) {
     if (safeHistory.length === 0) {
@@ -233,6 +233,10 @@ ${repairSection}
       const last = safeHistory[safeHistory.length - 1]
       if (m.role !== last.role) safeHistory.push(m)
     }
+  }
+  // ตัด trailing user message ออก เพราะจะเพิ่ม user message ปัจจุบันต่อท้าย
+  if (safeHistory.length > 0 && safeHistory[safeHistory.length - 1].role === 'user') {
+    safeHistory.pop()
   }
 
   const res = await anthropic.messages.create({
