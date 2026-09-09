@@ -521,11 +521,23 @@ export async function POST(req) {
       }
 
       /* ── ข้อความทั่วไป → Claude ── */
-      const [history, products, repairOrders] = await Promise.all([
+      // ตรวจว่าข้อความมีเบอร์โทร หรือเลขบิลที่น่าจะเป็น delivery inquiry
+      const looksLikeDelivery = /0\d{8,9}/.test(text) || /^[A-Z]{2,}\d{4,}/i.test(text.trim())
+      const [history, products, repairOrders, deliveryDocs] = await Promise.all([
         getHistory(lineUserId),
         searchProducts(text),
         checkRepairStatus(lineUserId, text),
+        looksLikeDelivery ? checkDelivery(text) : Promise.resolve([]),
       ])
+
+      // ถ้าเจอ delivery จากข้อความโต้ง (ไม่ต้องผ่าน AWAIT_DELIVERY state) → ส่ง Flex ทันที
+      if (deliveryDocs.length > 0) {
+        await saveMsg(lineUserId, 'user', text)
+        const flexMsg = deliveryFlexMsg(deliveryDocs, appUrl)
+        await lineReply(replyToken, lineToken, [flexMsg])
+        await saveMsg(lineUserId, 'assistant', `🚚 พบรายการส่งของ ${deliveryDocs.length} รายการ`)
+        continue
+      }
 
       await saveMsg(lineUserId, 'user', text)
 
