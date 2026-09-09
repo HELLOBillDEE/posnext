@@ -386,7 +386,14 @@ export async function POST(req) {
 
       await saveMsg(lineUserId, 'user', text)
 
-      const aiReply = await askClaude({ text, history, products, repairOrders, shopCfg, botCfg })
+      let aiReply
+      try {
+        aiReply = await askClaude({ text, history, products, repairOrders, shopCfg, botCfg })
+      } catch (claudeErr) {
+        const errMsg = `[DEBUG] Claude error: ${claudeErr.message}`
+        await lineReply(replyToken, lineToken, [{ type: 'text', text: errMsg }])
+        continue
+      }
 
       if (aiReply.startsWith('[SILENT]')) continue
 
