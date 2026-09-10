@@ -1,25 +1,34 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 
 const KEYS = ['line_bot_enabled', 'line_bot_name', 'line_bot_persona', 'line_bot_silent_keywords']
 
+const fmt = n => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+
 export default function LineBotPage() {
-  const [cfg, setCfg]       = useState({
+  const [cfg, setCfg] = useState({
     line_bot_enabled: 'true',
     line_bot_name: 'น้องมิน',
     line_bot_persona: 'ผู้ช่วยขายของร้าน ตอบภาษาไทยสั้นกระชับ เป็นกันเอง ใช้ครับ/ค่ะ',
     line_bot_silent_keywords: 'ซ่อม,ติดตามงาน,คุยกับเจ้าของ,คุยกับแอดมิน',
   })
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved]   = useState(false)
-  const [convs, setConvs]   = useState([])
+  const [saving, setSaving]       = useState(false)
+  const [saved, setSaved]         = useState(false)
+  const [convs, setConvs]         = useState([])
   const [convLoading, setConvLoading] = useState(true)
 
-  useEffect(() => {
-    load()
-    loadConvs()
-  }, [])
+  // ── Card sender state ──
+  const [cardModal, setCardModal]     = useState(null)   // { userId }
+  const [cardItems, setCardItems]     = useState([])     // [{ id, name, price, unit, qty }]
+  const [cardNote, setCardNote]       = useState('')
+  const [prodSearch, setProdSearch]   = useState('')
+  const [searchRes, setSearchRes]     = useState([])
+  const [searching, setSearching]     = useState(false)
+  const [sending, setSending]         = useState(false)
+  const [sendOk, setSendOk]          = useState(false)
+
+  useEffect(() => { load(); loadConvs() }, [])
 
   async function load() {
     const { data } = await supabase.from('settings').select('key,value').in('key', KEYS)
@@ -44,16 +53,70 @@ export default function LineBotPage() {
     setSaving(true)
     try {
       await Promise.all(
-        KEYS.map(key =>
-          supabase.from('settings').upsert({ key, value: cfg[key] ?? '' }, { onConflict: 'key' })
-        )
+        KEYS.map(key => supabase.from('settings').upsert({ key, value: cfg[key] ?? '' }, { onConflict: 'key' }))
       )
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
+      setSaved(true); setTimeout(() => setSaved(false), 2000)
     } catch (e) { alert('ข้อผิดพลาด: ' + e.message) } finally { setSaving(false) }
   }
 
-  // จัดกลุ่ม conversations ตาม line_user_id
+  // ── Product search ──
+  const searchProducts = useCallback(async (q) => {
+    if (!q.trim()) { setSearchRes([]); return }
+    setSearching(true)
+    const words = q.trim().split(/\s+/).filter(w => w.length >= 1)
+    const orParts = words.flatMap(w => [`name.ilike.%${w}%`, `search_tags.ilike.%${w}%`])
+    const { data } = await supabase.from('products')
+      .select('id,name,price,online_price,unit')
+      .eq('active', true).or(orParts.join(','))
+      .order('stock', { ascending: false }).limit(8)
+    setSearchRes(data || [])
+    setSearching(false)
+  }, [])
+
+  useEffect(() => {
+    const t = setTimeout(() => searchProducts(prodSearch), 300)
+    return () => clearTimeout(t)
+  }, [prodSearch, searchProducts])
+
+  function addItem(p) {
+    setCardItems(prev => {
+      const ex = prev.find(i => i.id === p.id)
+      if (ex) return prev.map(i => i.id === p.id ? { ...i, qty: i.qty + 1 } : i)
+      const price = p.online_price != null ? p.online_price : p.price
+      return [...prev, { id: p.id, name: p.name, price, unit: p.unit || 'ชิ้น', qty: 1 }]
+    })
+  }
+
+  function setQty(id, qty) {
+    if (qty <= 0) { setCardItems(prev => prev.filter(i => i.id !== id)); return }
+    setCardItems(prev => prev.map(i => i.id === id ? { ...i, qty } : i))
+  }
+
+  function openModal(userId) {
+    setCardModal({ userId })
+    setCardItems([])
+    setCardNote('')
+    setProdSearch('')
+    setSearchRes([])
+    setSendOk(false)
+  }
+
+  async function sendCard() {
+    if (!cardItems.length) return
+    setSending(true)
+    try {
+      const res = await fetch('/api/line-push-card', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lineUserId: cardModal.userId, items: cardItems, note: cardNote }),
+      })
+      const json = await res.json()
+      if (!json.ok) throw new Error(json.error || 'ส่งไม่สำเร็จ')
+      setSendOk(true)
+      setTimeout(() => { setCardModal(null); setSendOk(false); loadConvs() }, 1500)
+    } catch (e) { alert('ส่งไม่สำเร็จ: ' + e.message) } finally { setSending(false) }
+  }
+
   const grouped = convs.reduce((acc, c) => {
     if (!acc[c.line_user_id]) acc[c.line_user_id] = []
     acc[c.line_user_id].push(c)
@@ -64,6 +127,8 @@ export default function LineBotPage() {
     timeZone: 'Asia/Bangkok', day: '2-digit', month: '2-digit',
     hour: '2-digit', minute: '2-digit',
   })
+
+  const cardTotal = cardItems.reduce((s, i) => s + i.price * i.qty, 0)
 
   return (
     <div className="page max-w-2xl mx-auto">
@@ -86,47 +151,27 @@ export default function LineBotPage() {
       {/* ตั้งค่าบอท */}
       <div className="bg-white rounded-2xl shadow-sm p-5 mb-4 space-y-4">
         <h2 className="font-semibold text-slate-700">ตัวตนบอท</h2>
-
         <div>
           <label className="text-xs text-slate-500 block mb-1">ชื่อบอท</label>
-          <input
-            value={cfg.line_bot_name}
-            onChange={e => setCfg(p => ({ ...p, line_bot_name: e.target.value }))}
-            className="input-field text-sm w-full"
-            placeholder="เช่น น้องมิน, น้องโอ, แอดมิน"
-          />
+          <input value={cfg.line_bot_name} onChange={e => setCfg(p => ({ ...p, line_bot_name: e.target.value }))}
+            className="input-field text-sm w-full" placeholder="เช่น น้องมิน, น้องโอ, แอดมิน" />
         </div>
-
         <div>
           <label className="text-xs text-slate-500 block mb-1">บุคลิก / วิธีตอบ (system prompt)</label>
-          <textarea
-            value={cfg.line_bot_persona}
-            onChange={e => setCfg(p => ({ ...p, line_bot_persona: e.target.value }))}
-            rows={4}
-            className="input-field text-sm w-full resize-none"
-            placeholder="เช่น ผู้ช่วยขายของร้าน ตอบภาษาไทยสั้นกระชับ เป็นกันเอง ใช้ค่ะ"
-          />
+          <textarea value={cfg.line_bot_persona} onChange={e => setCfg(p => ({ ...p, line_bot_persona: e.target.value }))}
+            rows={4} className="input-field text-sm w-full resize-none"
+            placeholder="เช่น ผู้ช่วยขายของร้าน ตอบภาษาไทยสั้นกระชับ เป็นกันเอง ใช้ค่ะ" />
           <p className="text-xs text-slate-400 mt-1">AI จะตอบตามบุคลิกที่กำหนด</p>
         </div>
-
         <div>
           <label className="text-xs text-slate-500 block mb-1">คำที่ให้บอทเงียบ (คั่นด้วยจุลภาค)</label>
-          <input
-            value={cfg.line_bot_silent_keywords}
-            onChange={e => setCfg(p => ({ ...p, line_bot_silent_keywords: e.target.value }))}
-            className="input-field text-sm w-full"
-            placeholder="เช่น ซ่อม,ติดตามงาน,คุยกับเจ้าของ"
-          />
-          <p className="text-xs text-slate-400 mt-1">ถ้าข้อความลูกค้ามีคำเหล่านี้ บอทจะไม่ตอบ (รอแอดมินตอบเอง)</p>
+          <input value={cfg.line_bot_silent_keywords} onChange={e => setCfg(p => ({ ...p, line_bot_silent_keywords: e.target.value }))}
+            className="input-field text-sm w-full" placeholder="เช่น ซ่อม,ติดตามงาน,คุยกับเจ้าของ" />
+          <p className="text-xs text-slate-400 mt-1">ถ้าข้อความลูกค้ามีคำเหล่านี้ บอทจะไม่ตอบ</p>
         </div>
       </div>
 
-      {/* บันทึก */}
-      <button
-        onClick={save}
-        disabled={saving}
-        className="w-full btn-primary py-3 mb-8 disabled:opacity-50"
-      >
+      <button onClick={save} disabled={saving} className="w-full btn-primary py-3 mb-8 disabled:opacity-50">
         {saved ? '✅ บันทึกแล้ว' : saving ? 'กำลังบันทึก...' : '💾 บันทึกการตั้งค่า'}
       </button>
 
@@ -142,34 +187,177 @@ export default function LineBotPage() {
         ) : Object.keys(grouped).length === 0 ? (
           <p className="text-center text-slate-400 text-sm py-8">ยังไม่มีประวัติสนทนา</p>
         ) : (
-          <div className="divide-y divide-slate-100 max-h-[500px] overflow-y-auto">
+          <div className="divide-y divide-slate-100 max-h-[600px] overflow-y-auto">
             {Object.entries(grouped).map(([userId, msgs]) => (
               <details key={userId} className="group">
                 <summary className="px-5 py-3 flex items-center gap-3 cursor-pointer list-none hover:bg-slate-50">
                   <span className="text-2xl">👤</span>
                   <div className="flex-1 min-w-0">
                     <p className="text-xs text-slate-400 font-mono truncate">{userId}</p>
-                    <p className="text-sm text-slate-600 truncate">{msgs[msgs.length-1]?.content}</p>
+                    <p className="text-sm text-slate-600 truncate">{msgs[msgs.length - 1]?.content}</p>
                   </div>
                   <span className="text-xs text-slate-400 flex-shrink-0">{msgs.length} ข้อความ</span>
                   <span className="text-slate-300 group-open:rotate-90 transition-transform">▶</span>
                 </summary>
-                <div className="px-5 pb-4 space-y-2 bg-slate-50">
+                <div className="px-5 pb-3 space-y-2 bg-slate-50">
                   {[...msgs].reverse().map(m => (
                     <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-start' : 'justify-end'}`}>
                       <div className={`max-w-[80%] px-3 py-2 rounded-xl text-sm ${m.role === 'user' ? 'bg-white border border-slate-200 text-slate-700' : 'text-white'}`}
                         style={m.role === 'assistant' ? { background: '#06C755' } : {}}>
-                        <p>{m.content}</p>
+                        <p className="whitespace-pre-wrap">{m.content}</p>
                         <p className={`text-[10px] mt-0.5 ${m.role === 'user' ? 'text-slate-400' : 'text-green-100'}`}>{fmtTime(m.created_at)}</p>
                       </div>
                     </div>
                   ))}
+
+                  {/* ปุ่มส่งการ์ดสินค้า */}
+                  <div className="pt-2 pb-1">
+                    <button
+                      onClick={() => openModal(userId)}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white transition-all active:scale-95"
+                      style={{ background: '#C72C41' }}
+                    >
+                      📦 ส่งการ์ดสินค้าให้ลูกค้า
+                    </button>
+                  </div>
                 </div>
               </details>
             ))}
           </div>
         )}
       </div>
+
+      {/* ── Modal ส่งการ์ดสินค้า ── */}
+      {cardModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={e => { if (e.target === e.currentTarget) setCardModal(null) }}>
+          <div className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl shadow-2xl max-h-[92vh] flex flex-col">
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100">
+              <div>
+                <p className="font-bold text-slate-800">📦 ส่งการ์ดสินค้า</p>
+                <p className="text-xs text-slate-400 font-mono truncate max-w-[240px]">{cardModal.userId}</p>
+              </div>
+              <button onClick={() => setCardModal(null)} className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200">✕</button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+
+              {/* ค้นหาสินค้า */}
+              <div>
+                <label className="text-xs font-semibold text-slate-600 block mb-1.5">🔍 ค้นหาสินค้า</label>
+                <input
+                  value={prodSearch}
+                  onChange={e => setProdSearch(e.target.value)}
+                  placeholder="พิมชื่อสินค้า..."
+                  className="input-field text-sm w-full"
+                  autoFocus
+                />
+                {searching && <p className="text-xs text-slate-400 mt-1">กำลังค้นหา...</p>}
+                {searchRes.length > 0 && (
+                  <div className="mt-2 border border-slate-200 rounded-xl overflow-hidden">
+                    {searchRes.map(p => {
+                      const price = p.online_price != null ? p.online_price : p.price
+                      const inList = cardItems.find(i => i.id === p.id)
+                      return (
+                        <button key={p.id} onClick={() => addItem(p)}
+                          className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-slate-50 border-b border-slate-100 last:border-0 transition-colors text-left">
+                          <div>
+                            <p className="text-sm font-medium text-slate-800">{p.name}</p>
+                            <p className="text-xs text-slate-500">฿{fmt(price)}/{p.unit || 'ชิ้น'}</p>
+                          </div>
+                          <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${inList ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600'}`}>
+                            {inList ? `✓ x${inList.qty}` : '+ เพิ่ม'}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* รายการที่เลือก */}
+              {cardItems.length > 0 && (
+                <div>
+                  <label className="text-xs font-semibold text-slate-600 block mb-1.5">🛒 รายการที่เลือก</label>
+                  <div className="border border-slate-200 rounded-xl overflow-hidden">
+                    {cardItems.map(item => (
+                      <div key={item.id} className="flex items-center gap-3 px-4 py-3 border-b border-slate-100 last:border-0">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-slate-800 truncate">{item.name}</p>
+                          <p className="text-xs text-slate-500">฿{fmt(item.price)} × {item.qty} = ฿{fmt(item.price * item.qty)}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => setQty(item.id, item.qty - 1)}
+                            className="w-7 h-7 rounded-full bg-slate-100 text-slate-700 font-bold text-sm hover:bg-slate-200 flex items-center justify-center">−</button>
+                          <span className="w-6 text-center text-sm font-semibold">{item.qty}</span>
+                          <button onClick={() => setQty(item.id, item.qty + 1)}
+                            className="w-7 h-7 rounded-full bg-slate-100 text-slate-700 font-bold text-sm hover:bg-slate-200 flex items-center justify-center">+</button>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="px-4 py-3 bg-slate-50 flex items-center justify-between">
+                      <span className="text-sm font-semibold text-slate-700">รวมทั้งหมด</span>
+                      <span className="text-lg font-bold" style={{ color: '#C72C41' }}>฿{fmt(cardTotal)}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* หมายเหตุ */}
+              <div>
+                <label className="text-xs font-semibold text-slate-600 block mb-1.5">💬 หมายเหตุ (ถ้ามี)</label>
+                <input value={cardNote} onChange={e => setCardNote(e.target.value)}
+                  placeholder="เช่น ส่งพรุ่งนี้, ต้องการรีบ..."
+                  className="input-field text-sm w-full" />
+              </div>
+
+              {/* Preview */}
+              {cardItems.length > 0 && (
+                <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+                  <p className="text-xs font-semibold text-slate-500 mb-2">👀 ลูกค้าจะเห็น</p>
+                  <div className="bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
+                    <div className="px-4 py-3" style={{ background: '#C72C41' }}>
+                      <p className="text-white text-sm font-bold">📋 รายการสินค้าจากร้าน</p>
+                    </div>
+                    <div className="px-4 py-3 space-y-1.5">
+                      {cardItems.map(item => (
+                        <div key={item.id} className="flex justify-between text-sm">
+                          <span className="text-slate-700">{item.name} ×{item.qty}</span>
+                          <span className="font-semibold" style={{ color: '#C72C41' }}>฿{fmt(item.price * item.qty)}</span>
+                        </div>
+                      ))}
+                      <div className="border-t border-slate-100 pt-2 flex justify-between font-bold">
+                        <span className="text-slate-800">รวม</span>
+                        <span style={{ color: '#C72C41' }}>฿{fmt(cardTotal)}</span>
+                      </div>
+                      {cardNote && <p className="text-xs text-slate-500 pt-1">💬 {cardNote}</p>}
+                    </div>
+                    <div className="px-4 pb-3">
+                      <div className="w-full py-2 rounded-lg text-white text-sm text-center font-semibold" style={{ background: '#C72C41' }}>
+                        ✅ ยืนยันสั่งซื้อ
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 py-4 border-t border-slate-100">
+              <button
+                onClick={sendCard}
+                disabled={!cardItems.length || sending || sendOk}
+                className="w-full py-3 rounded-xl font-bold text-white text-sm transition-all disabled:opacity-40 active:scale-95"
+                style={{ background: sendOk ? '#22c55e' : '#C72C41' }}
+              >
+                {sendOk ? '✅ ส่งแล้ว!' : sending ? 'กำลังส่ง...' : `📤 ส่งการ์ดให้ลูกค้า (฿${fmt(cardTotal)})`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
