@@ -13,9 +13,24 @@ const fmt = n => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits:
 
 export async function POST(req) {
   try {
-    const { lineUserId, items, note } = await req.json()
-    if (!lineUserId || !items?.length)
-      return Response.json({ error: 'missing data' }, { status: 400 })
+    const { lineUserId, items, note, manualText } = await req.json()
+    if (!lineUserId) return Response.json({ error: 'missing lineUserId' }, { status: 400 })
+
+    // ── Manual text reply ──
+    if (manualText) {
+      const lineCfg = await getLineSettings()
+      if (!lineCfg?.line_channel_token) return Response.json({ error: 'no LINE token' }, { status: 500 })
+      const res = await fetch('https://api.line.me/v2/bot/message/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${lineCfg.line_channel_token}` },
+        body: JSON.stringify({ to: lineUserId, messages: [{ type: 'text', text: manualText }] }),
+      })
+      if (!res.ok) { const e = await res.json(); return Response.json({ error: e.message }, { status: 500 }) }
+      await sbService.from('line_conversations').insert({ line_user_id: lineUserId, role: 'assistant', content: manualText })
+      return Response.json({ ok: true })
+    }
+
+    if (!items?.length) return Response.json({ error: 'missing data' }, { status: 400 })
 
     const lineCfg = await getLineSettings()
     if (!lineCfg?.line_channel_token)

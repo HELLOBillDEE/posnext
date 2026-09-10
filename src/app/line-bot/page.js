@@ -33,6 +33,10 @@ export default function LineBotPage() {
   const [sending, setSending]         = useState(false)
   const [sendOk, setSendOk]          = useState(false)
 
+  // ── Manual reply state ──
+  const [replyTexts, setReplyTexts]   = useState({})   // { userId: text }
+  const [replySending, setReplySending] = useState({}) // { userId: bool }
+
   useEffect(() => { load(); loadConvs() }, [])
 
   async function load() {
@@ -136,6 +140,24 @@ export default function LineBotPage() {
     } catch (e) { alert('ส่งไม่สำเร็จ: ' + e.message) } finally { setSending(false) }
   }
 
+  async function sendReply(userId) {
+    const text = (replyTexts[userId] || '').trim()
+    if (!text) return
+    setReplySending(p => ({ ...p, [userId]: true }))
+    try {
+      const res = await fetch('/api/line-push-card', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lineUserId: userId, manualText: text }),
+      })
+      const json = await res.json()
+      if (!json.ok) throw new Error(json.error || 'ส่งไม่สำเร็จ')
+      setReplyTexts(p => ({ ...p, [userId]: '' }))
+      await loadConvs()
+    } catch (e) { alert('ส่งไม่สำเร็จ: ' + e.message) }
+    finally { setReplySending(p => ({ ...p, [userId]: false })) }
+  }
+
   const STATE_PREFIXES = ['__awaiting_delivery__', '__awaiting_repair__', '__awaiting_order_info__', '[ORDER_DATA]']
   const isStateMsg = content => STATE_PREFIXES.some(p => content?.startsWith(p))
 
@@ -236,8 +258,28 @@ export default function LineBotPage() {
                     </div>
                   ))}
 
+                  {/* Reply box */}
+                  <div className="pt-2 flex gap-2 items-end">
+                    <textarea
+                      value={replyTexts[userId] || ''}
+                      onChange={e => setReplyTexts(p => ({ ...p, [userId]: e.target.value }))}
+                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendReply(userId) } }}
+                      placeholder="พิมพ์ตอบกลับ... (Enter ส่ง, Shift+Enter ขึ้นบรรทัด)"
+                      rows={2}
+                      className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:border-slate-400 bg-white"
+                    />
+                    <button
+                      onClick={() => sendReply(userId)}
+                      disabled={replySending[userId] || !replyTexts[userId]?.trim()}
+                      className="px-4 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-40 active:scale-95 transition-all flex-shrink-0"
+                      style={{ background: '#06C755' }}
+                    >
+                      {replySending[userId] ? '...' : '➤ ส่ง'}
+                    </button>
+                  </div>
+
                   {/* ปุ่มส่งการ์ดสินค้า */}
-                  <div className="pt-2 pb-1">
+                  <div className="pt-1 pb-1">
                     <button
                       onClick={() => openModal(userId)}
                       className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white transition-all active:scale-95"
