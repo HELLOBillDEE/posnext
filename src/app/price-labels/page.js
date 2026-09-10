@@ -32,7 +32,7 @@ export default function PriceLabelsPage() {
     let all = [], from = 0
     while (true) {
       const { data } = await supabase.from('products')
-        .select('id,name,barcode,price,category_id,unit')
+        .select('id,name,barcode,price,category_id,unit,image_url')
         .eq('active', true).order('name').range(from, from + 999)
       if (!data || data.length === 0) break
       all = all.concat(data)
