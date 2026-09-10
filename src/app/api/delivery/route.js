@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { randomBytes } from 'crypto'
+import { getLineSettings } from '@/lib/lineStaff'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -31,19 +32,49 @@ export async function GET(req) {
   return Response.json({ ...data, delivery_trips: trips || [] })
 }
 
-// POST — สร้าง token
+// POST — สร้าง token + แจ้งลูกค้า LINE ว่ากำลังจัดส่ง
 export async function POST(req) {
   try {
     const { id } = await req.json()
     if (!id) return Response.json({ error: 'ไม่ระบุ id' }, { status: 400 })
 
     const { data: existing } = await supabase
-      .from('quotations').select('delivery_token').eq('id', id).maybeSingle()
+      .from('quotations').select('delivery_token,doc_no').eq('id', id).maybeSingle()
 
     if (existing?.delivery_token) return Response.json({ token: existing.delivery_token })
 
     const token = randomBytes(16).toString('hex')
-    await supabase.from('quotations').update({ delivery_token: token }).eq('id', id)
+    await supabase.from('quotations').update({ delivery_token: token, status: 'dispatching' }).eq('id', id)
+
+    // หา LINE user จาก line_conversations ที่เก็บ state ออเดอร์ไว้
+    const docNo = existing?.doc_no
+    if (docNo) {
+      try {
+        const { data: convRow } = await supabase
+          .from('line_conversations')
+          .select('line_user_id')
+          .or(`content.like.__awaiting_payment__:${docNo}:%,content.like.__awaiting_order_info__:${docNo}`)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        if (convRow?.line_user_id) {
+          const lineCfg = await getLineSettings()
+          if (lineCfg?.line_channel_token) {
+            const dispatchMsg = `กำลังจัดส่งแล้วครับ 🚚 รอรับได้เลยนะครับ\n📄 เลขบิล: ${docNo}`
+            await fetch('https://api.line.me/v2/bot/message/push', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${lineCfg.line_channel_token}` },
+              body: JSON.stringify({ to: convRow.line_user_id, messages: [{ type: 'text', text: dispatchMsg }] }),
+            })
+            await supabase.from('line_conversations').insert({
+              line_user_id: convRow.line_user_id, role: 'assistant', content: dispatchMsg,
+            })
+          }
+        }
+      } catch { /* ส่ง LINE ไม่ได้ ไม่ block token creation */ }
+    }
+
     return Response.json({ token })
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 })

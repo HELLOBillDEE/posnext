@@ -258,13 +258,14 @@ export default function DeliveryListPage() {
                 {/* Status dot (non-route mode) */}
                 {!routeMode && (
                   <div className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                    style={{background: doc.delivered_at ? '#22c55e' : '#f97316'}} />
+                    style={{background: doc.delivered_at ? '#22c55e' : doc.status === 'dispatching' ? '#3b82f6' : '#f97316'}} />
                 )}
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-bold text-slate-800">{doc.doc_no}</span>
                     {doc.delivered_at && <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-semibold">ส่งแล้ว</span>}
+                    {!doc.delivered_at && doc.status === 'dispatching' && <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-semibold">🚚 กำลังส่ง</span>}
                     {doc._distKm != null && (
                       <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full">
                         ~{doc._distKm < 1 ? `${Math.round(doc._distKm*1000)} ม.` : `${doc._distKm.toFixed(1)} กม.`}
