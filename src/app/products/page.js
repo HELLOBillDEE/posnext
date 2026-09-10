@@ -130,12 +130,6 @@ export default function ProductsPage() {
   const stockRef  = useRef(null)
 
   useEffect(() => { load() }, [])
-  useEffect(() => {
-    if (!imgPopover) return
-    const close = () => setImgPopover(null)
-    const t = setTimeout(() => document.addEventListener('click', close), 0)
-    return () => { clearTimeout(t); document.removeEventListener('click', close) }
-  }, [imgPopover])
 
   useEffect(() => { setVisibleCount(20) }, [search, filterCat, filterStock, filterMargin])
 
@@ -655,6 +649,9 @@ export default function ProductsPage() {
         )}
         {bulkMode && <span className="ml-auto text-amber-600 text-[10px]">✏️ แก้ไขราคา/สต็อกได้ในตาราง</span>}
       </div>
+
+      {/* Backdrop ปิด image popover */}
+      {imgPopover && <div className="fixed inset-0 z-40" onClick={() => { setImgPopover(null); setImgSearchResults([]) }} />}
 
       {/* Product table */}
       <div className="card overflow-hidden">
