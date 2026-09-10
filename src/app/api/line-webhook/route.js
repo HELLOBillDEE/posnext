@@ -212,9 +212,10 @@ async function checkDelivery(text) {
 }
 
 function deliveryFlexBubble(d, appUrl) {
-  const isDone    = d.status === 'delivered'
-  const statusTxt = isDone ? 'ส่งแล้ว ✅' : 'รอจัดส่ง 📦'
-  const statusClr = isDone ? '#16a34a' : '#d97706'
+  const isDone        = d.status === 'delivered'
+  const isDispatching = d.status === 'dispatching'
+  const statusTxt = isDone ? 'ส่งแล้ว ✅' : isDispatching ? 'กำลังจัดส่ง 🚚' : 'รอจัดส่ง 📦'
+  const statusClr = isDone ? '#16a34a' : isDispatching ? '#2563eb' : '#d97706'
   const itemRows  = (d.items || []).map(i => ({
     type: 'box', layout: 'horizontal', contents: [
       { type: 'text', text: `• ${i.name}`, size: 'sm', color: '#374151', flex: 4, wrap: true },
