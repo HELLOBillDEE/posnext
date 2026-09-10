@@ -258,8 +258,35 @@ export default function LineBotPage() {
                     </div>
                   ))}
 
+                  {/* Quick chips */}
+                  <div className="pt-2 flex flex-wrap gap-1.5">
+                    {[
+                      { label: '👋 ทักทาย', text: 'สวัสดีครับ มีอะไรให้ช่วยได้เลยนะครับ 🙏' },
+                      { label: '✅ รับออเดอร์', text: 'รับออเดอร์แล้วครับ 🎉 ทางร้านจะรีบจัดเตรียมให้นะครับ' },
+                      { label: '🚚 กำลังจัดส่ง', text: 'กำลังจัดส่งแล้วครับ 🚚 รอรับได้เลยนะครับ' },
+                      { label: '💳 แจ้งชำระ', text: 'กรุณาโอนเงินมาที่\nธนาคาร: \nชื่อบัญชี: \nเลขที่บัญชี: \nแล้วส่งสลิปมาให้ด้วยนะครับ 🙏' },
+                      { label: '📞 โทรกลับ', text: 'ขออนุญาตโทรกลับหาลูกค้านะครับ 📞' },
+                      { label: '🙏 ขอบคุณ', text: 'ขอบคุณมากครับ หากมีอะไรสงสัยเพิ่มเติมถามได้เลยนะครับ 😊' },
+                    ].map(chip => (
+                      <button
+                        key={chip.label}
+                        onClick={() => setReplyTexts(p => ({ ...p, [userId]: chip.text }))}
+                        className="px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 active:scale-95 transition-all whitespace-nowrap"
+                      >
+                        {chip.label}
+                      </button>
+                    ))}
+                    <button
+                      onClick={() => openModal(userId)}
+                      className="px-2.5 py-1 rounded-full text-xs font-semibold text-white active:scale-95 transition-all whitespace-nowrap"
+                      style={{ background: '#C72C41' }}
+                    >
+                      📦 ส่งการ์ดสินค้า
+                    </button>
+                  </div>
+
                   {/* Reply box */}
-                  <div className="pt-2 flex gap-2 items-end">
+                  <div className="flex gap-2 items-end">
                     <textarea
                       value={replyTexts[userId] || ''}
                       onChange={e => setReplyTexts(p => ({ ...p, [userId]: e.target.value }))}
@@ -275,17 +302,6 @@ export default function LineBotPage() {
                       style={{ background: '#06C755' }}
                     >
                       {replySending[userId] ? '...' : '➤ ส่ง'}
-                    </button>
-                  </div>
-
-                  {/* ปุ่มส่งการ์ดสินค้า */}
-                  <div className="pt-1 pb-1">
-                    <button
-                      onClick={() => openModal(userId)}
-                      className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white transition-all active:scale-95"
-                      style={{ background: '#C72C41' }}
-                    >
-                      📦 ส่งการ์ดสินค้าให้ลูกค้า
                     </button>
                   </div>
                 </div>
