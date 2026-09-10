@@ -96,6 +96,7 @@ const IC = {
 const ALL_TABS = [
   { href:'/',          label:'หน้าหลัก',  icon: IC.home,      adminOnly: true },
   { href:'/pos',       label:'ขาย',       icon: IC.pos },
+  { href:'/line-bot',  label:'LINE แชท', icon: IC.linebot,   adminOnly: true },
   { href:'/products',  label:'สินค้า',    icon: IC.product },
   { href:'/po',        label:'สั่งซื้อ',  icon: IC.po,         adminOnly: true },
   { href:'/repair',    label:'คิวซ่อม',   icon: IC.repair },
@@ -108,7 +109,6 @@ const ALL_TABS = [
   { href:'/expenses',  label:'ค่าใช้จ่าย', icon: IC.expense },
   { href:'/shifts',    label:'กะ',         icon: IC.shift,    adminOnly: true },
   { href:'/admin',     label:'ตั้งค่า',   icon: IC.settings,  adminOnly: true },
-  { href:'/line-bot',  label:'LINE แชท', icon: IC.linebot,   adminOnly: true },
 ]
 
 export default function Nav() {
