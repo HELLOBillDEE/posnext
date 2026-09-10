@@ -24,6 +24,7 @@ const AWAIT_ORDER_INFO = '__awaiting_order_info__'  // prefix: AWAIT_ORDER_INFO:
 const AWAIT_PAYMENT    = '__awaiting_payment__'     // prefix: AWAIT_PAYMENT:{docNo}:{total}
 const T_PAY_TRANSFER = 'โอนชำระก่อน'
 const T_PAY_COD      = 'เก็บปลายทาง'
+const AWAIT_CATALOG_QTY = '__awaiting_catalog_qty__' // prefix: AWAIT_CATALOG_QTY:{productName}
 
 const REPAIR_KEYWORDS = ['ซ่อม', 'repair', 'บิลซ่อม', 'คิวซ่อม', 'งานซ่อม', 'เสีย', 'แก้ไข']
 
@@ -539,6 +540,38 @@ export async function POST(req) {
           }
           continue
         }
+      }
+
+      /* ── Catalog: ลูกค้ากด "สนใจ: [สินค้า]" ── */
+      if (text.startsWith('สนใจ:')) {
+        await saveMsg(lineUserId, 'user', text)
+        const productName = text.slice(5).trim()
+        const qMsg = {
+          type: 'text',
+          text: `🛒 ${productName}\n\nต้องการกี่ชิ้นครับ?`,
+          quickReply: { items: ['1','2','3','5'].map(n => ({
+            type: 'action', action: { type: 'message', label: `${n} ชิ้น`, text: n }
+          })) },
+        }
+        await linePush(lineUserId, lineToken, [qMsg])
+        await saveMsg(lineUserId, 'assistant', `${AWAIT_CATALOG_QTY}:${productName}`)
+        continue
+      }
+
+      /* ── Catalog: ลูกค้าตอบจำนวน ── */
+      if (lastBotMsg.startsWith(AWAIT_CATALOG_QTY + ':')) {
+        const productName = lastBotMsg.slice((AWAIT_CATALOG_QTY + ':').length)
+        const qty = parseInt(text)
+        await saveMsg(lineUserId, 'user', text)
+        if (!isNaN(qty) && qty > 0) {
+          const confirmMsg = `✅ รับทราบ ${productName} ×${qty} ครับ\n\nต้องการสินค้าอื่นเพิ่มอีกไหมครับ? กดเลือกจากการ์ดได้เลย หรือพิมพ์ "สั่งซื้อ" เพื่อยืนยัน`
+          await linePush(lineUserId, lineToken, [{ type: 'text', text: confirmMsg }])
+          await saveMsg(lineUserId, 'assistant', `[CATALOG_ITEM] ${productName} ×${qty}`)
+        } else {
+          await linePush(lineUserId, lineToken, [{ type: 'text', text: 'กรุณาระบุจำนวนเป็นตัวเลขครับ เช่น 1, 2, 3' }])
+          await saveMsg(lineUserId, 'assistant', `${AWAIT_CATALOG_QTY}:${productName}`)
+        }
+        continue
       }
 
       /* ── ยืนยันสั่งซื้อ (จากปุ่มการ์ดสินค้า) — ต้องอยู่ก่อน AWAIT_DELIVERY ── */

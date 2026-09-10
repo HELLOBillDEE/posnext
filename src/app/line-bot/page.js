@@ -34,6 +34,7 @@ export default function LineBotPage() {
   const [searching, setSearching]     = useState(false)
   const [sending, setSending]         = useState(false)
   const [sendOk, setSendOk]          = useState(false)
+  const [catalogMode, setCatalogMode] = useState(false)
 
   // ── Manual reply state ──
   const [replyTexts, setReplyTexts]   = useState({})   // { userId: text }
@@ -143,16 +144,20 @@ export default function LineBotPage() {
     setProdSearch('')
     setSearchRes([])
     setSendOk(false)
+    setCatalogMode(false)
   }
 
   async function sendCard() {
     if (!cardItems.length) return
     setSending(true)
     try {
+      const payload = catalogMode
+        ? { lineUserId: cardModal.userId, items: cardItems, catalog: true }
+        : { lineUserId: cardModal.userId, items: cardItems, note: cardNote }
       const res = await fetch('/api/line-push-card', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lineUserId: cardModal.userId, items: cardItems, note: cardNote }),
+        body: JSON.stringify(payload),
       })
       const json = await res.json()
       if (!json.ok) throw new Error(json.error || 'ส่งไม่สำเร็จ')
@@ -245,7 +250,7 @@ export default function LineBotPage() {
     finally { setPaySending(false) }
   }
 
-  const STATE_PREFIXES = ['__awaiting_delivery__', '__awaiting_repair__', '__awaiting_order_info__', '__awaiting_payment__', '[ORDER_DATA]']
+  const STATE_PREFIXES = ['__awaiting_delivery__', '__awaiting_repair__', '__awaiting_order_info__', '__awaiting_payment__', '__awaiting_catalog_qty__', '[ORDER_DATA]', '[CATALOG_ITEM]']
   const isStateMsg = content => STATE_PREFIXES.some(p => content?.startsWith(p))
 
   const visibleConvs = convs.filter(c => !isStateMsg(c.content))
@@ -510,13 +515,30 @@ export default function LineBotPage() {
           <div className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl shadow-2xl max-h-[92vh] flex flex-col">
 
             {/* Header */}
-            <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100">
-              <div>
-                <p className="font-bold text-slate-800">📦 ส่งการ์ดสินค้า</p>
-                <p className="text-sm text-slate-600">{lineNames[cardModal.userId] || '—'}</p>
-                <p className="text-xs text-slate-400 font-mono truncate max-w-[240px]">{cardModal.userId}</p>
+            <div className="px-5 pt-5 pb-3 border-b border-slate-100">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <p className="font-bold text-slate-800">📦 ส่งการ์ดสินค้า</p>
+                  <p className="text-sm text-slate-600">{lineNames[cardModal.userId] || '—'}</p>
+                  <p className="text-xs text-slate-400 font-mono truncate max-w-[240px]">{cardModal.userId}</p>
+                </div>
+                <button onClick={() => setCardModal(null)} className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200">✕</button>
               </div>
-              <button onClick={() => setCardModal(null)} className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200">✕</button>
+              {/* Mode toggle */}
+              <div className="flex rounded-xl overflow-hidden border border-slate-200 text-sm font-semibold">
+                <button
+                  onClick={() => setCatalogMode(false)}
+                  className={`flex-1 py-2 transition-colors ${!catalogMode ? 'text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+                  style={!catalogMode ? { background: '#C72C41' } : {}}>
+                  📋 สรุปยอด
+                </button>
+                <button
+                  onClick={() => setCatalogMode(true)}
+                  className={`flex-1 py-2 transition-colors ${catalogMode ? 'text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+                  style={catalogMode ? { background: '#C72C41' } : {}}>
+                  🛒 แค็ตตาล็อก
+                </button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
@@ -574,35 +596,48 @@ export default function LineBotPage() {
                             onChange={e => updateItem(item.id, 'price', Number(e.target.value) || 0)}
                             className="text-xs text-slate-500 w-20 border-0 border-b border-dashed border-slate-200 bg-transparent focus:outline-none focus:border-slate-400"
                           />
-                          <span className="text-xs text-slate-400">× {item.qty} = ฿{fmt(item.price * item.qty)}</span>
-                          <div className="flex items-center gap-1.5 ml-auto">
-                            <button onClick={() => setQty(item.id, item.qty - 1)}
-                              className="w-7 h-7 rounded-full bg-slate-100 text-slate-700 font-bold text-sm hover:bg-slate-200 flex items-center justify-center">−</button>
-                            <span className="w-6 text-center text-sm font-semibold">{item.qty}</span>
-                            <button onClick={() => setQty(item.id, item.qty + 1)}
-                              className="w-7 h-7 rounded-full bg-slate-100 text-slate-700 font-bold text-sm hover:bg-slate-200 flex items-center justify-center">+</button>
-                          </div>
+                          <span className="text-xs text-slate-400">/{item.unit || 'ชิ้น'}</span>
+                          {!catalogMode && (
+                            <>
+                              <span className="text-xs text-slate-400">× {item.qty} = ฿{fmt(item.price * item.qty)}</span>
+                              <div className="flex items-center gap-1.5 ml-auto">
+                                <button onClick={() => setQty(item.id, item.qty - 1)}
+                                  className="w-7 h-7 rounded-full bg-slate-100 text-slate-700 font-bold text-sm hover:bg-slate-200 flex items-center justify-center">−</button>
+                                <span className="w-6 text-center text-sm font-semibold">{item.qty}</span>
+                                <button onClick={() => setQty(item.id, item.qty + 1)}
+                                  className="w-7 h-7 rounded-full bg-slate-100 text-slate-700 font-bold text-sm hover:bg-slate-200 flex items-center justify-center">+</button>
+                              </div>
+                            </>
+                          )}
+                          {catalogMode && (
+                            <button onClick={() => setQty(item.id, 0)}
+                              className="ml-auto w-7 h-7 rounded-full bg-slate-100 text-slate-500 text-sm hover:bg-red-50 hover:text-red-500 flex items-center justify-center">✕</button>
+                          )}
                         </div>
                       </div>
                     ))}
-                    <div className="px-4 py-3 bg-slate-50 flex items-center justify-between">
-                      <span className="text-sm font-semibold text-slate-700">รวมทั้งหมด</span>
-                      <span className="text-lg font-bold" style={{ color: '#C72C41' }}>฿{fmt(cardTotal)}</span>
-                    </div>
+                    {!catalogMode && (
+                      <div className="px-4 py-3 bg-slate-50 flex items-center justify-between">
+                        <span className="text-sm font-semibold text-slate-700">รวมทั้งหมด</span>
+                        <span className="text-lg font-bold" style={{ color: '#C72C41' }}>฿{fmt(cardTotal)}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
 
-              {/* หมายเหตุ */}
-              <div>
-                <label className="text-xs font-semibold text-slate-600 block mb-1.5">💬 หมายเหตุ (ถ้ามี)</label>
-                <input value={cardNote} onChange={e => setCardNote(e.target.value)}
-                  placeholder="เช่น ส่งพรุ่งนี้, ต้องการรีบ..."
-                  className="input-field text-sm w-full" />
-              </div>
+              {/* หมายเหตุ (เฉพาะโหมดสรุปยอด) */}
+              {!catalogMode && (
+                <div>
+                  <label className="text-xs font-semibold text-slate-600 block mb-1.5">💬 หมายเหตุ (ถ้ามี)</label>
+                  <input value={cardNote} onChange={e => setCardNote(e.target.value)}
+                    placeholder="เช่น ส่งพรุ่งนี้, ต้องการรีบ..."
+                    className="input-field text-sm w-full" />
+                </div>
+              )}
 
               {/* Preview */}
-              {cardItems.length > 0 && (
+              {cardItems.length > 0 && !catalogMode && (
                 <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
                   <p className="text-xs font-semibold text-slate-500 mb-2">👀 ลูกค้าจะเห็น</p>
                   <div className="bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
@@ -630,6 +665,13 @@ export default function LineBotPage() {
                   </div>
                 </div>
               )}
+
+              {/* Catalog mode hint */}
+              {cardItems.length > 0 && catalogMode && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                  <p className="text-xs text-amber-700">🛒 ลูกค้าจะได้รับการ์ดสินค้า {cardItems.length} รายการ และกด "สนใจ" เพื่อแจ้งจำนวนได้เอง</p>
+                </div>
+              )}
             </div>
 
             {/* Footer */}
@@ -640,7 +682,7 @@ export default function LineBotPage() {
                 className="w-full py-3 rounded-xl font-bold text-white text-sm transition-all disabled:opacity-40 active:scale-95"
                 style={{ background: sendOk ? '#22c55e' : '#C72C41' }}
               >
-                {sendOk ? '✅ ส่งแล้ว!' : sending ? 'กำลังส่ง...' : `📤 ส่งการ์ดให้ลูกค้า (฿${fmt(cardTotal)})`}
+                {sendOk ? '✅ ส่งแล้ว!' : sending ? 'กำลังส่ง...' : catalogMode ? `🛒 ส่งแค็ตตาล็อก (${cardItems.length} รายการ)` : `📤 ส่งการ์ดให้ลูกค้า (฿${fmt(cardTotal)})`}
               </button>
             </div>
           </div>

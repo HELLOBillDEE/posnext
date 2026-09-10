@@ -13,7 +13,7 @@ const fmt = n => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits:
 
 export async function POST(req) {
   try {
-    const { lineUserId, items, note, manualText, messages } = await req.json()
+    const { lineUserId, items, note, manualText, messages, catalog } = await req.json()
     if (!lineUserId) return Response.json({ error: 'missing lineUserId' }, { status: 400 })
 
     // ── Raw messages array (e.g. image + text for payment chip) ──
@@ -51,6 +51,41 @@ export async function POST(req) {
     const lineCfg = await getLineSettings()
     if (!lineCfg?.line_channel_token)
       return Response.json({ error: 'no LINE token' }, { status: 500 })
+
+    // ── Catalog mode: ส่ง carousel ให้ลูกค้าเลือกเอง ──
+    if (catalog) {
+      const bubbles = items.slice(0, 12).map(it => ({
+        type: 'bubble', size: 'kilo',
+        body: {
+          type: 'box', layout: 'vertical', paddingAll: '14px', spacing: 'sm',
+          contents: [
+            { type: 'text', text: lineCfg.shop_name || 'ร้านค้า', size: 'xxs', color: '#C72C41', weight: 'bold' },
+            { type: 'text', text: it.name, size: 'sm', weight: 'bold', color: '#1e293b', wrap: true, flex: 0 },
+            { type: 'text', text: `฿${fmt(it.price)}/${it.unit || 'ชิ้น'}`, size: 'xl', weight: 'bold', color: '#C72C41', margin: 'sm' },
+          ],
+        },
+        footer: {
+          type: 'box', layout: 'vertical', paddingAll: '10px',
+          contents: [{
+            type: 'button', style: 'primary', color: '#C72C41', height: 'sm',
+            action: { type: 'message', label: '🛒 สนใจ', text: `สนใจ: ${it.name}` },
+          }],
+        },
+      }))
+      const carousel = {
+        type: 'flex',
+        altText: `🛒 รายการสินค้า ${items.length} รายการ — กด "สนใจ" เพื่อเลือก`,
+        contents: { type: 'carousel', contents: bubbles },
+      }
+      const res = await fetch('https://api.line.me/v2/bot/message/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${lineCfg.line_channel_token}` },
+        body: JSON.stringify({ to: lineUserId, messages: [carousel] }),
+      })
+      if (!res.ok) { const e = await res.json(); return Response.json({ error: e.message }, { status: 500 }) }
+      await sbService.from('line_conversations').insert({ line_user_id: lineUserId, role: 'assistant', content: `[แอดมินส่งแค็ตตาล็อก] ${items.map(i => i.name).join(', ')}` })
+      return Response.json({ ok: true })
+    }
 
     const lineToken = lineCfg.line_channel_token
     const total = items.reduce((s, it) => s + (Number(it.price) * Number(it.qty || 1)), 0)
