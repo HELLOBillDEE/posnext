@@ -179,9 +179,9 @@ export default function LineBotPage() {
     try {
       const ext = file.name.split('.').pop()
       const path = `broadcast/${Date.now()}.${ext}`
-      const { error } = await supabase.storage.from('pos-images').upload(path, file, { upsert: true, contentType: file.type })
+      const { error } = await supabase.storage.from('shop-assets').upload(path, file, { upsert: true, contentType: file.type })
       if (error) throw error
-      const { data: urlData } = supabase.storage.from('pos-images').getPublicUrl(path)
+      const { data: urlData } = supabase.storage.from('shop-assets').getPublicUrl(path)
       setBcImageUrl(urlData.publicUrl)
     } catch (e) { alert('อัปโหลดไม่สำเร็จ: ' + e.message) }
     finally { setBcUploading(false) }
