@@ -217,15 +217,21 @@ export default function Nav() {
     async function fetchUnread() {
       let since = ''
       try { since = localStorage.getItem('line_chat_last_visited') || '' } catch {}
-      const query = supabase
+      let q = supabase
         .from('line_conversations')
         .select('line_user_id')
         .eq('role', 'user')
         .not('content', 'like', '__%')
-      if (since) query.gt('created_at', since)
-      const { data } = await query.limit(500)
+      if (since) q = q.gt('created_at', since)
+      const { data } = await q.limit(500)
       if (!data) return
-      setLineUnread(new Set(data.map(r => r.line_user_id)).size)
+      const count = new Set(data.map(r => r.line_user_id)).size
+      setLineUnread(count)
+      // App Badge API — แสดงตัวเลขบน PWA icon
+      try {
+        if (count > 0) navigator.setAppBadge?.(count)
+        else navigator.clearAppBadge?.()
+      } catch {}
     }
     fetchUnread()
     const t = setInterval(fetchUnread, 20000)

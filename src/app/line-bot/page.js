@@ -53,7 +53,10 @@ export default function LineBotPage() {
   const [paySending, setPaySending] = useState(false)
 
   useEffect(() => {
-    try { localStorage.setItem('line_chat_last_visited', new Date().toISOString()) } catch {}
+    try {
+      localStorage.setItem('line_chat_last_visited', new Date().toISOString())
+      navigator.clearAppBadge?.()
+    } catch {}
     load(); loadConvs()
   }, [])
 
