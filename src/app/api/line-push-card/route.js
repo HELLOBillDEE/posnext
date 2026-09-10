@@ -79,7 +79,11 @@ export async function POST(req) {
     }
 
     const summary = `[แอดมินส่งการ์ด] ${items.map(i => `${i.name} ×${i.qty}`).join(', ')} รวม ฿${fmt(total)}`
-    await sbService.from('line_conversations').insert({ line_user_id: lineUserId, role: 'assistant', content: summary })
+    // บันทึก 2 records: summary ที่อ่านได้ + JSON สำหรับสร้างบิลอัตโนมัติ
+    await sbService.from('line_conversations').insert([
+      { line_user_id: lineUserId, role: 'assistant', content: summary },
+      { line_user_id: lineUserId, role: 'assistant', content: `[ORDER_DATA]${JSON.stringify({ items, note: note || '', total })}` },
+    ])
 
     return Response.json({ ok: true })
   } catch (e) {

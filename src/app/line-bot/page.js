@@ -17,6 +17,7 @@ export default function LineBotPage() {
   const [saved, setSaved]         = useState(false)
   const [convs, setConvs]         = useState([])
   const [convLoading, setConvLoading] = useState(true)
+  const [lineNames, setLineNames]     = useState({})   // { userId: displayName }
 
   // ── Card sender state ──
   const [cardModal, setCardModal]     = useState(null)   // { userId }
@@ -45,8 +46,18 @@ export default function LineBotPage() {
       .select('id,line_user_id,role,content,created_at')
       .order('created_at', { ascending: false })
       .limit(50)
-    setConvs(data || [])
+    const rows = data || []
+    setConvs(rows)
     setConvLoading(false)
+
+    const uids = [...new Set(rows.map(r => r.line_user_id))]
+    if (uids.length) {
+      fetch('/api/line-profiles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userIds: uids }),
+      }).then(r => r.json()).then(map => setLineNames(map)).catch(() => {})
+    }
   }
 
   async function save() {
@@ -92,6 +103,10 @@ export default function LineBotPage() {
     setCardItems(prev => prev.map(i => i.id === id ? { ...i, qty } : i))
   }
 
+  function updateItem(id, field, value) {
+    setCardItems(prev => prev.map(i => i.id === id ? { ...i, [field]: value } : i))
+  }
+
   function openModal(userId) {
     setCardModal({ userId })
     setCardItems([])
@@ -117,7 +132,12 @@ export default function LineBotPage() {
     } catch (e) { alert('ส่งไม่สำเร็จ: ' + e.message) } finally { setSending(false) }
   }
 
-  const grouped = convs.reduce((acc, c) => {
+  const STATE_PREFIXES = ['__awaiting_delivery__', '__awaiting_repair__', '__awaiting_order_info__', '[ORDER_DATA]']
+  const isStateMsg = content => STATE_PREFIXES.some(p => content?.startsWith(p))
+
+  const visibleConvs = convs.filter(c => !isStateMsg(c.content))
+
+  const grouped = visibleConvs.reduce((acc, c) => {
     if (!acc[c.line_user_id]) acc[c.line_user_id] = []
     acc[c.line_user_id].push(c)
     return acc
@@ -193,8 +213,8 @@ export default function LineBotPage() {
                 <summary className="px-5 py-3 flex items-center gap-3 cursor-pointer list-none hover:bg-slate-50">
                   <span className="text-2xl">👤</span>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs text-slate-400 font-mono truncate">{userId}</p>
-                    <p className="text-sm text-slate-600 truncate">{msgs[msgs.length - 1]?.content}</p>
+                    <p className="text-sm font-medium text-slate-700 truncate">{lineNames[userId] || <span className="font-mono text-xs text-slate-400">{userId}</span>}</p>
+                    <p className="text-sm text-slate-500 truncate">{msgs.filter(m => !isStateMsg(m.content)).at(-1)?.content}</p>
                   </div>
                   <span className="text-xs text-slate-400 flex-shrink-0">{msgs.length} ข้อความ</span>
                   <span className="text-slate-300 group-open:rotate-90 transition-transform">▶</span>
@@ -237,6 +257,7 @@ export default function LineBotPage() {
             <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100">
               <div>
                 <p className="font-bold text-slate-800">📦 ส่งการ์ดสินค้า</p>
+                <p className="text-sm text-slate-600">{lineNames[cardModal.userId] || '—'}</p>
                 <p className="text-xs text-slate-400 font-mono truncate max-w-[240px]">{cardModal.userId}</p>
               </div>
               <button onClick={() => setCardModal(null)} className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200">✕</button>
@@ -283,17 +304,28 @@ export default function LineBotPage() {
                   <label className="text-xs font-semibold text-slate-600 block mb-1.5">🛒 รายการที่เลือก</label>
                   <div className="border border-slate-200 rounded-xl overflow-hidden">
                     {cardItems.map(item => (
-                      <div key={item.id} className="flex items-center gap-3 px-4 py-3 border-b border-slate-100 last:border-0">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-slate-800 truncate">{item.name}</p>
-                          <p className="text-xs text-slate-500">฿{fmt(item.price)} × {item.qty} = ฿{fmt(item.price * item.qty)}</p>
-                        </div>
+                      <div key={item.id} className="px-4 py-3 border-b border-slate-100 last:border-0">
+                        <input
+                          value={item.name}
+                          onChange={e => updateItem(item.id, 'name', e.target.value)}
+                          className="text-sm font-medium text-slate-800 w-full border-0 border-b border-dashed border-slate-200 bg-transparent focus:outline-none focus:border-slate-400 mb-1.5 pb-0.5"
+                        />
                         <div className="flex items-center gap-2">
-                          <button onClick={() => setQty(item.id, item.qty - 1)}
-                            className="w-7 h-7 rounded-full bg-slate-100 text-slate-700 font-bold text-sm hover:bg-slate-200 flex items-center justify-center">−</button>
-                          <span className="w-6 text-center text-sm font-semibold">{item.qty}</span>
-                          <button onClick={() => setQty(item.id, item.qty + 1)}
-                            className="w-7 h-7 rounded-full bg-slate-100 text-slate-700 font-bold text-sm hover:bg-slate-200 flex items-center justify-center">+</button>
+                          <span className="text-xs text-slate-400">฿</span>
+                          <input
+                            type="number"
+                            value={item.price}
+                            onChange={e => updateItem(item.id, 'price', Number(e.target.value) || 0)}
+                            className="text-xs text-slate-500 w-20 border-0 border-b border-dashed border-slate-200 bg-transparent focus:outline-none focus:border-slate-400"
+                          />
+                          <span className="text-xs text-slate-400">× {item.qty} = ฿{fmt(item.price * item.qty)}</span>
+                          <div className="flex items-center gap-1.5 ml-auto">
+                            <button onClick={() => setQty(item.id, item.qty - 1)}
+                              className="w-7 h-7 rounded-full bg-slate-100 text-slate-700 font-bold text-sm hover:bg-slate-200 flex items-center justify-center">−</button>
+                            <span className="w-6 text-center text-sm font-semibold">{item.qty}</span>
+                            <button onClick={() => setQty(item.id, item.qty + 1)}
+                              className="w-7 h-7 rounded-full bg-slate-100 text-slate-700 font-bold text-sm hover:bg-slate-200 flex items-center justify-center">+</button>
+                          </div>
                         </div>
                       </div>
                     ))}

@@ -18,8 +18,9 @@ const genAI = new GoogleGenerativeAI(process.env.ANTHROPIC_API_KEY || process.en
 const T_BUY      = '__buy__'
 const T_REPAIR   = '__repair__'
 const T_DELIVERY = '__delivery__'
-const AWAIT_DELIVERY = '__awaiting_delivery__'
-const AWAIT_REPAIR   = '__awaiting_repair__'
+const AWAIT_DELIVERY   = '__awaiting_delivery__'
+const AWAIT_REPAIR     = '__awaiting_repair__'
+const AWAIT_ORDER_INFO = '__awaiting_order_info__'  // prefix: AWAIT_ORDER_INFO:{docNo}
 
 const REPAIR_KEYWORDS = ['ซ่อม', 'repair', 'บิลซ่อม', 'คิวซ่อม', 'งานซ่อม', 'เสีย', 'แก้ไข']
 
@@ -544,6 +545,108 @@ export async function POST(req) {
           const msg = `🚚 ยังหาไม่เจอครับ\n\nลองส่งข้อมูลอื่นได้มั้ยครับ? เช่น\n• ชื่อที่ใช้สั่ง\n• เบอร์โทร\n• เลขที่ออเดอร์/บิล\n\nหรือโทรถามได้เลยที่ ${shopCfg?.shop_phone || ''} ครับ`
           await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
           await saveMsg(lineUserId, 'assistant', AWAIT_DELIVERY)
+        }
+        continue
+      }
+
+      /* ── ยืนยันสั่งซื้อ (จากปุ่มการ์ดสินค้า) ── */
+      if (text === 'ยืนยันสั่งซื้อรายการนี้') {
+        await saveMsg(lineUserId, 'user', text)
+
+        // ดึง ORDER_DATA ล่าสุดจากประวัติ (20 ข้อความล่าสุด เพื่อให้ครอบคลุม)
+        const { data: histRows } = await sbService
+          .from('line_conversations').select('role,content')
+          .eq('line_user_id', lineUserId)
+          .order('created_at', { ascending: false }).limit(20)
+        const lastOrderRec = (histRows || []).find(m => m.role === 'assistant' && m.content.startsWith('[ORDER_DATA]'))
+        const lastCardRec  = (histRows || []).find(m => m.role === 'assistant' && m.content.startsWith('[แอดมินส่งการ์ด]'))
+
+        let docNo = null
+        if (lastOrderRec) {
+          try {
+            const orderData = JSON.parse(lastOrderRec.content.slice('[ORDER_DATA]'.length))
+            docNo = `LINE${Date.now()}`
+            const billItems = orderData.items.map(i => ({
+              name: i.name,
+              qty: Number(i.qty) || 1,
+              price: Number(i.price) || 0,
+              unit: i.unit || 'ชิ้น',
+              total: (Number(i.price) || 0) * (Number(i.qty) || 1),
+            }))
+            await sbService.from('quotations').insert({
+              doc_no: docNo,
+              doc_type: 'delivery_invoice',
+              status: 'pending',
+              customer_name: 'ลูกค้า LINE',
+              customer_phone: '',
+              customer_address: '',
+              items: billItems,
+              total: Number(orderData.total) || 0,
+              note: orderData.note ? `LINE: ${orderData.note}` : 'สั่งผ่าน LINE',
+            })
+          } catch (e) {
+            docNo = null
+          }
+        }
+
+        const orderSummary = lastCardRec ? lastCardRec.content : null
+        const billLine = docNo ? `\n📄 เลขที่บิล: ${docNo}` : ''
+        const confirmMsg = orderSummary
+          ? `✅ รับออเดอร์แล้วครับ!${billLine}\n\n${orderSummary}\n\nรบกวนแจ้งข้อมูลการจัดส่งด้วยนะครับ:\n📝 ชื่อ:\n📞 เบอร์โทร:\n📍 ที่อยู่จัดส่ง (หรือระบุว่ามารับหน้าร้าน):\n\nแอดมินจะติดต่อกลับเพื่อยืนยันและนัดส่งครับ 🙏`
+          : `✅ รับออเดอร์แล้วครับ!${billLine}\n\nรบกวนแจ้งข้อมูลการจัดส่งด้วยนะครับ:\n📝 ชื่อ:\n📞 เบอร์โทร:\n📍 ที่อยู่จัดส่ง (หรือระบุว่ามารับหน้าร้าน):\n\nแอดมินจะติดต่อกลับเพื่อยืนยันและนัดส่งครับ 🙏`
+        await lineReply(replyToken, lineToken, [{ type: 'text', text: confirmMsg }])
+        // บันทึก state รอข้อมูลลูกค้า (แทนที่จะบันทึก confirmMsg ดิบๆ)
+        await saveMsg(lineUserId, 'assistant', `${AWAIT_ORDER_INFO}:${docNo || 'NOID'}`)
+
+        // แจ้ง staff LINE group ถ้ามี
+        if (docNo) {
+          const { data: staffCfg } = await sbService.from('settings').select('value').eq('key', 'line_staff_group_id').single()
+          const groupId = staffCfg?.value
+          if (groupId) {
+            const notify = `🛒 ออเดอร์ใหม่จาก LINE!\nเลขบิล: ${docNo}\n${orderSummary || ''}\nรอข้อมูลลูกค้า (ชื่อ/เบอร์/ที่อยู่)`
+            await fetch('https://api.line.me/v2/bot/message/push', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${lineToken}` },
+              body: JSON.stringify({ to: groupId, messages: [{ type: 'text', text: notify }] }),
+            })
+          }
+        }
+        continue
+      }
+
+      /* ── รอข้อมูลลูกค้าหลังยืนยันออเดอร์ ── */
+      if (lastBotMsg.startsWith(AWAIT_ORDER_INFO + ':')) {
+        const docNo = lastBotMsg.slice((AWAIT_ORDER_INFO + ':').length)
+        await saveMsg(lineUserId, 'user', text)
+
+        // พยายามอัพเดต quotation ด้วยข้อมูลที่ลูกค้าส่งมา
+        const phoneMatch = text.match(/0\d{8,9}/)
+        const phone = phoneMatch ? phoneMatch[0] : ''
+        const nameGuess = text.split(/[\n\r]/)[0].replace(/0\d{8,9}/, '').replace(/[^฀-๿a-zA-Z\s]/g, '').trim()
+        const addrGuess = text.split(/[\n\r]/).slice(1).join(' ').trim() || text.replace(phoneMatch?.[0] || '', '').replace(nameGuess, '').trim()
+
+        if (docNo !== 'NOID') {
+          await sbService.from('quotations').update({
+            customer_name:    nameGuess || 'ลูกค้า LINE',
+            customer_phone:   phone,
+            customer_address: addrGuess,
+          }).eq('doc_no', docNo)
+        }
+
+        const replyInfoMsg = `✅ บันทึกข้อมูลแล้วครับ!\n📄 เลขบิล: ${docNo !== 'NOID' ? docNo : '—'}\n📝 ชื่อ: ${nameGuess || '—'}\n📞 เบอร์: ${phone || '—'}\n📍 ที่อยู่: ${addrGuess || '—'}\n\nแอดมินจะติดต่อกลับเพื่อนัดส่งครับ 🙏`
+        await lineReply(replyToken, lineToken, [{ type: 'text', text: replyInfoMsg }])
+        await saveMsg(lineUserId, 'assistant', replyInfoMsg)
+
+        // แจ้ง staff
+        const { data: staffCfg } = await sbService.from('settings').select('value').eq('key', 'line_staff_group_id').single()
+        const groupId = staffCfg?.value
+        if (groupId && docNo !== 'NOID') {
+          const notify = `📋 อัพเดตออเดอร์ ${docNo}\n👤 ${nameGuess || '—'}  📞 ${phone || '—'}\n📍 ${addrGuess || '—'}`
+          await fetch('https://api.line.me/v2/bot/message/push', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${lineToken}` },
+            body: JSON.stringify({ to: groupId, messages: [{ type: 'text', text: notify }] }),
+          })
         }
         continue
       }
