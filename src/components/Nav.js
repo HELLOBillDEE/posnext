@@ -66,6 +66,11 @@ const IC = {
       <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
     </svg>
   ),
+  linebot: (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-[18px] h-[18px]">
+      <path d="M19.365 9.863c.349 0 .63.285.63.631 0 .345-.281.63-.63.63H17.61v1.125h1.755c.349 0 .63.283.63.63 0 .344-.281.629-.63.629h-2.386c-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63h2.386c.346 0 .627.285.627.63 0 .349-.281.63-.63.63H17.61v1.125h1.755zm-3.855 3.016c0 .27-.174.51-.432.596-.064.021-.133.031-.199.031-.211 0-.391-.09-.51-.25l-2.443-3.317v2.94c0 .344-.279.629-.631.629-.346 0-.626-.285-.626-.629V8.108c0-.27.173-.51.43-.595.06-.023.136-.033.194-.033.195 0 .375.104.495.254l2.462 3.33V8.108c0-.345.282-.63.63-.63.345 0 .63.285.63.63v4.771zm-5.741 0c0 .344-.282.629-.631.629-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63.346 0 .628.285.628.63v4.771zm-2.466.629H4.917c-.345 0-.63-.285-.63-.629V8.108c0-.345.285-.63.63-.63.348 0 .63.285.63.63v4.141h1.756c.348 0 .629.283.629.63 0 .344-.282.629-.629.629M24 10.314C24 4.943 18.615.572 12 .572S0 4.943 0 10.314c0 4.811 4.27 8.842 10.035 9.608.391.082.923.258 1.058.59.12.301.079.766.038 1.08l-.164 1.02c-.045.301-.24 1.186 1.049.645 1.291-.539 6.916-4.078 9.436-6.975C23.176 14.393 24 12.458 24 10.314"/>
+    </svg>
+  ),
   customer: (
     <svg viewBox="0 0 24 24" fill="currentColor" className="w-[18px] h-[18px]">
       <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
@@ -103,6 +108,7 @@ const ALL_TABS = [
   { href:'/expenses',  label:'ค่าใช้จ่าย', icon: IC.expense },
   { href:'/shifts',    label:'กะ',         icon: IC.shift,    adminOnly: true },
   { href:'/admin',     label:'ตั้งค่า',   icon: IC.settings,  adminOnly: true },
+  { href:'/line-bot',  label:'LINE แชท', icon: IC.linebot,   adminOnly: true },
 ]
 
 export default function Nav() {
@@ -183,6 +189,7 @@ export default function Nav() {
     setTimeout(() => setPrintStatus(null), 3000)
   }
 
+  const [lineUnread, setLineUnread] = useState(0)
   const [collapsed, setCollapsed] = useState(false)
 
   useEffect(() => {
@@ -204,6 +211,30 @@ export default function Nav() {
   const isAdmin = auth.role === 'admin'
   const TABS = ALL_TABS.filter(t => isAdmin || !t.adminOnly)
   const isActive = (href) => href === '/' ? path === '/' : path === href || path.startsWith(href + '/')
+
+  useEffect(() => {
+    if (!isAdmin) return
+    async function fetchUnread() {
+      const STATE_STARTS = ['__awaiting', '[ORDER_DATA]']
+      const { data } = await supabase
+        .from('line_conversations')
+        .select('line_user_id,role,content')
+        .order('created_at', { ascending: false })
+        .limit(200)
+      if (!data) return
+      const latestPerUser = {}
+      for (const row of data) {
+        if (!latestPerUser[row.line_user_id]) latestPerUser[row.line_user_id] = row
+      }
+      const count = Object.values(latestPerUser).filter(r =>
+        r.role === 'user' && !STATE_STARTS.some(p => r.content?.startsWith(p))
+      ).length
+      setLineUnread(count)
+    }
+    fetchUnread()
+    const t = setInterval(fetchUnread, 30000)
+    return () => clearInterval(t)
+  }, [isAdmin])
 
   async function openEmpPicker() {
     const { data } = await supabase.from('employees')
@@ -298,6 +329,7 @@ export default function Nav() {
         <nav className="flex-1 px-2 py-1 space-y-0.5 overflow-y-auto scroll-hidden">
           {TABS.map(t => {
             const active = isActive(t.href)
+            const badge = t.href === '/line-bot' && lineUnread > 0 ? lineUnread : 0
             return (
               <Link key={t.href} href={t.href} title={collapsed ? t.label : undefined}
                 className={`flex items-center rounded-xl text-sm font-medium transition-all group
@@ -308,14 +340,26 @@ export default function Nav() {
                   border: '1px solid rgba(199,44,65,0.3)',
                 } : {}}>
 
-                <div className={`icon-glass flex-shrink-0 ${active ? 'icon-glass-active' : 'icon-glass-inactive'}`}>
+                <div className={`icon-glass flex-shrink-0 relative ${active ? 'icon-glass-active' : 'icon-glass-inactive'}`}>
                   <span className={active ? 'text-white' : 'text-brand-light'}>
                     {t.icon}
                   </span>
+                  {badge > 0 && (
+                    <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full text-[9px] font-bold text-white flex items-center justify-center"
+                      style={{ background: '#06C755' }}>
+                      {badge > 9 ? '9+' : badge}
+                    </span>
+                  )}
                 </div>
 
                 {!collapsed && <span className="flex-1 whitespace-nowrap">{t.label}</span>}
-                {!collapsed && active && (
+                {!collapsed && badge > 0 && (
+                  <span className="min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold text-white flex items-center justify-center flex-shrink-0"
+                    style={{ background: '#06C755' }}>
+                    {badge > 9 ? '9+' : badge}
+                  </span>
+                )}
+                {!collapsed && active && badge === 0 && (
                   <span className="w-1.5 h-1.5 rounded-full bg-brand-light/80 flex-shrink-0" />
                 )}
               </Link>
@@ -466,15 +510,22 @@ export default function Nav() {
 
           {TABS.map(t => {
             const active = isActive(t.href)
+            const badge = t.href === '/line-bot' && lineUnread > 0 ? lineUnread : 0
             return (
               <Link key={t.href} href={t.href}
                 className="flex flex-col items-center justify-center py-1 px-1 flex-1 min-w-[52px] transition-all">
-                <div className={`icon-glass mb-1 w-9 h-9 rounded-[11px] transition-all ${
+                <div className={`icon-glass mb-1 w-9 h-9 rounded-[11px] transition-all relative ${
                   active ? 'icon-glass-active scale-105' : 'icon-glass-inactive'
                 }`}>
                   <span className={active ? 'text-white' : 'text-brand-light'}>
                     {t.icon}
                   </span>
+                  {badge > 0 && (
+                    <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full text-[9px] font-bold text-white flex items-center justify-center"
+                      style={{ background: '#06C755' }}>
+                      {badge > 9 ? '9+' : badge}
+                    </span>
+                  )}
                 </div>
                 <span className={`text-[9px] leading-tight font-semibold ${
                   active ? 'text-brand' : 'text-slate-400'
