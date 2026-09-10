@@ -1,12 +1,16 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/components/AuthProvider'
 
 const KEYS = ['line_bot_enabled', 'line_bot_name', 'line_bot_persona', 'line_bot_silent_keywords']
 
 const fmt = n => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 
 export default function LineBotPage() {
+  const auth = useAuth()
+  const isAdmin = auth?.role === 'admin'
+
   const [cfg, setCfg] = useState({
     line_bot_enabled: 'true',
     line_bot_name: 'น้องมิน',
@@ -154,46 +158,48 @@ export default function LineBotPage() {
     <div className="page max-w-2xl mx-auto">
       <h1 className="font-heading font-bold text-xl text-slate-800 mb-6">💬 ตั้งค่าบอท LINE</h1>
 
-      {/* Toggle เปิด/ปิด */}
-      <div className="bg-white rounded-2xl shadow-sm p-5 mb-4 flex items-center justify-between">
-        <div>
-          <p className="font-semibold text-slate-800">สถานะบอท</p>
-          <p className="text-sm text-slate-500 mt-0.5">เปิด = บอทตอบลูกค้าอัตโนมัติ</p>
+      {isAdmin && (<>
+        {/* Toggle เปิด/ปิด */}
+        <div className="bg-white rounded-2xl shadow-sm p-5 mb-4 flex items-center justify-between">
+          <div>
+            <p className="font-semibold text-slate-800">สถานะบอท</p>
+            <p className="text-sm text-slate-500 mt-0.5">เปิด = บอทตอบลูกค้าอัตโนมัติ</p>
+          </div>
+          <button
+            onClick={() => setCfg(p => ({ ...p, line_bot_enabled: p.line_bot_enabled === 'true' ? 'false' : 'true' }))}
+            className={`relative w-14 h-7 rounded-full transition-colors ${cfg.line_bot_enabled === 'true' ? 'bg-green-500' : 'bg-slate-300'}`}
+          >
+            <span className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow transition-all ${cfg.line_bot_enabled === 'true' ? 'left-7' : 'left-0.5'}`} />
+          </button>
         </div>
-        <button
-          onClick={() => setCfg(p => ({ ...p, line_bot_enabled: p.line_bot_enabled === 'true' ? 'false' : 'true' }))}
-          className={`relative w-14 h-7 rounded-full transition-colors ${cfg.line_bot_enabled === 'true' ? 'bg-green-500' : 'bg-slate-300'}`}
-        >
-          <span className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow transition-all ${cfg.line_bot_enabled === 'true' ? 'left-7' : 'left-0.5'}`} />
+
+        {/* ตั้งค่าบอท */}
+        <div className="bg-white rounded-2xl shadow-sm p-5 mb-4 space-y-4">
+          <h2 className="font-semibold text-slate-700">ตัวตนบอท</h2>
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">ชื่อบอท</label>
+            <input value={cfg.line_bot_name} onChange={e => setCfg(p => ({ ...p, line_bot_name: e.target.value }))}
+              className="input-field text-sm w-full" placeholder="เช่น น้องมิน, น้องโอ, แอดมิน" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">บุคลิก / วิธีตอบ (system prompt)</label>
+            <textarea value={cfg.line_bot_persona} onChange={e => setCfg(p => ({ ...p, line_bot_persona: e.target.value }))}
+              rows={4} className="input-field text-sm w-full resize-none"
+              placeholder="เช่น ผู้ช่วยขายของร้าน ตอบภาษาไทยสั้นกระชับ เป็นกันเอง ใช้ค่ะ" />
+            <p className="text-xs text-slate-400 mt-1">AI จะตอบตามบุคลิกที่กำหนด</p>
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">คำที่ให้บอทเงียบ (คั่นด้วยจุลภาค)</label>
+            <input value={cfg.line_bot_silent_keywords} onChange={e => setCfg(p => ({ ...p, line_bot_silent_keywords: e.target.value }))}
+              className="input-field text-sm w-full" placeholder="เช่น ซ่อม,ติดตามงาน,คุยกับเจ้าของ" />
+            <p className="text-xs text-slate-400 mt-1">ถ้าข้อความลูกค้ามีคำเหล่านี้ บอทจะไม่ตอบ</p>
+          </div>
+        </div>
+
+        <button onClick={save} disabled={saving} className="w-full btn-primary py-3 mb-8 disabled:opacity-50">
+          {saved ? '✅ บันทึกแล้ว' : saving ? 'กำลังบันทึก...' : '💾 บันทึกการตั้งค่า'}
         </button>
-      </div>
-
-      {/* ตั้งค่าบอท */}
-      <div className="bg-white rounded-2xl shadow-sm p-5 mb-4 space-y-4">
-        <h2 className="font-semibold text-slate-700">ตัวตนบอท</h2>
-        <div>
-          <label className="text-xs text-slate-500 block mb-1">ชื่อบอท</label>
-          <input value={cfg.line_bot_name} onChange={e => setCfg(p => ({ ...p, line_bot_name: e.target.value }))}
-            className="input-field text-sm w-full" placeholder="เช่น น้องมิน, น้องโอ, แอดมิน" />
-        </div>
-        <div>
-          <label className="text-xs text-slate-500 block mb-1">บุคลิก / วิธีตอบ (system prompt)</label>
-          <textarea value={cfg.line_bot_persona} onChange={e => setCfg(p => ({ ...p, line_bot_persona: e.target.value }))}
-            rows={4} className="input-field text-sm w-full resize-none"
-            placeholder="เช่น ผู้ช่วยขายของร้าน ตอบภาษาไทยสั้นกระชับ เป็นกันเอง ใช้ค่ะ" />
-          <p className="text-xs text-slate-400 mt-1">AI จะตอบตามบุคลิกที่กำหนด</p>
-        </div>
-        <div>
-          <label className="text-xs text-slate-500 block mb-1">คำที่ให้บอทเงียบ (คั่นด้วยจุลภาค)</label>
-          <input value={cfg.line_bot_silent_keywords} onChange={e => setCfg(p => ({ ...p, line_bot_silent_keywords: e.target.value }))}
-            className="input-field text-sm w-full" placeholder="เช่น ซ่อม,ติดตามงาน,คุยกับเจ้าของ" />
-          <p className="text-xs text-slate-400 mt-1">ถ้าข้อความลูกค้ามีคำเหล่านี้ บอทจะไม่ตอบ</p>
-        </div>
-      </div>
-
-      <button onClick={save} disabled={saving} className="w-full btn-primary py-3 mb-8 disabled:opacity-50">
-        {saved ? '✅ บันทึกแล้ว' : saving ? 'กำลังบันทึก...' : '💾 บันทึกการตั้งค่า'}
-      </button>
+      </>)}
 
       {/* ประวัติสนทนา */}
       <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
