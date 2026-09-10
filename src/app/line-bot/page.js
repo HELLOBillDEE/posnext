@@ -375,7 +375,7 @@ export default function LineBotPage() {
                   <span className="text-2xl">👤</span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-slate-700 truncate">{lineNames[userId] || <span className="font-mono text-xs text-slate-400">{userId}</span>}</p>
-                    <p className="text-sm text-slate-500 truncate">{msgs.filter(m => !isStateMsg(m.content)).at(-1)?.content}</p>
+                    <p className="text-sm text-slate-500 truncate">{msgs.filter(m => !isStateMsg(m.content))[0]?.content}</p>
                   </div>
                   <span className="text-xs text-slate-400 flex-shrink-0">{msgs.length} ข้อความ</span>
                   <span className="text-slate-300 group-open:rotate-90 transition-transform">▶</span>
