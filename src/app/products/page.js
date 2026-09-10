@@ -668,10 +668,26 @@ export default function ProductsPage() {
                   </td>
                   <td className="px-3 py-2.5">
                     <div className="flex items-center gap-2">
-                      {p.image_url
-                        ? <img src={p.image_url} alt="" className="w-9 h-9 rounded-lg object-cover shrink-0 border border-slate-100" />
-                        : <div className="w-9 h-9 rounded-lg bg-slate-100 shrink-0 flex items-center justify-center text-base">📦</div>
-                      }
+                      <label className="shrink-0 cursor-pointer group relative" title="กดเพื่อเปลี่ยนรูป">
+                        {p.image_url
+                          ? <img src={p.image_url} alt="" className="w-9 h-9 rounded-lg object-cover border border-slate-100 group-hover:opacity-70 transition-opacity" />
+                          : <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center text-base group-hover:bg-slate-200 transition-colors">📦</div>
+                        }
+                        <div className="absolute inset-0 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                          <span className="text-[9px] font-bold text-white bg-black/50 rounded px-1">📷</span>
+                        </div>
+                        <input type="file" accept="image/*" className="hidden"
+                          onChange={async ev => {
+                            const file = ev.target.files?.[0]; if (!file) return
+                            setImgUploading(true)
+                            try {
+                              const url = await compressAndUpload(file)
+                              await supabase.from('products').update({ image_url: url, updated_at: new Date().toISOString() }).eq('id', p.id)
+                              load(); invalidatePosCache()
+                            } catch(err) { alert('อัพโหลดไม่ได้: ' + err.message) }
+                            finally { setImgUploading(false); ev.target.value = '' }
+                          }} />
+                      </label>
                       <div>
                         <p className="font-semibold text-slate-800 leading-tight">
                           {p.name}
