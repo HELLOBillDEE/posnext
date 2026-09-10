@@ -13,7 +13,7 @@ const LABEL_SIZES = [
   { id:'40x25',    label:'40×25 mm · 1 ดวง/แถว',  pw:40,  ph:25, cols:1, lw:36, hGap:0, vGap:2, mx:2, my:2 },
 ]
 
-const EMPTY_PROD = { barcode:'', name:'', category_id:'', unit:'ชิ้น', cost:'', price:'', stock:'', min_stock:'5', search_tags:'', active:true, is_listed_online:false, online_price:'' }
+const EMPTY_PROD = { barcode:'', name:'', category_id:'', unit:'ชิ้น', cost:'', price:'', stock:'', min_stock:'5', search_tags:'', active:true, is_listed_online:false, online_price:'', image_url:'' }
 
 const invalidatePosCache = () => fetch('/api/pos-data/invalidate?key=products', { method: 'POST' }).catch(() => {})
 
@@ -78,6 +78,39 @@ export default function ProductsPage() {
   const [importRows, setImportRows]   = useState([])
   const [importDone, setImportDone]   = useState(null)
   const [visibleCount, setVisibleCount] = useState(20)
+  const [imgUploading, setImgUploading] = useState(false)
+  const imgInputRef = useRef(null)
+
+  async function compressAndUpload(file) {
+    return new Promise((resolve, reject) => {
+      const img = new Image()
+      const url = URL.createObjectURL(file)
+      img.onload = async () => {
+        URL.revokeObjectURL(url)
+        const MAX = 400
+        let w = img.width, h = img.height
+        if (w > MAX || h > MAX) {
+          if (w > h) { h = Math.round(h * MAX / w); w = MAX }
+          else { w = Math.round(w * MAX / h); h = MAX }
+        }
+        const canvas = document.createElement('canvas')
+        canvas.width = w; canvas.height = h
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h)
+        canvas.toBlob(async blob => {
+          try {
+            const ext = 'jpg'
+            const path = `products/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`
+            const { error } = await supabase.storage.from('shop-assets').upload(path, blob, { contentType: 'image/jpeg', upsert: false })
+            if (error) return reject(error)
+            const { data } = supabase.storage.from('shop-assets').getPublicUrl(path)
+            resolve(data.publicUrl)
+          } catch (e) { reject(e) }
+        }, 'image/jpeg', 0.75)
+      }
+      img.onerror = reject
+      img.src = url
+    })
+  }
   const loadMoreRef = useRef(null)
   const importRef = useRef(null)
   const stockRef  = useRef(null)
@@ -118,7 +151,7 @@ export default function ProductsPage() {
   const filtered = products.filter(p => {
     const q = search.toLowerCase()
     const matchSearch  = !search || p.name.toLowerCase().includes(q) || (p.barcode||'').toLowerCase().includes(q) || (p.alt_barcode||'').toLowerCase().includes(q) || (p.search_tags||'').toLowerCase().includes(q)
-    const matchCat     = !filterCat || String(p.category_id) === filterCat
+    const matchCat     = !filterCat || (filterCat === 'none' ? !p.category_id : filterCat === 'online' ? p.is_listed_online : String(p.category_id) === filterCat)
     const matchStock   = filterStock === 'all' || (filterStock === 'low' && p.stock <= p.min_stock) || (filterStock === 'out' && p.stock <= 0)
     const m            = marginPct(p)
     const matchMargin  = filterMargin === 'all' || (filterMargin === 'low' && m !== null && m < 35) || (filterMargin === 'none' && (m === null || p.cost === 0))
@@ -165,7 +198,7 @@ export default function ProductsPage() {
     setModal('add')
   }
   function openEdit(p) {
-    setForm({ barcode: p.barcode||'', name: p.name, category_id: String(p.category_id||''), unit: p.unit||'ชิ้น', cost: String(p.cost||''), price: String(p.price||''), stock: String(p.stock||''), min_stock: String(p.min_stock||5), search_tags: p.search_tags||'', active: p.active, is_listed_online: p.is_listed_online||false, online_price: p.online_price != null ? String(p.online_price) : '' })
+    setForm({ barcode: p.barcode||'', name: p.name, category_id: String(p.category_id||''), unit: p.unit||'ชิ้น', cost: String(p.cost||''), price: String(p.price||''), stock: String(p.stock||''), min_stock: String(p.min_stock||5), search_tags: p.search_tags||'', active: p.active, is_listed_online: p.is_listed_online||false, online_price: p.online_price != null ? String(p.online_price) : '', image_url: p.image_url||'' })
     setModal({ type:'edit', id: p.id })
   }
 
@@ -185,6 +218,7 @@ export default function ProductsPage() {
       active: form.active,
       is_listed_online: form.is_listed_online || false,
       online_price: form.online_price !== '' ? parseFloat(form.online_price) : null,
+      image_url: form.image_url || null,
     }
     try {
       if (modal === 'add') {
@@ -570,6 +604,8 @@ export default function ProductsPage() {
           className="field flex-1 min-w-[160px]" />
         <select value={filterCat} onChange={e => setFilterCat(e.target.value)} className="field">
           <option value="">ทุกหมวด</option>
+          <option value="online">🛒 ออนไลน์</option>
+          <option value="none">— ไม่มีหมวดหมู่</option>
           {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         <select value={filterStock} onChange={e => setFilterStock(e.target.value)} className="field">
@@ -631,11 +667,19 @@ export default function ProductsPage() {
                     <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleSelect(p.id)} className="w-4 h-4 accent-brand" />
                   </td>
                   <td className="px-3 py-2.5">
-                    <p className="font-semibold text-slate-800 leading-tight">
-                      {p.name}
-                      {p.is_listed_online && <span className="ml-1.5 text-[9px] font-bold px-1 py-0.5 rounded" style={{background:'#06C755',color:'#fff'}}>🛒ออนไลน์</span>}
-                    </p>
-                    <p className="text-[10px] text-slate-400 md:hidden">{p.barcode || '—'}</p>
+                    <div className="flex items-center gap-2">
+                      {p.image_url
+                        ? <img src={p.image_url} alt="" className="w-9 h-9 rounded-lg object-cover shrink-0 border border-slate-100" />
+                        : <div className="w-9 h-9 rounded-lg bg-slate-100 shrink-0 flex items-center justify-center text-base">📦</div>
+                      }
+                      <div>
+                        <p className="font-semibold text-slate-800 leading-tight">
+                          {p.name}
+                          {p.is_listed_online && <span className="ml-1.5 text-[9px] font-bold px-1 py-0.5 rounded" style={{background:'#06C755',color:'#fff'}}>🛒ออนไลน์</span>}
+                        </p>
+                        <p className="text-[10px] text-slate-400 md:hidden">{p.barcode || '—'}</p>
+                      </div>
+                    </div>
                   </td>
                   <td className="px-3 py-2.5 text-slate-400 text-xs hidden md:table-cell font-mono">{p.barcode || '—'}</td>
                   <td className="px-3 py-2.5 text-xs text-slate-500 hidden sm:table-cell">
@@ -851,6 +895,44 @@ export default function ProductsPage() {
               {form.is_listed_online && (
                 <Field label="ราคาออนไลน์ (ปล่อยว่างถ้าใช้ราคาปกติ)" value={form.online_price} onChange={v => setForm(p=>({...p,online_price:v}))} type="number" placeholder={`ราคาปกติ: ฿${form.price||0}`} />
               )}
+              {/* ── รูปสินค้า ── */}
+              <div>
+                <label className="text-xs font-semibold text-slate-500 block mb-1.5">รูปสินค้า</label>
+                <div className="flex gap-2 items-start">
+                  {form.image_url && (
+                    <div className="relative shrink-0">
+                      <img src={form.image_url} alt="preview" className="w-16 h-16 object-cover rounded-xl border border-slate-200" />
+                      <button type="button" onClick={() => setForm(p=>({...p,image_url:''}))}
+                        className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full text-xs leading-none flex items-center justify-center">×</button>
+                    </div>
+                  )}
+                  <div className="flex-1 space-y-1.5">
+                    <input
+                      ref={imgInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={async e => {
+                        const file = e.target.files?.[0]
+                        if (!file) return
+                        setImgUploading(true)
+                        try {
+                          const publicUrl = await compressAndUpload(file)
+                          setForm(p=>({...p, image_url: publicUrl}))
+                        } catch(err) { alert('อัพโหลดรูปไม่ได้: ' + err.message) }
+                        finally { setImgUploading(false); e.target.value = '' }
+                      }}
+                    />
+                    <button type="button" disabled={imgUploading} onClick={() => imgInputRef.current?.click()}
+                      className="w-full py-2 text-xs font-medium rounded-xl border-2 border-dashed border-slate-200 text-slate-500 hover:border-brand hover:text-brand transition-colors">
+                      {imgUploading ? '⏳ กำลังอัพโหลด...' : '📁 เลือกไฟล์รูป (บีบอัดอัตโนมัติ)'}
+                    </button>
+                    <input value={form.image_url} onChange={e => setForm(p=>({...p,image_url:e.target.value}))}
+                      placeholder="หรือวาง URL รูปภาพ..."
+                      className="field w-full text-xs" />
+                  </div>
+                </div>
+              </div>
               <div className="flex gap-2 pt-1">
                 <button onClick={() => setModal(null)} className="flex-1 btn-secondary">ยกเลิก</button>
                 <button onClick={saveProduct} disabled={saving} className="flex-1 btn-primary">
