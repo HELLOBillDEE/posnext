@@ -253,6 +253,13 @@ export default function LineBotPage() {
     return acc
   }, {})
 
+  // sort users by most recent message descending
+  const groupedEntries = Object.entries(grouped).sort(([, a], [, b]) => {
+    const latestA = Math.max(...a.map(m => new Date(m.created_at)))
+    const latestB = Math.max(...b.map(m => new Date(m.created_at)))
+    return latestB - latestA
+  })
+
   const fmtTime = ts => new Date(ts).toLocaleString('th-TH', {
     timeZone: 'Asia/Bangkok', day: '2-digit', month: '2-digit',
     hour: '2-digit', minute: '2-digit',
@@ -359,7 +366,7 @@ export default function LineBotPage() {
           <p className="text-center text-slate-400 text-sm py-8">ยังไม่มีประวัติสนทนา</p>
         ) : (
           <div className="divide-y divide-slate-100 max-h-[600px] overflow-y-auto">
-            {Object.entries(grouped).map(([userId, msgs]) => (
+            {groupedEntries.map(([userId, msgs]) => (
               <details key={userId} className="group">
                 <summary className="px-5 py-3 flex items-center gap-3 cursor-pointer list-none hover:bg-slate-50">
                   <span className="text-2xl">👤</span>
