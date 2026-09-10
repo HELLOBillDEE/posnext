@@ -626,18 +626,16 @@ export async function POST(req) {
         }
 
         const confirmLine = docNo !== 'NOID' ? `📄 เลขบิล: ${docNo}` : ''
-        const totalLine   = orderTotal > 0 ? `💰 ยอดรวม: ฿${fmt(orderTotal)}` : ''
+        const totalLine   = orderTotal > 0 ? `ยอดรวม ฿${fmt(orderTotal)}` : ''
         const infoMsg = [
-          `✅ รับออเดอร์แล้วครับ 🎉 ทางร้านจะรีบจัดเตรียมสินค้าให้ครับ`,
-          confirmLine, totalLine,
-          `📝 ชื่อ: ${nameGuess || '—'}  📞 ${phone || '—'}`,
-          `📍 ${addrGuess || '—'}`,
-          `\nลูกค้าสามารถตรวจสอบคิวส่งได้ด้วยตัวเองโดยพิมพ์ "คิวส่ง" ได้เลยครับ`,
+          `รับออเดอร์แล้วครับ 🎉 ทางร้านจะรีบจัดเตรียมให้นะครับ`,
+          totalLine, confirmLine,
+          `\nตรวจสอบคิวส่งได้ด้วยตัวเองโดยพิมพ์ "คิวส่ง" ได้เลยครับ`,
         ].filter(Boolean).join('\n')
 
         const payMsg = {
           type: 'text',
-          text: `${infoMsg}\n\n🏦 ต้องการชำระเงินวิธีไหนครับ?`,
+          text: `${infoMsg}\n\nจะชำระเงินวิธีไหนครับ?`,
           quickReply: {
             items: [
               { type: 'action', action: { type: 'message', label: '💳 โอนชำระก่อน', text: T_PAY_TRANSFER } },
