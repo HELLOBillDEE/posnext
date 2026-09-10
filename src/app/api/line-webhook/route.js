@@ -21,6 +21,9 @@ const T_DELIVERY = '__delivery__'
 const AWAIT_DELIVERY   = '__awaiting_delivery__'
 const AWAIT_REPAIR     = '__awaiting_repair__'
 const AWAIT_ORDER_INFO = '__awaiting_order_info__'  // prefix: AWAIT_ORDER_INFO:{docNo}
+const AWAIT_PAYMENT    = '__awaiting_payment__'     // prefix: AWAIT_PAYMENT:{docNo}:{total}
+const T_PAY_TRANSFER = 'โอนชำระก่อน'
+const T_PAY_COD      = 'เก็บปลายทาง'
 
 const REPAIR_KEYWORDS = ['ซ่อม', 'repair', 'บิลซ่อม', 'คิวซ่อม', 'งานซ่อม', 'เสีย', 'แก้ไข']
 
@@ -51,6 +54,10 @@ async function getShopSettings() {
   const { data } = await supabase.from('settings').select('key,value')
     .in('key', ['shop_name', 'shop_phone', 'shop_address'])
   return data ? Object.fromEntries(data.map(r => [r.key, r.value])) : {}
+}
+async function getQrAccounts() {
+  const { data } = await supabase.from('settings').select('value').eq('key', 'payment_qr_accounts').single()
+  try { return JSON.parse(data?.value || '[]') } catch { return [] }
 }
 
 /* ── Conversation history ── */
@@ -611,19 +618,109 @@ export async function POST(req) {
           }).eq('doc_no', docNo)
         }
 
-        const replyInfoMsg = `✅ บันทึกข้อมูลแล้วครับ!\n📄 เลขบิล: ${docNo !== 'NOID' ? docNo : '—'}\n📝 ชื่อ: ${nameGuess || '—'}\n📞 เบอร์: ${phone || '—'}\n📍 ที่อยู่: ${addrGuess || '—'}\n\nแอดมินจะติดต่อกลับเพื่อนัดส่งครับ 🙏`
-        await lineReply(replyToken, lineToken, [{ type: 'text', text: replyInfoMsg }])
-        await saveMsg(lineUserId, 'assistant', replyInfoMsg)
+        // ดึงยอดจาก quotation
+        let orderTotal = 0
+        if (docNo !== 'NOID') {
+          const { data: qRow } = await sbService.from('quotations').select('total').eq('doc_no', docNo).single()
+          orderTotal = qRow?.total || 0
+        }
+
+        const confirmLine = docNo !== 'NOID' ? `📄 เลขบิล: ${docNo}` : ''
+        const totalLine   = orderTotal > 0 ? `💰 ยอดรวม: ฿${fmt(orderTotal)}` : ''
+        const infoMsg = [
+          `✅ รับออเดอร์แล้วครับ 🎉 ทางร้านจะรีบจัดเตรียมสินค้าให้ครับ`,
+          confirmLine, totalLine,
+          `📝 ชื่อ: ${nameGuess || '—'}  📞 ${phone || '—'}`,
+          `📍 ${addrGuess || '—'}`,
+          `\nลูกค้าสามารถตรวจสอบคิวส่งได้ด้วยตัวเองโดยพิมพ์ "คิวส่ง" ได้เลยครับ`,
+        ].filter(Boolean).join('\n')
+
+        const payMsg = {
+          type: 'text',
+          text: `${infoMsg}\n\n🏦 ต้องการชำระเงินวิธีไหนครับ?`,
+          quickReply: {
+            items: [
+              { type: 'action', action: { type: 'message', label: '💳 โอนชำระก่อน', text: T_PAY_TRANSFER } },
+              { type: 'action', action: { type: 'message', label: '📦 เก็บปลายทาง', text: T_PAY_COD } },
+            ],
+          },
+        }
+        await lineReply(replyToken, lineToken, [payMsg])
+        await saveMsg(lineUserId, 'assistant', infoMsg)
+        await saveMsg(lineUserId, 'assistant', `${AWAIT_PAYMENT}:${docNo || 'NOID'}:${orderTotal}`)
 
         const { data: staffCfg } = await sbService.from('settings').select('value').eq('key', 'line_staff_group_id').single()
         const groupId = staffCfg?.value
         if (groupId && docNo !== 'NOID') {
-          const notify = `📋 อัพเดตออเดอร์ ${docNo}\n👤 ${nameGuess || '—'}  📞 ${phone || '—'}\n📍 ${addrGuess || '—'}`
+          const notify = `📋 อัพเดตออเดอร์ ${docNo}\n👤 ${nameGuess || '—'}  📞 ${phone || '—'}\n📍 ${addrGuess || '—'}${orderTotal > 0 ? `\n💰 ยอด ฿${fmt(orderTotal)}` : ''}`
           await fetch('https://api.line.me/v2/bot/message/push', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${lineToken}` },
             body: JSON.stringify({ to: groupId, messages: [{ type: 'text', text: notify }] }),
           })
+        }
+        continue
+      }
+
+      /* ── รอเลือกวิธีชำระ ── */
+      if (lastBotMsg.startsWith(AWAIT_PAYMENT + ':') || text === T_PAY_TRANSFER || text === T_PAY_COD) {
+        const isPayState = lastBotMsg.startsWith(AWAIT_PAYMENT + ':')
+        if (!isPayState && text !== T_PAY_TRANSFER && text !== T_PAY_COD) {
+          // fall through
+        } else {
+          await saveMsg(lineUserId, 'user', text)
+          const parts    = isPayState ? lastBotMsg.slice((AWAIT_PAYMENT + ':').length).split(':') : ['NOID', '0']
+          const docNo    = parts[0]
+          const total    = Number(parts[1]) || 0
+
+          if (text === T_PAY_TRANSFER) {
+            const qrAccounts = await getQrAccounts()
+            const acct = qrAccounts[0]
+            const msgs = []
+            if (acct?.qr_image_url) {
+              msgs.push({ type: 'image', originalContentUrl: acct.qr_image_url, previewImageUrl: acct.qr_image_url })
+            }
+            const bankLine = acct?.bank ? `ธนาคาร: ${acct.bank}` : ''
+            const nameLine = acct?.name ? `ชื่อบัญชี: ${acct.name}` : ''
+            const amtLine  = total > 0 ? `💰 ยอดที่ต้องโอน: ฿${fmt(total)}` : ''
+            const payText  = [`สำหรับการชำระเงิน สามารถชำระได้ที่`, bankLine, nameLine, amtLine, `แล้วส่งสลิปมาให้ด้วยนะครับ 🙏`].filter(Boolean).join('\n')
+            msgs.push({ type: 'text', text: payText })
+            await lineReply(replyToken, lineToken, msgs)
+            await saveMsg(lineUserId, 'assistant', payText)
+            if (docNo !== 'NOID') {
+              await sbService.from('quotations').update({ note: 'สั่งผ่าน LINE — โอนชำระก่อน' }).eq('doc_no', docNo)
+            }
+          } else {
+            const codMsg = `รับทราบแล้วครับ 📦 ชำระเงินปลายทางกับพนักงานจัดส่ง หรือสแกน QR ตอนส่งของได้เลยครับ 🙏`
+            await lineReply(replyToken, lineToken, [{ type: 'text', text: codMsg }])
+            await saveMsg(lineUserId, 'assistant', codMsg)
+            if (docNo !== 'NOID') {
+              await sbService.from('quotations').update({ note: 'สั่งผ่าน LINE — เก็บปลายทาง' }).eq('doc_no', docNo)
+            }
+          }
+          continue
+        }
+      }
+
+      /* ── ลูกค้าพิมพ์ "คิวส่ง" โดยตรง → เช็คสถานะ ── */
+      if (text.startsWith('คิวส่ง')) {
+        await saveMsg(lineUserId, 'user', text)
+        const query = text.replace('คิวส่ง', '').trim()
+        if (query) {
+          const docs = await checkDelivery(query)
+          if (docs.length > 0) {
+            const msg = docs.map(deliveryToText).join('\n\n─────\n\n')
+            await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
+            await saveMsg(lineUserId, 'assistant', msg)
+          } else {
+            const msg = `ไม่พบรายการจัดส่งครับ ลองส่งชื่อหรือเบอร์โทรที่ใช้สั่งของครับ`
+            await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
+            await saveMsg(lineUserId, 'assistant', AWAIT_DELIVERY)
+          }
+        } else {
+          const msg = `🚚 เช็คสถานะการส่งของครับ\n\nกรุณาส่ง ชื่อ หรือ เบอร์โทร ที่ใช้สั่งของมาในแชทได้เลยครับ`
+          await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
+          await saveMsg(lineUserId, 'assistant', AWAIT_DELIVERY)
         }
         continue
       }

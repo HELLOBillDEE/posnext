@@ -39,6 +39,12 @@ export default function LineBotPage() {
   const [replyTexts, setReplyTexts]   = useState({})   // { userId: text }
   const [replySending, setReplySending] = useState({}) // { userId: bool }
 
+  // ── Payment chip modal ──
+  const [payModal, setPayModal]     = useState(null)  // { userId }
+  const [payAcctIdx, setPayAcctIdx] = useState(0)
+  const [payAmount, setPayAmount]   = useState('')
+  const [paySending, setPaySending] = useState(false)
+
   useEffect(() => { load(); loadConvs() }, [])
 
   async function load() {
@@ -160,29 +166,41 @@ export default function LineBotPage() {
     finally { setReplySending(p => ({ ...p, [userId]: false })) }
   }
 
-  async function sendPaymentChip(userId) {
-    const acct = qrAccounts[0]
+  function openPayModal(userId) {
+    setPayModal({ userId })
+    setPayAcctIdx(0)
+    setPayAmount('')
+    setPaySending(false)
+  }
+
+  async function sendPaymentFromModal() {
+    if (!payModal) return
+    const acct = qrAccounts[payAcctIdx]
     const messages = []
     if (acct?.qr_image_url) {
       messages.push({ type: 'image', originalContentUrl: acct.qr_image_url, previewImageUrl: acct.qr_image_url })
     }
     const bankLine = acct?.bank ? `ธนาคาร: ${acct.bank}` : ''
     const nameLine = acct?.name ? `ชื่อบัญชี: ${acct.name}` : ''
-    const payText = `สำหรับการชำระเงิน สามารถชำระได้ที่\n${bankLine}\n${nameLine}\nแล้วส่งสลิปมาให้ด้วยนะครับ 🙏`.replace(/\n+/g, '\n').trim()
+    const amtLine  = payAmount ? `💰 ยอดที่ต้องโอน: ฿${Number(payAmount).toLocaleString('th-TH')}` : ''
+    const payText  = [`สำหรับการชำระเงิน สามารถชำระได้ที่`, bankLine, nameLine, amtLine, `แล้วส่งสลิปมาให้ด้วยนะครับ 🙏`].filter(Boolean).join('\n')
     messages.push({ type: 'text', text: payText })
+    setPaySending(true)
     try {
       const res = await fetch('/api/line-push-card', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lineUserId: userId, messages }),
+        body: JSON.stringify({ lineUserId: payModal.userId, messages }),
       })
       const json = await res.json()
       if (!json.ok) throw new Error(json.error || 'ส่งไม่สำเร็จ')
+      setPayModal(null)
       await loadConvs()
     } catch (e) { alert('ส่งไม่สำเร็จ: ' + e.message) }
+    finally { setPaySending(false) }
   }
 
-  const STATE_PREFIXES = ['__awaiting_delivery__', '__awaiting_repair__', '__awaiting_order_info__', '[ORDER_DATA]']
+  const STATE_PREFIXES = ['__awaiting_delivery__', '__awaiting_repair__', '__awaiting_order_info__', '__awaiting_payment__', '[ORDER_DATA]']
   const isStateMsg = content => STATE_PREFIXES.some(p => content?.startsWith(p))
 
   const visibleConvs = convs.filter(c => !isStateMsg(c.content))
@@ -300,7 +318,7 @@ export default function LineBotPage() {
                       </button>
                     ))}
                     <button
-                      onClick={() => sendPaymentChip(userId)}
+                      onClick={() => openPayModal(userId)}
                       className="px-2.5 py-1 rounded-full text-xs font-semibold text-white active:scale-95 transition-all whitespace-nowrap"
                       style={{ background: '#0a6cba' }}
                     >
@@ -342,6 +360,59 @@ export default function LineBotPage() {
       </div>
 
       {/* ── Modal ส่งการ์ดสินค้า ── */}
+      {/* ── Payment Modal ── */}
+      {payModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={e => { if (e.target === e.currentTarget) setPayModal(null) }}>
+          <div className="bg-white w-full sm:max-w-sm rounded-t-3xl sm:rounded-2xl shadow-2xl">
+            <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-slate-100">
+              <div>
+                <p className="font-bold text-slate-800">💳 แจ้งชำระเงิน</p>
+                <p className="text-sm text-slate-500">{lineNames[payModal.userId] || payModal.userId}</p>
+              </div>
+              <button onClick={() => setPayModal(null)} className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500">✕</button>
+            </div>
+            <div className="px-5 py-4 space-y-4">
+              {qrAccounts.length === 0 ? (
+                <p className="text-sm text-red-500">ยังไม่มีบัญชีรับเงิน — ตั้งค่าใน Admin → การชำระเงิน</p>
+              ) : (
+                <>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-600 block mb-2">เลือกบัญชีรับเงิน</label>
+                    <div className="space-y-2">
+                      {qrAccounts.map((a, i) => (
+                        <button key={i} onClick={() => setPayAcctIdx(i)}
+                          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-all ${payAcctIdx === i ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:bg-slate-50'}`}>
+                          {a.qr_image_url && <img src={a.qr_image_url} className="w-10 h-10 rounded-lg object-contain border border-slate-200 bg-white flex-shrink-0" alt="QR" />}
+                          <div>
+                            <p className="text-sm font-semibold text-slate-800">{a.name || '—'}</p>
+                            <p className="text-xs text-slate-400">{a.bank || ''}</p>
+                          </div>
+                          {payAcctIdx === i && <span className="ml-auto text-blue-500 text-lg">✓</span>}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-600 block mb-1.5">ยอดที่ต้องชำระ (ถ้ามี)</label>
+                    <input
+                      type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)}
+                      placeholder="เช่น 3210"
+                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                    />
+                  </div>
+                  <button onClick={sendPaymentFromModal} disabled={paySending}
+                    className="w-full py-3 rounded-xl text-sm font-bold text-white disabled:opacity-50 transition-all active:scale-95"
+                    style={{ background: '#0a6cba' }}>
+                    {paySending ? 'กำลังส่ง...' : '💳 ส่งข้อมูลชำระเงิน'}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {cardModal && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
           onClick={e => { if (e.target === e.currentTarget) setCardModal(null) }}>
