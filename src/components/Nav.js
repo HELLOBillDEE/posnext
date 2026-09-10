@@ -348,7 +348,7 @@ export default function Nav() {
                   </span>
                   {badge > 0 && (
                     <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full text-[9px] font-bold text-white flex items-center justify-center"
-                      style={{ background: '#06C755' }}>
+                      style={{ background: '#EE4540' }}>
                       {badge > 9 ? '9+' : badge}
                     </span>
                   )}
@@ -357,7 +357,7 @@ export default function Nav() {
                 {!collapsed && <span className="flex-1 whitespace-nowrap">{t.label}</span>}
                 {!collapsed && badge > 0 && (
                   <span className="min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold text-white flex items-center justify-center flex-shrink-0"
-                    style={{ background: '#06C755' }}>
+                    style={{ background: '#EE4540' }}>
                     {badge > 9 ? '9+' : badge}
                   </span>
                 )}
@@ -524,7 +524,7 @@ export default function Nav() {
                   </span>
                   {badge > 0 && (
                     <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full text-[9px] font-bold text-white flex items-center justify-center"
-                      style={{ background: '#06C755' }}>
+                      style={{ background: '#EE4540' }}>
                       {badge > 9 ? '9+' : badge}
                     </span>
                   )}
