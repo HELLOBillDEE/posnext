@@ -133,8 +133,8 @@ export default function ProductsPage() {
   useEffect(() => {
     if (!imgPopover) return
     const close = () => setImgPopover(null)
-    document.addEventListener('click', close)
-    return () => document.removeEventListener('click', close)
+    const t = setTimeout(() => document.addEventListener('click', close), 0)
+    return () => { clearTimeout(t); document.removeEventListener('click', close) }
   }, [imgPopover])
 
   useEffect(() => { setVisibleCount(20) }, [search, filterCat, filterStock, filterMargin])
