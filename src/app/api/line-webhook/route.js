@@ -574,6 +574,34 @@ export async function POST(req) {
         continue
       }
 
+      /* ── Catalog: ลูกค้าพิมพ์ "สั่งซื้อ" เพื่อยืนยันรายการแค็ตตาล็อก ── */
+      if (text === 'สั่งซื้อ') {
+        await saveMsg(lineUserId, 'user', text)
+        const { data: histRows } = await sbService
+          .from('line_conversations').select('role,content')
+          .eq('line_user_id', lineUserId)
+          .order('created_at', { ascending: false }).limit(40)
+        // เก็บ [CATALOG_ITEM] ล่าสุดก่อนมีการส่งแค็ตตาล็อกใหม่
+        const items = []
+        for (const row of (histRows || [])) {
+          if (row.role === 'assistant' && row.content.startsWith('[แอดมินส่งแค็ตตาล็อก]')) break
+          if (row.role === 'assistant' && row.content.startsWith('[CATALOG_ITEM] ')) {
+            const part = row.content.slice('[CATALOG_ITEM] '.length)
+            items.unshift(part)
+          }
+        }
+        if (!items.length) {
+          await linePush(lineUserId, lineToken, [{ type: 'text', text: 'ยังไม่มีรายการที่เลือกไว้ครับ กดเลือกจากการ์ดสินค้าก่อนนะครับ' }])
+          await saveMsg(lineUserId, 'assistant', 'ยังไม่มีรายการที่เลือกไว้ครับ')
+          continue
+        }
+        const summary = items.map((s, i) => `${i + 1}. ${s}`).join('\n')
+        const replyMsg = `📋 สรุปรายการที่เลือก\n\n${summary}\n\nทีมงานจะติดต่อกลับเพื่อยืนยันคำสั่งซื้อและแจ้งยอดชำระครับ`
+        await linePush(lineUserId, lineToken, [{ type: 'text', text: replyMsg }])
+        await saveMsg(lineUserId, 'assistant', `[CATALOG_ORDER] ${items.join(', ')}`)
+        continue
+      }
+
       /* ── ยืนยันสั่งซื้อ (จากปุ่มการ์ดสินค้า) — ต้องอยู่ก่อน AWAIT_DELIVERY ── */
       if (text === 'ยืนยันสั่งซื้อรายการนี้') {
         await saveMsg(lineUserId, 'user', text)
