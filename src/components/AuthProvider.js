@@ -13,7 +13,7 @@ function setEmpCookie() { document.cookie = `pos_emp=1; ${COOKIE_OPTS}` }
 function clearEmpCookie() { document.cookie = `pos_emp=; path=/; SameSite=Strict; max-age=0` }
 
 // Routes employees can access
-const EMP_ROUTES = ['/pos', '/products', '/documents', '/repair', '/customers', '/stock-count', '/expenses', '/emp']
+const EMP_ROUTES = ['/pos', '/products', '/documents', '/repair', '/customers', '/stock-count', '/expenses', '/emp', '/line-bot']
 
 function getStoredUser() {
   try {
