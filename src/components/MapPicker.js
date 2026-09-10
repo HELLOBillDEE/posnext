@@ -262,7 +262,7 @@ export default function MapPicker({ shopLat, shopLng, initialLat, initialLng, in
   const latRef = useRef(initialLat || shopLat)
   const lngRef = useRef(initialLng || shopLng)
   const [address, setAddress] = useState(initialAddress || '')
-  const [searchInput, setSearchInput] = useState('')
+  const [searchInput, setSearchInput] = useState((!initialLat && initialAddress) ? initialAddress : '')
   const [distance, setDistance] = useState(
     initialLat ? haversine(shopLat, shopLng, initialLat, initialLng) : 0
   )
@@ -331,6 +331,29 @@ export default function MapPicker({ shopLat, shopLng, initialLat, initialLng, in
       })
 
       mapInstanceRef.current = map
+
+      // ถ้ามีที่อยู่แต่ยังไม่มีพิกัด → geocode อัตโนมัติ
+      if (!initialLat && initialAddress) {
+        setSearching(true)
+        try {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(initialAddress)}&format=json&limit=1&accept-language=th`,
+            { headers: { 'User-Agent': 'POSNEXT/1.0' } }
+          )
+          const results = await res.json()
+          if (results.length > 0) {
+            const { lat: rlat, lon: rlng, display_name } = results[0]
+            const nlat = parseFloat(rlat), nlng = parseFloat(rlng)
+            latRef.current = nlat; lngRef.current = nlng
+            map.setView([nlat, nlng], 15)
+            custMarker.setLatLng([nlat, nlng])
+            setAddress(display_name)
+            setDistance(haversine(shopLat, shopLng, nlat, nlng))
+            getRoadDistance(shopLat, shopLng, nlat, nlng).then(d => { if (d) setRoadDistance(d) })
+          }
+        } catch { /* ไม่ต้อง alert — แค่ไม่ auto-move */ }
+        finally { setSearching(false) }
+      }
     }
     init()
 
