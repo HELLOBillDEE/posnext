@@ -28,22 +28,19 @@ export async function POST(req) {
     if (imageUrl) messages.push({ type: 'image', originalContentUrl: imageUrl, previewImageUrl: imageUrl })
     if (text)     messages.push({ type: 'text', text })
 
-    // LINE multicast สูงสุด 500 user ต่อ call
-    const chunks = []
-    for (let i = 0; i < userIds.length; i += 500) chunks.push(userIds.slice(i, i + 500))
-
-    let sent = 0
-    for (const chunk of chunks) {
-      const res = await fetch('https://api.line.me/v2/bot/message/multicast', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${lineCfg.line_channel_token}` },
-        body: JSON.stringify({ to: chunk, messages }),
-      })
-      if (res.ok) sent += chunk.length
-      else { const e = await res.json(); console.error('[broadcast]', e) }
+    // LINE broadcast API — ส่งให้ทุกคนที่เพิ่ม OA เป็นเพื่อน
+    const res = await fetch('https://api.line.me/v2/bot/message/broadcast', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${lineCfg.line_channel_token}` },
+      body: JSON.stringify({ messages }),
+    })
+    if (!res.ok) {
+      const e = await res.json()
+      console.error('[broadcast]', e)
+      return Response.json({ error: e.message || JSON.stringify(e) }, { status: 500 })
     }
 
-    return Response.json({ ok: true, sent, total: userIds.length })
+    return Response.json({ ok: true, sent: userIds.length, total: userIds.length })
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 })
   }
