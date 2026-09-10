@@ -13,8 +13,24 @@ const fmt = n => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits:
 
 export async function POST(req) {
   try {
-    const { lineUserId, items, note, manualText } = await req.json()
+    const { lineUserId, items, note, manualText, messages } = await req.json()
     if (!lineUserId) return Response.json({ error: 'missing lineUserId' }, { status: 400 })
+
+    // ── Raw messages array (e.g. image + text for payment chip) ──
+    if (messages?.length) {
+      const lineCfg = await getLineSettings()
+      if (!lineCfg?.line_channel_token) return Response.json({ error: 'no LINE token' }, { status: 500 })
+      const res = await fetch('https://api.line.me/v2/bot/message/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${lineCfg.line_channel_token}` },
+        body: JSON.stringify({ to: lineUserId, messages }),
+      })
+      if (!res.ok) { const e = await res.json(); return Response.json({ error: e.message }, { status: 500 }) }
+      // บันทึก text messages เป็นประวัติ
+      const textMsgs = messages.filter(m => m.type === 'text').map(m => m.text).join('\n')
+      if (textMsgs) await sbService.from('line_conversations').insert({ line_user_id: lineUserId, role: 'assistant', content: textMsgs })
+      return Response.json({ ok: true })
+    }
 
     // ── Manual text reply ──
     if (manualText) {

@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/AuthProvider'
 
-const KEYS = ['line_bot_enabled', 'line_bot_name', 'line_bot_persona', 'line_bot_silent_keywords']
+const KEYS = ['line_bot_enabled', 'line_bot_name', 'line_bot_persona', 'line_bot_silent_keywords', 'payment_qr_accounts']
 
 const fmt = n => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 
@@ -16,7 +16,9 @@ export default function LineBotPage() {
     line_bot_name: 'น้องมิน',
     line_bot_persona: 'ผู้ช่วยขายของร้าน ตอบภาษาไทยสั้นกระชับ เป็นกันเอง ใช้ครับ/ค่ะ',
     line_bot_silent_keywords: 'ซ่อม,ติดตามงาน,คุยกับเจ้าของ,คุยกับแอดมิน',
+    payment_qr_accounts: '[]',
   })
+  const qrAccounts = (() => { try { return JSON.parse(cfg.payment_qr_accounts || '[]') } catch { return [] } })()
   const [saving, setSaving]       = useState(false)
   const [saved, setSaved]         = useState(false)
   const [convs, setConvs]         = useState([])
@@ -158,6 +160,28 @@ export default function LineBotPage() {
     finally { setReplySending(p => ({ ...p, [userId]: false })) }
   }
 
+  async function sendPaymentChip(userId) {
+    const acct = qrAccounts[0]
+    const messages = []
+    if (acct?.qr_image_url) {
+      messages.push({ type: 'image', originalContentUrl: acct.qr_image_url, previewImageUrl: acct.qr_image_url })
+    }
+    const bankLine = acct?.bank ? `ธนาคาร: ${acct.bank}` : ''
+    const nameLine = acct?.name ? `ชื่อบัญชี: ${acct.name}` : ''
+    const payText = `สำหรับการชำระเงิน สามารถชำระได้ที่\n${bankLine}\n${nameLine}\nแล้วส่งสลิปมาให้ด้วยนะครับ 🙏`.replace(/\n+/g, '\n').trim()
+    messages.push({ type: 'text', text: payText })
+    try {
+      const res = await fetch('/api/line-push-card', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lineUserId: userId, messages }),
+      })
+      const json = await res.json()
+      if (!json.ok) throw new Error(json.error || 'ส่งไม่สำเร็จ')
+      await loadConvs()
+    } catch (e) { alert('ส่งไม่สำเร็จ: ' + e.message) }
+  }
+
   const STATE_PREFIXES = ['__awaiting_delivery__', '__awaiting_repair__', '__awaiting_order_info__', '[ORDER_DATA]']
   const isStateMsg = content => STATE_PREFIXES.some(p => content?.startsWith(p))
 
@@ -264,7 +288,6 @@ export default function LineBotPage() {
                       { label: '👋 ทักทาย', text: 'สวัสดีครับ มีอะไรให้ช่วยได้เลยนะครับ 🙏' },
                       { label: '✅ รับออเดอร์', text: 'รับออเดอร์แล้วครับ 🎉 ทางร้านจะรีบจัดเตรียมให้นะครับ' },
                       { label: '🚚 กำลังจัดส่ง', text: 'กำลังจัดส่งแล้วครับ 🚚 รอรับได้เลยนะครับ' },
-                      { label: '💳 แจ้งชำระ', text: 'กรุณาโอนเงินมาที่\nธนาคาร: \nชื่อบัญชี: \nเลขที่บัญชี: \nแล้วส่งสลิปมาให้ด้วยนะครับ 🙏' },
                       { label: '📞 โทรกลับ', text: 'ขออนุญาตโทรกลับหาลูกค้านะครับ 📞' },
                       { label: '🙏 ขอบคุณ', text: 'ขอบคุณมากครับ หากมีอะไรสงสัยเพิ่มเติมถามได้เลยนะครับ 😊' },
                     ].map(chip => (
@@ -276,6 +299,13 @@ export default function LineBotPage() {
                         {chip.label}
                       </button>
                     ))}
+                    <button
+                      onClick={() => sendPaymentChip(userId)}
+                      className="px-2.5 py-1 rounded-full text-xs font-semibold text-white active:scale-95 transition-all whitespace-nowrap"
+                      style={{ background: '#0a6cba' }}
+                    >
+                      💳 แจ้งชำระ
+                    </button>
                     <button
                       onClick={() => openModal(userId)}
                       className="px-2.5 py-1 rounded-full text-xs font-semibold text-white active:scale-95 transition-all whitespace-nowrap"
