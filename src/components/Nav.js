@@ -216,7 +216,13 @@ export default function Nav() {
     if (!isAdmin) return
     async function fetchUnread() {
       let since = ''
-      try { since = localStorage.getItem('line_chat_last_visited') || '' } catch {}
+      try {
+        since = localStorage.getItem('line_chat_last_visited') || ''
+        if (!since) {
+          since = new Date().toISOString()
+          localStorage.setItem('line_chat_last_visited', since)
+        }
+      } catch {}
       let q = supabase
         .from('line_conversations')
         .select('line_user_id')
