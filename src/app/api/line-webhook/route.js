@@ -510,18 +510,25 @@ export async function POST(req) {
 
       /* ── ตรวจสอบ flow คิวซ่อม: รอข้อมูลลูกค้า ── */
       if (lastBotMsg === AWAIT_REPAIR) {
-        await saveMsg(lineUserId, 'user', text)
-        const repairs = await checkRepairStatus(lineUserId, text)
-        if (repairs.length > 0) {
-          const msg = `🔧 พบงานซ่อมครับ\n\n${repairs.map(repairToText).join('\n\n─────\n\n')}`
-          await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
-          await saveMsg(lineUserId, 'assistant', msg)
+        const looksLikeRepairQuery = /\d{3,}/.test(text)
+        if (!looksLikeRepairQuery) {
+          // text ไม่ใช่เบอร์/เลขบิล → ออกจาก state, ให้ Gemini ตอบ
+          await saveMsg(lineUserId, 'user', text)
+          // fall through to Gemini below
         } else {
-          const msg = `ไม่พบงานซ่อมจากข้อมูลที่ส่งมาครับ\nลองส่งเบอร์โทร หรือ เลขบิลซ่อม อีกครั้ง หรือโทร ${shopCfg?.shop_phone || ''} ครับ`
-          await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
-          await saveMsg(lineUserId, 'assistant', AWAIT_REPAIR)
+          await saveMsg(lineUserId, 'user', text)
+          const repairs = await checkRepairStatus(lineUserId, text)
+          if (repairs.length > 0) {
+            const msg = `🔧 พบงานซ่อมครับ\n\n${repairs.map(repairToText).join('\n\n─────\n\n')}`
+            await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
+            await saveMsg(lineUserId, 'assistant', msg)
+          } else {
+            const msg = `ไม่พบงานซ่อมจากข้อมูลที่ส่งมาครับ\nลองส่งเบอร์โทร หรือ เลขบิลซ่อม อีกครั้ง หรือโทร ${shopCfg?.shop_phone || ''} ครับ`
+            await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
+            await saveMsg(lineUserId, 'assistant', AWAIT_REPAIR)
+          }
+          continue
         }
-        continue
       }
 
       /* ── ยืนยันสั่งซื้อ (จากปุ่มการ์ดสินค้า) — ต้องอยู่ก่อน AWAIT_DELIVERY ── */
