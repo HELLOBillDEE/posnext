@@ -1093,7 +1093,7 @@ export default function POSPage() {
       })
     }
     setCart(cartItems)
-    if (q.customer_name) setCustomer({ id: q.customer_id || null, name: q.customer_name, phone: q.customer_phone || '' })
+    if (q.customer_name) setCustomer({ id: q.customer_id || null, name: q.customer_name, phone: q.customer_phone || '', address: q.customer_address || '' })
     setBillDiscount(q.discount > 0 ? String(q.discount) : '')
     setCurrentQuoteId(q.id)
     setShowPendingQuotes(false)
