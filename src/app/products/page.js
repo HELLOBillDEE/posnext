@@ -80,7 +80,7 @@ export default function ProductsPage() {
   const [visibleCount, setVisibleCount] = useState(20)
   const [imgUploading, setImgUploading] = useState(false)
   const imgInputRef = useRef(null)
-  const [imgPopover, setImgPopover] = useState(null) // product id
+  const [imgPopover, setImgPopover] = useState(null) // { id, name, image_url, x, y }
   const [imgPopoverUrl, setImgPopoverUrl] = useState('')
   const [imgSearchResults, setImgSearchResults] = useState([])
   const [imgSearching, setImgSearching] = useState(false)
@@ -650,8 +650,62 @@ export default function ProductsPage() {
         {bulkMode && <span className="ml-auto text-amber-600 text-[10px]">✏️ แก้ไขราคา/สต็อกได้ในตาราง</span>}
       </div>
 
-      {/* Backdrop ปิด image popover */}
-      {imgPopover && <div className="fixed inset-0 z-40" onClick={() => { setImgPopover(null); setImgSearchResults([]) }} />}
+      {/* Image popover (fixed position, นอก overflow:hidden card) */}
+      {imgPopover && <>
+        <div className="fixed inset-0 z-40" onClick={() => { setImgPopover(null); setImgSearchResults([]) }} />
+        <div className="fixed z-50 bg-white rounded-xl shadow-xl border border-slate-200 p-2.5 w-72"
+          style={{ top: imgPopover.y, left: Math.min(imgPopover.x, window.innerWidth - 300) }}>
+          <div className="flex gap-1.5 mb-2">
+            <input autoFocus value={imgPopoverUrl} onChange={e => { setImgPopoverUrl(e.target.value); setImgSearchResults([]) }}
+              onKeyDown={async e => {
+                if (e.key !== 'Enter') return
+                const url = imgPopoverUrl.trim()
+                await supabase.from('products').update({ image_url: url||null, updated_at: new Date().toISOString() }).eq('id', imgPopover.id)
+                load(); invalidatePosCache(); setImgPopover(null)
+              }}
+              placeholder="วาง URL รูปภาพ..." className="field flex-1 text-xs" />
+            <button onClick={async () => {
+              const url = imgPopoverUrl.trim()
+              await supabase.from('products').update({ image_url: url||null, updated_at: new Date().toISOString() }).eq('id', imgPopover.id)
+              load(); invalidatePosCache(); setImgPopover(null)
+            }} className="px-2 py-1 bg-brand text-white text-xs rounded-lg font-bold">✓</button>
+            <button onClick={() => setImgPopover(null)} className="px-2 py-1 text-slate-400 text-xs rounded-lg hover:bg-slate-100">✕</button>
+          </div>
+          <button onClick={() => searchImages(imgPopover.name)} disabled={imgSearching}
+            className="w-full mb-2 py-1.5 text-xs font-semibold rounded-lg bg-violet-50 text-violet-700 hover:bg-violet-100 transition-colors flex items-center justify-center gap-1.5">
+            {imgSearching ? '⏳ กำลังค้นหา...' : '🤖 ค้นหารูปอัตโนมัติ (AI)'}
+          </button>
+          {imgSearchResults.length > 0 && (
+            <div className="grid grid-cols-5 gap-1 mb-2">
+              {imgSearchResults.map((r, i) => (
+                <button key={i} onClick={async () => {
+                  await supabase.from('products').update({ image_url: r.url, updated_at: new Date().toISOString() }).eq('id', imgPopover.id)
+                  load(); invalidatePosCache(); setImgPopover(null); setImgSearchResults([])
+                }} className="aspect-square rounded-lg overflow-hidden border-2 border-transparent hover:border-brand transition-all">
+                  <img src={r.thumb} alt="" className="w-full h-full object-cover" onError={e=>e.target.parentElement.style.display='none'} />
+                </button>
+              ))}
+            </div>
+          )}
+          {imgSearchResults.length === 0 && !imgSearching && (
+            <label className="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer hover:text-brand transition-colors">
+              <input type="file" accept="image/*" className="hidden"
+                onChange={async ev => {
+                  const file = ev.target.files?.[0]; if (!file) return
+                  setImgUploading(true); setImgPopover(null)
+                  try {
+                    const url = await compressAndUpload(file)
+                    await supabase.from('products').update({ image_url: url, updated_at: new Date().toISOString() }).eq('id', imgPopover.id)
+                    load(); invalidatePosCache()
+                  } catch(err) { alert('อัพโหลดไม่ได้: ' + err.message) }
+                  finally { setImgUploading(false); ev.target.value = '' }
+                }} />
+              📁 อัพโหลดไฟล์ (บีบอัดอัตโนมัติ)
+            </label>
+          )}
+          {imgPopoverUrl && imgSearchResults.length === 0 && <img src={imgPopoverUrl} alt="" className="mt-2 w-full h-20 object-cover rounded-lg border border-slate-100" onError={e=>e.target.style.display='none'} />}
+        </div>
+      </>}
 
       {/* Product table */}
       <div className="card overflow-hidden">
@@ -685,8 +739,13 @@ export default function ProductsPage() {
                   </td>
                   <td className="px-3 py-2.5">
                     <div className="flex items-center gap-2">
-                      <div className="shrink-0 relative">
-                        <button type="button" onClick={() => { setImgPopover(p.id); setImgPopoverUrl(p.image_url||''); setImgSearchResults([]) }}
+                      <div className="shrink-0">
+                        <button type="button"
+                          onClick={e => {
+                            const rect = e.currentTarget.getBoundingClientRect()
+                            setImgPopover({ id: p.id, name: p.name, x: rect.left, y: rect.bottom + 6 })
+                            setImgPopoverUrl(p.image_url||''); setImgSearchResults([])
+                          }}
                           className="group relative block w-9 h-9" title="กดเพื่อเปลี่ยนรูป">
                           {p.image_url
                             ? <img src={p.image_url} alt="" className="w-9 h-9 rounded-lg object-cover border border-slate-100 group-hover:opacity-70 transition-opacity" />
@@ -696,64 +755,6 @@ export default function ProductsPage() {
                             <span className="text-[9px] font-bold text-white bg-black/50 rounded px-1">📷</span>
                           </div>
                         </button>
-                        {imgPopover === p.id && (
-                          <div className="absolute left-0 top-11 z-50 bg-white rounded-xl shadow-xl border border-slate-200 p-2.5 w-72"
-                            onClick={e => e.stopPropagation()}>
-                            {/* URL input row */}
-                            <div className="flex gap-1.5 mb-2">
-                              <input autoFocus value={imgPopoverUrl} onChange={e => { setImgPopoverUrl(e.target.value); setImgSearchResults([]) }}
-                                onKeyDown={async e => {
-                                  if (e.key !== 'Enter') return
-                                  const url = imgPopoverUrl.trim()
-                                  await supabase.from('products').update({ image_url: url||null, updated_at: new Date().toISOString() }).eq('id', p.id)
-                                  load(); invalidatePosCache(); setImgPopover(null)
-                                }}
-                                placeholder="วาง URL รูปภาพ..." className="field flex-1 text-xs" />
-                              <button onClick={async () => {
-                                const url = imgPopoverUrl.trim()
-                                await supabase.from('products').update({ image_url: url||null, updated_at: new Date().toISOString() }).eq('id', p.id)
-                                load(); invalidatePosCache(); setImgPopover(null)
-                              }} className="px-2 py-1 bg-brand text-white text-xs rounded-lg font-bold">✓</button>
-                              <button onClick={() => setImgPopover(null)} className="px-2 py-1 text-slate-400 text-xs rounded-lg hover:bg-slate-100">✕</button>
-                            </div>
-                            {/* AI search button */}
-                            <button onClick={() => searchImages(p.name)}
-                              disabled={imgSearching}
-                              className="w-full mb-2 py-1.5 text-xs font-semibold rounded-lg bg-violet-50 text-violet-700 hover:bg-violet-100 transition-colors flex items-center justify-center gap-1.5">
-                              {imgSearching ? '⏳ กำลังค้นหา...' : '🤖 ค้นหารูปอัตโนมัติ (AI)'}
-                            </button>
-                            {/* Search results */}
-                            {imgSearchResults.length > 0 && (
-                              <div className="grid grid-cols-5 gap-1 mb-2">
-                                {imgSearchResults.map((r, i) => (
-                                  <button key={i} onClick={async () => {
-                                    await supabase.from('products').update({ image_url: r.url, updated_at: new Date().toISOString() }).eq('id', p.id)
-                                    load(); invalidatePosCache(); setImgPopover(null); setImgSearchResults([])
-                                  }} className="aspect-square rounded-lg overflow-hidden border-2 border-transparent hover:border-brand transition-all">
-                                    <img src={r.thumb} alt="" className="w-full h-full object-cover" onError={e=>e.target.parentElement.style.display='none'} />
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-                            {imgSearchResults.length === 0 && !imgSearching && (
-                              <label className="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer hover:text-brand transition-colors">
-                                <input type="file" accept="image/*" className="hidden"
-                                  onChange={async ev => {
-                                    const file = ev.target.files?.[0]; if (!file) return
-                                    setImgUploading(true); setImgPopover(null)
-                                    try {
-                                      const url = await compressAndUpload(file)
-                                      await supabase.from('products').update({ image_url: url, updated_at: new Date().toISOString() }).eq('id', p.id)
-                                      load(); invalidatePosCache()
-                                    } catch(err) { alert('อัพโหลดไม่ได้: ' + err.message) }
-                                    finally { setImgUploading(false); ev.target.value = '' }
-                                  }} />
-                                📁 อัพโหลดไฟล์ (บีบอัดอัตโนมัติ)
-                              </label>
-                            )}
-                            {imgPopoverUrl && imgSearchResults.length === 0 && <img src={imgPopoverUrl} alt="" className="mt-2 w-full h-20 object-cover rounded-lg border border-slate-100" onError={e=>e.target.style.display='none'} />}
-                          </div>
-                        )}
                       </div>
                       <div>
                         <p className="font-semibold text-slate-800 leading-tight">
