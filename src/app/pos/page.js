@@ -1337,8 +1337,14 @@ export default function POSPage() {
                 {p.stock > 0 && p.stock <= p.min_stock && (
                   <div className="absolute top-2 right-2 bg-amber-400 text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold z-10">ใกล้หมด</div>
                 )}
+                {/* Image */}
+                {p.image_url && (
+                  <div className="w-full aspect-square overflow-hidden rounded-t-xl">
+                    <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" />
+                  </div>
+                )}
                 {/* Name */}
-                <div className="flex-1 px-3 pt-3 pb-1 text-sm font-semibold leading-snug line-clamp-3 text-slate-800">{p.name}</div>
+                <div className="flex-1 px-3 pt-2 pb-1 text-sm font-semibold leading-snug line-clamp-3 text-slate-800">{p.name}</div>
                 {p.barcode && <div className="px-3 pb-1 text-[10px] text-slate-400 font-mono truncate">{p.barcode}</div>}
                 {/* Price */}
                 <div className="px-3 pb-3 flex items-center justify-between gap-1">
