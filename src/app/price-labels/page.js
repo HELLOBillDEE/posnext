@@ -242,12 +242,17 @@ function PrintGrid({ items, cols, rows }) {
                     {/* ช่องรูปสินค้า */}
                     <div style={{
                       flex: '1 1 0', minHeight: 0,
-                      background: '#fff', borderBottom: '1.5px dashed #94a3b8',
+                      background: '#f8fafc', borderBottom: '1.5px dashed #94a3b8',
                       display: 'flex', flexDirection: 'column', alignItems: 'center',
-                      justifyContent: 'center', gap: 2,
+                      justifyContent: 'center', overflow: 'hidden',
                     }}>
-                      <span style={{ fontSize: 16, opacity: .15 }}>📷</span>
-                      <span style={{ fontSize: 6, color: '#94a3b8', fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase' }}>ติดรูปสินค้าที่นี่</span>
+                      {p.image_url
+                        ? <img src={p.image_url} alt={p.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                        : <>
+                            <span style={{ fontSize: 16, opacity: .15 }}>📷</span>
+                            <span style={{ fontSize: 6, color: '#94a3b8', fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase' }}>ติดรูปสินค้าที่นี่</span>
+                          </>
+                      }
                     </div>
                     <div style={{ padding: '4px 6px', display: 'flex', flexDirection: 'column', gap: 1, flexShrink: 0 }}>
                       <div style={{ fontSize: cols === 3 ? 10 : 12, color: '#1E293B', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', lineHeight: 1.3 }}>
