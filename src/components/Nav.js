@@ -96,7 +96,7 @@ const IC = {
 const ALL_TABS = [
   { href:'/',          label:'หน้าหลัก',  icon: IC.home,      adminOnly: true },
   { href:'/pos',       label:'ขาย',       icon: IC.pos },
-  { href:'/line-bot',  label:'LINE แชท', icon: IC.linebot,   adminOnly: true },
+  { href:'/line-bot',  label:'LINE แชท', icon: IC.linebot },
   { href:'/products',  label:'สินค้า',    icon: IC.product },
   { href:'/po',        label:'สั่งซื้อ',  icon: IC.po,         adminOnly: true },
   { href:'/repair',    label:'คิวซ่อม',   icon: IC.repair },
