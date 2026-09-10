@@ -524,36 +524,10 @@ export async function POST(req) {
         continue
       }
 
-      /* ── Quick Reply: คิวส่ง ── */
-      if (text === T_DELIVERY) {
-        await saveMsg(lineUserId, 'user', text)
-        const msg = `🚚 เช็คสถานะการส่งของครับ\n\nกรุณาส่ง ชื่อ หรือ เบอร์โทร ที่ใช้สั่งของมาในแชทได้เลยครับ`
-        await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
-        await saveMsg(lineUserId, 'assistant', AWAIT_DELIVERY)
-        continue
-      }
-
-      /* ── ตรวจสอบ flow คิวส่ง: รอข้อมูลลูกค้า ── */
-      if (lastBotMsg === AWAIT_DELIVERY) {
-        await saveMsg(lineUserId, 'user', text)
-        const docs = await checkDelivery(text)
-        if (docs.length > 0) {
-          const flexMsg = deliveryFlexMsg(docs, appUrl)
-          await lineReply(replyToken, lineToken, [flexMsg])
-          await saveMsg(lineUserId, 'assistant', `🚚 พบรายการส่งของ ${docs.length} รายการ`)
-        } else {
-          const msg = `🚚 ยังหาไม่เจอครับ\n\nลองส่งข้อมูลอื่นได้มั้ยครับ? เช่น\n• ชื่อที่ใช้สั่ง\n• เบอร์โทร\n• เลขที่ออเดอร์/บิล\n\nหรือโทรถามได้เลยที่ ${shopCfg?.shop_phone || ''} ครับ`
-          await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
-          await saveMsg(lineUserId, 'assistant', AWAIT_DELIVERY)
-        }
-        continue
-      }
-
-      /* ── ยืนยันสั่งซื้อ (จากปุ่มการ์ดสินค้า) ── */
+      /* ── ยืนยันสั่งซื้อ (จากปุ่มการ์ดสินค้า) — ต้องอยู่ก่อน AWAIT_DELIVERY ── */
       if (text === 'ยืนยันสั่งซื้อรายการนี้') {
         await saveMsg(lineUserId, 'user', text)
 
-        // ดึง ORDER_DATA ล่าสุดจากประวัติ (20 ข้อความล่าสุด เพื่อให้ครอบคลุม)
         const { data: histRows } = await sbService
           .from('line_conversations').select('role,content')
           .eq('line_user_id', lineUserId)
@@ -595,10 +569,8 @@ export async function POST(req) {
           ? `✅ รับออเดอร์แล้วครับ!${billLine}\n\n${orderSummary}\n\nรบกวนแจ้งข้อมูลการจัดส่งด้วยนะครับ:\n📝 ชื่อ:\n📞 เบอร์โทร:\n📍 ที่อยู่จัดส่ง (หรือระบุว่ามารับหน้าร้าน):\n\nแอดมินจะติดต่อกลับเพื่อยืนยันและนัดส่งครับ 🙏`
           : `✅ รับออเดอร์แล้วครับ!${billLine}\n\nรบกวนแจ้งข้อมูลการจัดส่งด้วยนะครับ:\n📝 ชื่อ:\n📞 เบอร์โทร:\n📍 ที่อยู่จัดส่ง (หรือระบุว่ามารับหน้าร้าน):\n\nแอดมินจะติดต่อกลับเพื่อยืนยันและนัดส่งครับ 🙏`
         await lineReply(replyToken, lineToken, [{ type: 'text', text: confirmMsg }])
-        // บันทึก state รอข้อมูลลูกค้า (แทนที่จะบันทึก confirmMsg ดิบๆ)
         await saveMsg(lineUserId, 'assistant', `${AWAIT_ORDER_INFO}:${docNo || 'NOID'}`)
 
-        // แจ้ง staff LINE group ถ้ามี
         if (docNo) {
           const { data: staffCfg } = await sbService.from('settings').select('value').eq('key', 'line_staff_group_id').single()
           const groupId = staffCfg?.value
@@ -614,12 +586,11 @@ export async function POST(req) {
         continue
       }
 
-      /* ── รอข้อมูลลูกค้าหลังยืนยันออเดอร์ ── */
+      /* ── รอข้อมูลลูกค้าหลังยืนยันออเดอร์ — ต้องอยู่ก่อน AWAIT_DELIVERY ── */
       if (lastBotMsg.startsWith(AWAIT_ORDER_INFO + ':')) {
         const docNo = lastBotMsg.slice((AWAIT_ORDER_INFO + ':').length)
         await saveMsg(lineUserId, 'user', text)
 
-        // พยายามอัพเดต quotation ด้วยข้อมูลที่ลูกค้าส่งมา
         const phoneMatch = text.match(/0\d{8,9}/)
         const phone = phoneMatch ? phoneMatch[0] : ''
         const nameGuess = text.split(/[\n\r]/)[0].replace(/0\d{8,9}/, '').replace(/[^฀-๿a-zA-Z\s]/g, '').trim()
@@ -637,7 +608,6 @@ export async function POST(req) {
         await lineReply(replyToken, lineToken, [{ type: 'text', text: replyInfoMsg }])
         await saveMsg(lineUserId, 'assistant', replyInfoMsg)
 
-        // แจ้ง staff
         const { data: staffCfg } = await sbService.from('settings').select('value').eq('key', 'line_staff_group_id').single()
         const groupId = staffCfg?.value
         if (groupId && docNo !== 'NOID') {
@@ -647,6 +617,31 @@ export async function POST(req) {
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${lineToken}` },
             body: JSON.stringify({ to: groupId, messages: [{ type: 'text', text: notify }] }),
           })
+        }
+        continue
+      }
+
+      /* ── Quick Reply: คิวส่ง ── */
+      if (text === T_DELIVERY) {
+        await saveMsg(lineUserId, 'user', text)
+        const msg = `🚚 เช็คสถานะการส่งของครับ\n\nกรุณาส่ง ชื่อ หรือ เบอร์โทร ที่ใช้สั่งของมาในแชทได้เลยครับ`
+        await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
+        await saveMsg(lineUserId, 'assistant', AWAIT_DELIVERY)
+        continue
+      }
+
+      /* ── ตรวจสอบ flow คิวส่ง: รอข้อมูลลูกค้า ── */
+      if (lastBotMsg === AWAIT_DELIVERY) {
+        await saveMsg(lineUserId, 'user', text)
+        const docs = await checkDelivery(text)
+        if (docs.length > 0) {
+          const flexMsg = deliveryFlexMsg(docs, appUrl)
+          await lineReply(replyToken, lineToken, [flexMsg])
+          await saveMsg(lineUserId, 'assistant', `🚚 พบรายการส่งของ ${docs.length} รายการ`)
+        } else {
+          const msg = `🚚 ยังหาไม่เจอครับ\n\nลองส่งข้อมูลอื่นได้มั้ยครับ? เช่น\n• ชื่อที่ใช้สั่ง\n• เบอร์โทร\n• เลขที่ออเดอร์/บิล\n\nหรือโทรถามได้เลยที่ ${shopCfg?.shop_phone || ''} ครับ`
+          await lineReply(replyToken, lineToken, [{ type: 'text', text: msg }])
+          await saveMsg(lineUserId, 'assistant', AWAIT_DELIVERY)
         }
         continue
       }
