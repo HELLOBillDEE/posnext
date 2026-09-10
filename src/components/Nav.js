@@ -215,24 +215,20 @@ export default function Nav() {
   useEffect(() => {
     if (!isAdmin) return
     async function fetchUnread() {
-      const STATE_STARTS = ['__awaiting', '[ORDER_DATA]']
-      const { data } = await supabase
+      let since = ''
+      try { since = localStorage.getItem('line_chat_last_visited') || '' } catch {}
+      const query = supabase
         .from('line_conversations')
-        .select('line_user_id,role,content')
-        .order('created_at', { ascending: false })
-        .limit(200)
+        .select('line_user_id')
+        .eq('role', 'user')
+        .not('content', 'like', '__%')
+      if (since) query.gt('created_at', since)
+      const { data } = await query.limit(500)
       if (!data) return
-      const latestPerUser = {}
-      for (const row of data) {
-        if (!latestPerUser[row.line_user_id]) latestPerUser[row.line_user_id] = row
-      }
-      const count = Object.values(latestPerUser).filter(r =>
-        r.role === 'user' && !STATE_STARTS.some(p => r.content?.startsWith(p))
-      ).length
-      setLineUnread(count)
+      setLineUnread(new Set(data.map(r => r.line_user_id)).size)
     }
     fetchUnread()
-    const t = setInterval(fetchUnread, 30000)
+    const t = setInterval(fetchUnread, 20000)
     return () => clearInterval(t)
   }, [isAdmin])
 

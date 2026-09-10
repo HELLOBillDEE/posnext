@@ -52,7 +52,10 @@ export default function LineBotPage() {
   const [payAmount, setPayAmount]   = useState('')
   const [paySending, setPaySending] = useState(false)
 
-  useEffect(() => { load(); loadConvs() }, [])
+  useEffect(() => {
+    try { localStorage.setItem('line_chat_last_visited', new Date().toISOString()) } catch {}
+    load(); loadConvs()
+  }, [])
 
   async function load() {
     const { data } = await supabase.from('settings').select('key,value').in('key', KEYS)
