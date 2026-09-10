@@ -1632,6 +1632,7 @@ export default function EmpPortalPage() {
     { id: 'stock',    label: 'นับสต็อก',  icon: '📦' },
     { id: 'repair',   label: 'คิวซ่อม',   icon: '🔧' },
     { id: 'expenses', label: 'ค่าใช้จ่าย', icon: '💸' },
+    { id: 'linechat', label: 'LINE แชท',  icon: '💬' },
   ]
 
   return (
@@ -1663,6 +1664,7 @@ export default function EmpPortalPage() {
         {activeTab === 'stock'    && <StockCountTab empName={session?.name} />}
         {activeTab === 'repair'   && <IFrameTab src="/repair?embed=1"   title="คิวซ่อม" />}
         {activeTab === 'expenses' && <IFrameTab src="/expenses?embed=1" title="ค่าใช้จ่าย" />}
+        {activeTab === 'linechat' && <IFrameTab src="/line-bot" title="LINE แชท" />}
       </div>
 
       {/* Bottom tab bar */}
