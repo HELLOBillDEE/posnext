@@ -39,6 +39,13 @@ export default function LineBotPage() {
   const [replyTexts, setReplyTexts]   = useState({})   // { userId: text }
   const [replySending, setReplySending] = useState({}) // { userId: bool }
 
+  // ── Broadcast state ──
+  const [bcImageUrl, setBcImageUrl]   = useState('')
+  const [bcText, setBcText]           = useState('')
+  const [bcUploading, setBcUploading] = useState(false)
+  const [bcSending, setBcSending]     = useState(false)
+  const [bcResult, setBcResult]       = useState(null) // { sent, total }
+
   // ── Payment chip modal ──
   const [payModal, setPayModal]     = useState(null)  // { userId }
   const [payAcctIdx, setPayAcctIdx] = useState(0)
@@ -166,6 +173,38 @@ export default function LineBotPage() {
     finally { setReplySending(p => ({ ...p, [userId]: false })) }
   }
 
+  async function uploadBroadcastImage(file) {
+    if (!file) return
+    setBcUploading(true)
+    try {
+      const ext = file.name.split('.').pop()
+      const path = `broadcast/${Date.now()}.${ext}`
+      const { error } = await supabase.storage.from('pos-images').upload(path, file, { upsert: true, contentType: file.type })
+      if (error) throw error
+      const { data: urlData } = supabase.storage.from('pos-images').getPublicUrl(path)
+      setBcImageUrl(urlData.publicUrl)
+    } catch (e) { alert('อัปโหลดไม่สำเร็จ: ' + e.message) }
+    finally { setBcUploading(false) }
+  }
+
+  async function sendBroadcast() {
+    if (!bcText.trim() && !bcImageUrl) return
+    setBcSending(true); setBcResult(null)
+    try {
+      const res = await fetch('/api/line-broadcast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageUrl: bcImageUrl || undefined, text: bcText.trim() || undefined }),
+      })
+      const json = await res.json()
+      if (!json.ok) throw new Error(json.error || JSON.stringify(json))
+      setBcResult({ sent: json.sent, total: json.total })
+      setBcText('')
+      setBcImageUrl('')
+    } catch (e) { alert('ส่งไม่สำเร็จ: ' + e.message) }
+    finally { setBcSending(false) }
+  }
+
   function openPayModal(userId) {
     setPayModal({ userId })
     setPayAcctIdx(0)
@@ -264,6 +303,45 @@ export default function LineBotPage() {
           {saved ? '✅ บันทึกแล้ว' : saving ? 'กำลังบันทึก...' : '💾 บันทึกการตั้งค่า'}
         </button>
       </>)}
+
+      {/* ── Broadcast ── */}
+      {isAdmin && (
+        <div className="bg-white rounded-2xl shadow-sm p-5 mb-4 space-y-3">
+          <h2 className="font-semibold text-slate-700">📢 ส่งโปรโมชั่นหาลูกค้าทุกคน</h2>
+
+          {/* Upload รูป */}
+          <div className="flex items-center gap-3">
+            <label className={`flex-shrink-0 cursor-pointer px-3 py-2 rounded-xl text-sm font-semibold border-2 border-dashed transition-all ${bcUploading ? 'border-slate-300 text-slate-400' : 'border-blue-300 text-blue-600 hover:bg-blue-50'}`}>
+              {bcUploading ? '⏳ อัปโหลด...' : '🖼️ เลือกรูป'}
+              <input type="file" accept="image/*" className="hidden" disabled={bcUploading}
+                onChange={e => uploadBroadcastImage(e.target.files?.[0])} />
+            </label>
+            {bcImageUrl && (
+              <div className="flex items-center gap-2">
+                <img src={bcImageUrl} className="w-12 h-12 rounded-lg object-cover border border-slate-200" alt="preview" />
+                <button onClick={() => setBcImageUrl('')} className="text-xs text-red-400 hover:text-red-600">✕ ลบ</button>
+              </div>
+            )}
+          </div>
+
+          {/* ข้อความ */}
+          <textarea
+            value={bcText} onChange={e => setBcText(e.target.value)} rows={3}
+            placeholder="พิมพ์ข้อความ (ถ้ามี)..."
+            className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:border-blue-400"
+          />
+
+          {bcResult && (
+            <p className="text-sm text-green-600 font-semibold">✅ ส่งสำเร็จ {bcResult.sent}/{bcResult.total} คน</p>
+          )}
+
+          <button onClick={sendBroadcast} disabled={bcSending || bcUploading || (!bcText.trim() && !bcImageUrl)}
+            className="w-full py-3 rounded-xl text-sm font-bold text-white disabled:opacity-40 active:scale-95 transition-all"
+            style={{ background: '#06C755' }}>
+            {bcSending ? '⏳ กำลังส่ง...' : '📢 ส่งหาทุกคน'}
+          </button>
+        </div>
+      )}
 
       {/* ประวัติสนทนา */}
       <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
