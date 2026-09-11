@@ -1325,7 +1325,7 @@ export default function POSPage() {
           </div>
 
           {/* Product grid */}
-          <div onScroll={handleGridScroll} className="flex-1 overflow-y-auto p-2 grid grid-cols-3 gap-2 content-start">
+          <div onScroll={handleGridScroll} className="flex-1 overflow-y-auto p-2 grid grid-cols-4 gap-2 content-start">
             {displayed.map(p => (
               <button key={p.id} onClick={() => addToCart(p)}
                 disabled={false}
