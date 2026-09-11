@@ -1339,7 +1339,7 @@ export default function POSPage() {
                 )}
                 {/* Image */}
                 {p.image_url && (
-                  <div className="w-full aspect-square overflow-hidden rounded-t-xl">
+                  <div className="w-full h-16 overflow-hidden rounded-t-xl">
                     <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" />
                   </div>
                 )}
