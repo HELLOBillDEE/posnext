@@ -1339,8 +1339,8 @@ export default function POSPage() {
                 )}
                 {/* Image */}
                 {p.image_url && (
-                  <div className="w-full h-16 overflow-hidden rounded-t-xl">
-                    <img src={p.image_url} alt={p.name} className="w-full h-full object-cover" />
+                  <div className="w-full h-24 overflow-hidden rounded-t-xl bg-slate-50">
+                    <img src={p.image_url} alt={p.name} className="w-full h-full object-contain p-1" />
                   </div>
                 )}
                 {/* Name */}
