@@ -15,6 +15,9 @@ const sbService = createClient(
 )
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
 
+// track users ที่ได้รับแจ้ง error แล้ว (in-memory, reset เมื่อ serverless cold start)
+const aiErrorNotified = new Set()
+
 const T_BUY      = '__buy__'
 const T_REPAIR   = '__repair__'
 const T_DELIVERY = '__delivery__'
@@ -838,7 +841,10 @@ export async function POST(req) {
         aiReply = await askClaude({ text, history, products, repairOrders, shopCfg, botCfg })
       } catch (claudeErr) {
         console.error('[LINE webhook] AI error:', claudeErr.message)
-        await lineReply(replyToken, lineToken, [{ type: 'text', text: 'ขออภัยค่ะ ระบบขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง 🙏' }])
+        if (!aiErrorNotified.has(lineUserId)) {
+          aiErrorNotified.add(lineUserId)
+          await lineReply(replyToken, lineToken, [{ type: 'text', text: 'ขออภัยค่ะ ระบบขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง 🙏' }])
+        }
         continue
       }
 
