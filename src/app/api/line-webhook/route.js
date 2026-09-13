@@ -837,8 +837,8 @@ export async function POST(req) {
       try {
         aiReply = await askClaude({ text, history, products, repairOrders, shopCfg, botCfg })
       } catch (claudeErr) {
-        const errMsg = `[DEBUG] Claude error: ${claudeErr.message}`
-        await lineReply(replyToken, lineToken, [{ type: 'text', text: errMsg }])
+        console.error('[LINE webhook] AI error:', claudeErr.message)
+        await lineReply(replyToken, lineToken, [{ type: 'text', text: 'ขออภัยค่ะ ระบบขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง 🙏' }])
         continue
       }
 
