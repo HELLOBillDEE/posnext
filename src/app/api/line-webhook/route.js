@@ -480,7 +480,8 @@ export async function POST(req) {
             await saveMsg(lineUserId, 'assistant', askReply)
           }
         } catch (e) {
-          await lineReply(replyToken, lineToken, [{ type: 'text', text: `ขออภัยครับ อ่านรูปไม่ได้: ${e.message}` }])
+          console.error('[LINE webhook] image AI error:', e.message)
+          await lineReply(replyToken, lineToken, [{ type: 'text', text: 'ขออภัยครับ ระบบไม่สามารถอ่านรูปได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง 🙏' }])
         }
         continue
       }
