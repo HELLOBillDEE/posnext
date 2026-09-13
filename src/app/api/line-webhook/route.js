@@ -13,7 +13,7 @@ const sbService = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
   { db: { schema: 'pos' } }
 )
-const genAI = new GoogleGenerativeAI(process.env.ANTHROPIC_API_KEY || process.env.GOOGLE_AI_API_KEY || '')
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
 
 const T_BUY      = '__buy__'
 const T_REPAIR   = '__repair__'
@@ -371,7 +371,7 @@ ${repairSection}
     parts: [{ text: h.content }],
   }))
 
-  const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' })
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
   const chat = model.startChat({
     history: [
       { role: 'user', parts: [{ text: system }] },
@@ -454,7 +454,7 @@ export async function POST(req) {
           const b64     = Buffer.from(imgBuf).toString('base64')
           const mimeType = imgRes.headers.get('content-type') || 'image/jpeg'
 
-          const model = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' })
+          const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
           const result = await model.generateContent([
             { inlineData: { data: b64, mimeType } },
             `ดูรูปนี้แล้วบอกว่าเป็นสินค้าอะไร ใช้ทำอะไร และถ้าเห็นชื่อยี่ห้อหรือรุ่นบอกด้วย ตอบภาษาไทยสั้นๆ`,
@@ -919,7 +919,7 @@ export async function GET() {
       hasGroupId:   !!(lineCfg?.line_group_id),
       botEnabled:   botCfg?.line_bot_enabled,
       botName:      botCfg?.line_bot_name,
-      hasGeminiKey: !!(process.env.ANTHROPIC_API_KEY || process.env.GOOGLE_AI_API_KEY),
+      hasGeminiKey: !!process.env.GEMINI_API_KEY,
       appUrl:       process.env.NEXT_PUBLIC_APP_URL,
     })
   } catch (e) {
