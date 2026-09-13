@@ -380,8 +380,20 @@ export default function LineBotPage() {
                   <span className="text-2xl">👤</span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-slate-700 truncate">{lineNames[userId] || <span className="font-mono text-xs text-slate-400">{userId}</span>}</p>
-                    <p className="text-sm text-slate-500 truncate">{msgs.filter(m => !isStateMsg(m.content))[0]?.content}</p>
+                    {(() => {
+                      const lastVisible = msgs.filter(m => !isStateMsg(m.content))[0]
+                      if (!lastVisible) return null
+                      const prefix = lastVisible.role === 'user' ? '💬 ลูกค้า: ' : '🟢 แอดมิน: '
+                      return <p className="text-sm text-slate-500 truncate"><span className={`text-xs font-semibold ${lastVisible.role === 'user' ? 'text-orange-500' : 'text-green-600'}`}>{prefix}</span>{lastVisible.content}</p>
+                    })()}
                   </div>
+                  {(() => {
+                    const lastVisible = msgs.filter(m => !isStateMsg(m.content))[0]
+                    if (!lastVisible) return null
+                    return lastVisible.role === 'user'
+                      ? <span className="text-xs font-semibold text-orange-500 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full flex-shrink-0">รอตอบ</span>
+                      : <span className="text-xs font-semibold text-green-600 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full flex-shrink-0">ตอบแล้ว</span>
+                  })()}
                   <span className="text-xs text-slate-400 flex-shrink-0">{msgs.length} ข้อความ</span>
                   <span className="text-slate-300 group-open:rotate-90 transition-transform">▶</span>
                 </summary>
