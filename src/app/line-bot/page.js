@@ -40,6 +40,10 @@ export default function LineBotPage() {
   const [replyTexts, setReplyTexts]   = useState({})   // { userId: text }
   const [replySending, setReplySending] = useState({}) // { userId: bool }
 
+  // ── AI pause state ──
+  const [aiPausedMap, setAiPausedMap] = useState({})   // { userId: bool }
+  const [aiPauseLoading, setAiPauseLoading] = useState({}) // { userId: bool }
+
   // ── Broadcast state ──
   const [bcImageUrl, setBcImageUrl]   = useState('')
   const [bcText, setBcText]           = useState('')
@@ -87,6 +91,29 @@ export default function LineBotPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userIds: uids }),
       }).then(r => r.json()).then(map => setLineNames(map)).catch(() => {})
+
+      // โหลด ai_paused status
+      supabase.from('line_user_config').select('line_user_id,ai_paused').in('line_user_id', uids)
+        .then(({ data }) => {
+          const map = {}
+          for (const r of data || []) map[r.line_user_id] = r.ai_paused
+          setAiPausedMap(map)
+        })
+    }
+  }
+
+  async function toggleAiPause(userId) {
+    const newVal = !aiPausedMap[userId]
+    setAiPauseLoading(p => ({ ...p, [userId]: true }))
+    try {
+      await fetch('/api/line-user-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ line_user_id: userId, ai_paused: newVal }),
+      })
+      setAiPausedMap(p => ({ ...p, [userId]: newVal }))
+    } finally {
+      setAiPauseLoading(p => ({ ...p, [userId]: false }))
     }
   }
 
@@ -387,7 +414,10 @@ export default function LineBotPage() {
                       return <p className="text-sm text-slate-500 truncate"><span className={`text-xs font-semibold ${lastVisible.role === 'user' ? 'text-orange-500' : 'text-green-600'}`}>{prefix}</span>{lastVisible.content}</p>
                     })()}
                   </div>
-                  {(() => {
+                  {aiPausedMap[userId] && (
+                    <span className="text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full flex-shrink-0">แอดมินดูแล</span>
+                  )}
+                  {!aiPausedMap[userId] && (() => {
                     const lastVisible = msgs.filter(m => !isStateMsg(m.content))[0]
                     if (!lastVisible) return null
                     return lastVisible.role === 'user'
@@ -408,8 +438,21 @@ export default function LineBotPage() {
                     </div>
                   ))}
 
+                  {/* AI pause toggle */}
+                  <div className="pt-2">
+                    <button
+                      onClick={() => toggleAiPause(userId)}
+                      disabled={aiPauseLoading[userId]}
+                      className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all active:scale-95 disabled:opacity-50"
+                      style={aiPausedMap[userId]
+                        ? { background: '#dbeafe', color: '#1d4ed8', border: '1px solid #93c5fd' }
+                        : { background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0' }}>
+                      {aiPauseLoading[userId] ? '...' : aiPausedMap[userId] ? '🤖 เปิด AI กลับ' : '🙋 แอดมินดูแลเอง'}
+                    </button>
+                  </div>
+
                   {/* Quick chips */}
-                  <div className="pt-2 flex flex-wrap gap-1.5">
+                  <div className="flex flex-wrap gap-1.5">
                     {[
                       { label: '👋 ทักทาย', text: 'สวัสดีครับ มีอะไรให้ช่วยได้เลยนะครับ 🙏' },
                       { label: '✅ รับออเดอร์', text: 'รับออเดอร์แล้วครับ 🎉 ทางร้านจะรีบจัดเตรียมให้นะครับ\n\nลูกค้าสามารถตรวจสอบคิวส่งได้ด้วยตัวเองโดยพิมพ์ "คิวส่ง" ได้เลยครับ' },

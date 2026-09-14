@@ -68,6 +68,10 @@ async function getQrAccounts() {
 async function saveMsg(lineUserId, role, content) {
   await sbService.from('line_conversations').insert({ line_user_id: lineUserId, role, content })
 }
+async function isAiPaused(lineUserId) {
+  const { data } = await sbService.from('line_user_config').select('ai_paused').eq('line_user_id', lineUserId).single()
+  return data?.ai_paused === true
+}
 async function getHistory(lineUserId) {
   const { data } = await sbService
     .from('line_conversations').select('role,content')
@@ -496,6 +500,12 @@ export async function POST(req) {
       if (!text) continue
 
       const lastBotMsg = await getLastBotMsg(lineUserId)
+
+      // ถ้า AI ถูกหยุดชั่วคราวสำหรับ user นี้ → บันทึก message แล้ว skip
+      if (await isAiPaused(lineUserId)) {
+        await saveMsg(lineUserId, 'user', text)
+        continue
+      }
 
       // ตรวจ silent keywords (ยกเว้นถ้าเป็น repair keyword หรืออยู่ใน AWAIT_REPAIR state)
       const silentKw = (botCfg?.line_bot_silent_keywords || '').split(',').map(k => k.trim()).filter(Boolean)
