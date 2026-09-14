@@ -1,5 +1,4 @@
-export default async function manifest() {
-  // ดึงโลโก้และชื่อร้านจาก Supabase
+export async function GET() {
   let shopLogo = null
   try {
     const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/settings?key=eq.shop_logo&select=value`
@@ -15,7 +14,7 @@ export default async function manifest() {
     shopLogo = data?.[0]?.value || null
   } catch {}
 
-  return {
+  return Response.json({
     name: 'ช่างเชิด',
     short_name: 'ช่างเชิด',
     description: 'ระบบ POS ร้านช่างเชิด',
@@ -29,5 +28,5 @@ export default async function manifest() {
       { src: '/cherd-icon.png', sizes: '512x512',   type: 'image/png' },
       { src: '/cherd-icon.png', sizes: '192x192',   type: 'image/png' },
     ],
-  }
+  }, { headers: { 'Content-Type': 'application/manifest+json' } })
 }

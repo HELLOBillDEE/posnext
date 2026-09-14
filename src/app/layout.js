@@ -34,7 +34,6 @@ export async function generateMetadata() {
   return {
     title: 'ช่างเชิด',
     description: 'ระบบ POS ร้านช่างเชิด',
-    manifest: '/manifest.webmanifest',
     appleWebApp: {
       capable: true,
       title: 'ช่างเชิด',
