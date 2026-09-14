@@ -1,6 +1,5 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { convertThaiBarcode } from '@/lib/utils'
 import { buildLabelTSPL, printViaBridge } from '@/lib/printBridge'
@@ -1567,13 +1566,9 @@ export default function EmpPortalPage() {
   const [activeTab, setActiveTab] = useState('products')
   const [printerCfg, setPrinterCfg] = useState(null)
 
-  const router = useRouter()
-
   // Restore session from sessionStorage
-  // ถ้าเป็น admin (มี Supabase session) → ไป /pos แทน
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (data?.session?.user) { router.replace('/pos'); return }
+    supabase.auth.getSession().then(() => {
       try {
         const saved = sessionStorage.getItem('emp_portal_session')
         if (saved) { setSession(JSON.parse(saved)); setPhase('portal') }
