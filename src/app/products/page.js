@@ -82,6 +82,10 @@ export default function ProductsPage() {
   const imgInputRef = useRef(null)
   const [imgPopover, setImgPopover] = useState(null) // { id, name, image_url, x, y }
   const [imgPopoverUrl, setImgPopoverUrl] = useState('')
+  const [barcodeConflict, setBarcodeConflict] = useState(null) // existing product with same barcode
+  const [nameConflicts, setNameConflicts] = useState([]) // products with similar name
+  const barcodeTimer = useRef(null)
+  const nameTimer = useRef(null)
 
   async function compressAndUpload(file) {
     return new Promise((resolve, reject) => {
@@ -194,18 +198,42 @@ export default function ProductsPage() {
     return () => obs.disconnect()
   }, [visibleCount, filtered.length])
 
+  async function checkBarcodeConflict(code) {
+    if (!code) return setBarcodeConflict(null)
+    const { data } = await supabase.from('products').select('id,name').eq('barcode', code).maybeSingle()
+    setBarcodeConflict(data || null)
+  }
+
+  async function checkNameConflict(name) {
+    if (!name || name.length < 2) return setNameConflicts([])
+    const { data } = await supabase.from('products').select('id,name,barcode').ilike('name', name.trim())
+    setNameConflicts(data?.length ? data : [])
+  }
+
   async function openAdd() {
     const barcode = await genUniqueCKBarcode(supabase)
     setForm({ ...EMPTY_PROD, barcode })
+    setBarcodeConflict(null)
+    setNameConflicts([])
     setModal('add')
   }
   function openEdit(p) {
     setForm({ barcode: p.barcode||'', name: p.name, category_id: String(p.category_id||''), unit: p.unit||'ชิ้น', cost: String(p.cost||''), price: String(p.price||''), stock: String(p.stock||''), min_stock: String(p.min_stock||5), search_tags: p.search_tags||'', active: p.active, is_listed_online: p.is_listed_online||false, online_price: p.online_price != null ? String(p.online_price) : '', image_url: p.image_url||'' })
+    setBarcodeConflict(null)
+    setNameConflicts([])
     setModal({ type:'edit', id: p.id })
   }
 
-  async function saveProduct() {
+  async function saveProduct(andAdd = false) {
     if (!form.name || !form.price) return alert('กรุณากรอกชื่อสินค้าและราคา')
+    // duplicate checks (add mode only)
+    if (modal === 'add') {
+      if (barcodeConflict) return alert(`บาร์โค้ดนี้มีอยู่แล้ว:\n"${barcodeConflict.name}"\n\nกรุณาใช้บาร์โค้ดอื่น หรือแก้ไขสินค้าที่มีอยู่`)
+      if (nameConflicts.length > 0) {
+        const list = nameConflicts.map(p => `• ${p.name}${p.barcode ? ` (${p.barcode})` : ''}`).join('\n')
+        if (!confirm(`พบสินค้าชื่อเดียวกันในระบบ:\n${list}\n\nต้องการเพิ่มสินค้าใหม่อีกรายการหรือไม่?`)) return
+      }
+    }
     setSaving(true)
     const payload = {
       barcode: form.barcode || null,
@@ -230,9 +258,18 @@ export default function ProductsPage() {
         const { error } = await supabase.from('products').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', modal.id)
         if (error) throw error
       }
-      setModal(null)
       load()
       invalidatePosCache()
+      if (andAdd) {
+        // open fresh add form, keep category + unit for quick sequential entry
+        const barcode = await genUniqueCKBarcode(supabase)
+        setForm({ ...EMPTY_PROD, barcode, category_id: form.category_id, unit: form.unit })
+        setBarcodeConflict(null)
+        setNameConflicts([])
+        setModal('add')
+      } else {
+        setModal(null)
+      }
     } catch (e) { alert('ข้อผิดพลาด: ' + e.message) } finally { setSaving(false) }
   }
 
@@ -902,17 +939,46 @@ export default function ProductsPage() {
               <div>
                 <label className="text-xs font-semibold text-slate-500 block mb-1.5">บาร์โค้ด (Code128)</label>
                 <div className="flex gap-2">
-                  <input value={form.barcode} onChange={e => setForm(p=>({...p,barcode:e.target.value}))}
+                  <input value={form.barcode} onChange={e => {
+                    const v = e.target.value
+                    setForm(p=>({...p,barcode:v}))
+                    if (modal === 'add') {
+                      clearTimeout(barcodeTimer.current)
+                      barcodeTimer.current = setTimeout(() => checkBarcodeConflict(v), 400)
+                    }
+                  }}
                     placeholder="เว้นว่างถ้าไม่มีบาร์โค้ด"
-                    className="field flex-1 font-mono text-sm" />
+                    className={`field flex-1 font-mono text-sm ${barcodeConflict ? 'border-red-400 bg-red-50' : ''}`} />
                   <button type="button"
-                    onClick={async () => { const b = await genUniqueCKBarcode(supabase); setForm(p=>({...p,barcode:b})) }}
+                    onClick={async () => { const b = await genUniqueCKBarcode(supabase); setForm(p=>({...p,barcode:b})); setBarcodeConflict(null) }}
                     className="shrink-0 px-3 py-2 bg-brand/10 text-brand text-xs font-bold rounded-xl border border-brand/20 hover:bg-brand/20 transition-colors whitespace-nowrap">
                     🎲 สุ่ม CK
                   </button>
                 </div>
+                {barcodeConflict && (
+                  <p className="text-xs text-red-500 mt-1">⚠️ บาร์โค้ดนี้มีอยู่แล้ว: &ldquo;{barcodeConflict.name}&rdquo;</p>
+                )}
               </div>
-              <Field label="ชื่อสินค้า *" value={form.name} onChange={v => setForm(p=>({...p,name:v}))} placeholder="ชื่อสินค้า" />
+              <div>
+                <label className="text-xs font-semibold text-slate-500 block mb-1.5">ชื่อสินค้า *</label>
+                <input value={form.name} onChange={e => {
+                  const v = e.target.value
+                  setForm(p=>({...p,name:v}))
+                  if (modal === 'add') {
+                    clearTimeout(nameTimer.current)
+                    nameTimer.current = setTimeout(() => checkNameConflict(v), 500)
+                  }
+                }} placeholder="ชื่อสินค้า" className={`field w-full ${nameConflicts.length > 0 ? 'border-amber-400' : ''}`} />
+                {nameConflicts.length > 0 && (
+                  <div className="mt-1 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2 text-xs text-amber-700">
+                    <p className="font-semibold mb-1">⚠️ พบสินค้าชื่อเดียวกัน:</p>
+                    {nameConflicts.map(p => (
+                      <p key={p.id} className="leading-relaxed">• {p.name} {p.barcode ? <span className="font-mono text-amber-500">({p.barcode})</span> : ''}</p>
+                    ))}
+                    <p className="text-amber-500 mt-1">กดบันทึกได้ถ้าต้องการเพิ่มรายการใหม่จริงๆ</p>
+                  </div>
+                )}
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-semibold text-slate-500 block mb-1.5">หมวดหมู่</label>
@@ -988,9 +1054,15 @@ export default function ProductsPage() {
                   </div>
                 </div>
               </div>
-              <div className="flex gap-2 pt-1">
-                <button onClick={() => setModal(null)} className="flex-1 btn-secondary">ยกเลิก</button>
-                <button onClick={saveProduct} disabled={saving} className="flex-1 btn-primary">
+              <div className="flex gap-2 pt-1 flex-wrap">
+                <button onClick={() => setModal(null)} className="btn-secondary px-4 py-3 text-sm">ยกเลิก</button>
+                {modal === 'add' && (
+                  <button onClick={() => saveProduct(true)} disabled={saving || !!barcodeConflict}
+                    className="flex-1 bg-emerald-600 text-white py-3 rounded-xl text-sm font-bold disabled:opacity-50 active:scale-95 transition-transform shadow whitespace-nowrap">
+                    {saving ? '...' : '➕ บันทึก+เพิ่มต่อ'}
+                  </button>
+                )}
+                <button onClick={() => saveProduct(false)} disabled={saving || !!barcodeConflict} className="flex-1 btn-primary py-3 text-sm">
                   {saving ? 'กำลังบันทึก...' : '💾 บันทึก'}
                 </button>
               </div>
