@@ -405,6 +405,7 @@ export default function RepairPage() {
   const [saving, setSaving]           = useState(false)
 
   // quote modal state
+  const [saleItemsMap, setSaleItemsMap]   = useState({})  // { saleId: items[] }
   const [quoteJob, setQuoteJob]           = useState(null)
   const [quoteItems, setQuoteItems]       = useState([])
   const [quoteSaving, setQuoteSaving]     = useState(false)
@@ -541,6 +542,12 @@ export default function RepairPage() {
   }
 
   // ── Open quote modal ──
+  async function loadSaleItems(saleId) {
+    if (saleItemsMap[saleId]) return
+    const { data } = await supabase.from('sale_items').select('product_name,qty,price,subtotal').eq('sale_id', saleId)
+    setSaleItemsMap(prev => ({ ...prev, [saleId]: data || [] }))
+  }
+
   function openQuote(job) {
     setQuoteJob(job)
     setQuoteItems([{
@@ -598,7 +605,7 @@ export default function RepairPage() {
           customer_id: customerId, customer_name: quoteJob.customer_name,
           customer_phone: quoteJob.phone || null,
           items, subtotal, discount: deposit, vat: 0, total,
-          note: `[ซ่อม:${quoteJob.repair_no}]`,
+          note: `[ซ่อม:${quoteJob.repair_no}]${quoteJob.customer_name ? ' ' + quoteJob.customer_name : ''}`,
           status: 'pending', repair_order_id: quoteJob.id,
         })
         if (error) throw error
@@ -896,10 +903,12 @@ export default function RepairPage() {
                           {st.emoji} {st.label}
                         </span>
                         {billed && (
-                          <span className="text-xs px-2 py-0.5 rounded-full font-semibold"
+                          <button
+                            onClick={e => { e.stopPropagation(); loadSaleItems(job.sale_id) }}
+                            className="text-xs px-2 py-0.5 rounded-full font-semibold transition-all"
                             style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', color: '#10b981' }}>
                             🧾 ออกบิลแล้ว
-                          </span>
+                          </button>
                         )}
                       </div>
                       <p className="font-bold text-white mt-1">{job.customer_name}</p>
@@ -925,6 +934,19 @@ export default function RepairPage() {
                   </div>
                   {job.description && (
                     <p className="text-white/50 text-xs mb-3 line-clamp-2">{job.description}</p>
+                  )}
+
+                  {/* รายการบิลที่ออกไปแล้ว */}
+                  {billed && saleItemsMap[job.sale_id] && (
+                    <div className="mb-3 rounded-xl overflow-hidden" style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)' }}>
+                      <p className="text-xs font-semibold px-3 py-2" style={{ color: '#10b981' }}>🧾 รายการในบิล</p>
+                      {saleItemsMap[job.sale_id].map((it, i) => (
+                        <div key={i} className="flex justify-between px-3 py-1.5 border-t border-white/5">
+                          <p className="text-xs text-white/70 flex-1 mr-2">{it.product_name}{it.qty > 1 ? ` ×${it.qty}` : ''}</p>
+                          <p className="text-xs text-white/70 flex-shrink-0">฿{fmt(it.subtotal ?? it.price * it.qty)}</p>
+                        </div>
+                      ))}
+                    </div>
                   )}
 
                   <div className="flex items-center justify-between gap-2">

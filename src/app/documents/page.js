@@ -214,7 +214,7 @@ export default function DocumentsPage() {
     if (!win) alert('กรุณาอนุญาต Popup ใน Safari Settings')
   }
 
-  const filteredSales = sales.filter(s => !search || s.receipt_no.includes(search) || s.customers?.name?.includes(search))
+  const filteredSales = sales.filter(s => !search || s.receipt_no.includes(search) || s.customers?.name?.includes(search) || (s.note || '').includes(search))
   const filteredPOs   = pos.filter(p => !search || p.po_no.includes(search) || p.suppliers?.name?.includes(search))
 
   return (
