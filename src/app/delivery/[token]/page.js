@@ -295,7 +295,7 @@ export default function DeliveryPage({ params }) {
               style={{background: tracking ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.2)', color: tracking ? '#C72C41' : 'white'}}>
               {tracking
                 ? <><span className="w-2 h-2 bg-red-500 rounded-full animate-pulse inline-block" /> หยุดติดตาม</>
-                : <>📡 เริ่มติดตาม</>
+                : <>🚚 เริ่มส่งของ</>
               }
             </button>
             {tracking && (
