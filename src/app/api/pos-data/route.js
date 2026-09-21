@@ -48,7 +48,8 @@ async function getSettings() {
   if (cached) return cached
   const { data } = await supabase.from('settings').select('key,value')
   const result = data ? Object.fromEntries(data.map(r => [r.key, r.value])) : {}
-  setCached('srv:settings', result, TTL_CFG)
+  // ไม่ cache ถ้าดึงข้อมูลไม่ได้ (Supabase ไม่ตอบ) เพื่อไม่ให้ shop_name หาย
+  if (data) setCached('srv:settings', result, TTL_CFG)
   return result
 }
 
