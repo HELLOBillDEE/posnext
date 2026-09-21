@@ -44,7 +44,7 @@ export async function POST(req) {
     if (existing?.delivery_token) return Response.json({ token: existing.delivery_token })
 
     const token = randomBytes(16).toString('hex')
-    await supabase.from('quotations').update({ delivery_token: token, status: 'dispatching' }).eq('id', id)
+    await supabase.from('quotations').update({ delivery_token: token }).eq('id', id)
 
     // หา LINE user จาก line_conversations ที่เก็บ state ออเดอร์ไว้
     const docNo = existing?.doc_no
@@ -81,16 +81,20 @@ export async function POST(req) {
   }
 }
 
-// PUT — แก้ไขพิกัด
+// PUT — แก้ไขพิกัด หรืออัพเดต status
 export async function PUT(req) {
   try {
-    const { token, lat, lng } = await req.json()
+    const { token, lat, lng, status } = await req.json()
     if (!token) return Response.json({ error: 'ไม่ระบุ token' }, { status: 400 })
-    if (!lat || !lng) return Response.json({ error: 'ไม่ระบุพิกัด' }, { status: 400 })
+
+    const updatePayload = {}
+    if (lat && lng) { updatePayload.customer_lat = lat; updatePayload.customer_lng = lng }
+    if (status)     updatePayload.status = status
+    if (!Object.keys(updatePayload).length) return Response.json({ error: 'ไม่มีข้อมูลที่จะอัพเดต' }, { status: 400 })
 
     const { error } = await supabase
       .from('quotations')
-      .update({ customer_lat: lat, customer_lng: lng })
+      .update(updatePayload)
       .eq('delivery_token', token)
       .eq('doc_type', 'delivery_invoice')
 

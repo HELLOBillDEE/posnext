@@ -98,9 +98,15 @@ export default function DeliveryPage({ params }) {
     )
   }
 
-  function startTracking() {
+  async function startTracking() {
     if (!navigator.geolocation) { setTrackErr('เบราว์เซอร์ไม่รองรับ GPS'); return }
     setTrackErr('')
+    // อัพเดต status → dispatching เมื่อพนักงานกดเริ่มส่งของจริงๆ
+    await fetch('/api/delivery', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, status: 'dispatching' }),
+    }).catch(() => {})
     // เปิด Realtime channel
     const ch = sb.channel(`delivery-location-${token}`)
     ch.subscribe()
