@@ -84,7 +84,7 @@ async function printRepairReceipt(job, settings, receiptCfg, barcodeCfg) {
   if (bcfg.ip) {
     try {
       const bytes = await buildQueueSticker(job.repair_no, bcfg)
-      await printViaBridge(bcfg.bridge_url || '', bcfg.ip, bcfg.port || 9100, bytes)
+      await printViaBridge(window.location.origin, bcfg.ip, bcfg.port || 9100, bytes)
     } catch (e) { console.error('sticker print error', e) }
   }
 }
@@ -537,7 +537,7 @@ export default function RepairPage() {
     if (!bcfg.ip) { alert('ยังไม่ได้ตั้งค่า IP เครื่องพิมพ์สติ๊กเกอร์\nไปที่ Admin → เครื่องพิมพ์ → Barcode Printer'); return }
     try {
       const bytes = await buildQueueSticker(job.repair_no, bcfg)
-      await printViaBridge(bcfg.bridge_url || '', bcfg.ip, bcfg.port || 9100, bytes)
+      await printViaBridge(window.location.origin, bcfg.ip, bcfg.port || 9100, bytes)
     } catch (e) { alert('พิมพ์ไม่ได้: ' + e.message) }
   }
 
