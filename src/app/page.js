@@ -51,7 +51,7 @@ export default function Dashboard() {
       // paginate sales (Supabase cap = 1000/page)
       let allSales = [], sfrom = 0
       while (true) {
-        const { data } = await supabase.from('sales').select('total')
+        const { data } = await supabase.from('sales').select('total,payment_method,note')
           .gte('created_at', from).lte('created_at', to).eq('status', 'completed')
           .range(sfrom, sfrom + 999)
         if (!data || data.length === 0) break
@@ -71,7 +71,15 @@ export default function Dashboard() {
         supabase.from('sales').select('id,receipt_no,total,payment_method,created_at,status').gte('created_at', from).lte('created_at', to).order('created_at',{ascending:false}).limit(8),
         supabase.from('expenses').select('amount').gte('expense_date', dateRange.from).lte('expense_date', dateRange.to),
       ])
-      const revenue = allSales.reduce((s, r) => s + Number(r.total), 0)
+
+      function parseCreditFromNote(note) {
+        const m = (note || '').match(/เชื่อ ฿([\d,]+)/)
+        return m ? parseFloat(m[1].replace(/,/g, '')) : 0
+      }
+      const revenue = allSales.reduce((s, r) => {
+        const credit = r.payment_method === 'mixed' ? parseCreditFromNote(r.note) : 0
+        return s + Number(r.total) - credit
+      }, 0)
       const orders  = allSales.length
       setStats({ revenue, orders, avg: orders ? revenue / orders : 0 })
       setRecentSales(recent || [])
