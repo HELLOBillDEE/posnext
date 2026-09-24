@@ -22,15 +22,16 @@ const TTL_CFG    = 30 * 60 * 1000 // 30 นาที
 async function getProducts() {
   const cached = getCached('srv:products')
   if (cached) return cached
-  let all = [], page = 0
+  let all = [], page = 0, gotData = false
   while (true) {
     const { data } = await supabase.from('products').select('*, categories(name)').order('name').range(page * 1000, page * 1000 + 999)
     if (!data?.length) break
+    gotData = true
     all = all.concat(data)
     if (data.length < 1000) break
     page++
   }
-  setCached('srv:products', all, TTL_STATIC)
+  if (gotData) setCached('srv:products', all, TTL_STATIC)
   return all
 }
 
@@ -39,7 +40,7 @@ async function getCategories() {
   if (cached) return cached
   const { data } = await supabase.from('categories').select('*').order('name')
   const result = data || []
-  setCached('srv:categories', result, TTL_STATIC)
+  if (data) setCached('srv:categories', result, TTL_STATIC)
   return result
 }
 
